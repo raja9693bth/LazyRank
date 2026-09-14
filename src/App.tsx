@@ -6,10 +6,14 @@ import { ActionPanel } from './components/ActionPanel.tsx';
 import { Leaderboard } from './components/Leaderboard.tsx';
 import { ActivityFeed } from './components/ActivityFeed.tsx';
 import { HowItWorks } from './components/HowItWorks.tsx';
+import { GlobalActivityHeatmap } from './components/GlobalActivityHeatmap.tsx';
+import { LazyDilemmaWidget } from './components/LazyDilemmaWidget.tsx';
 import { ResultView } from './components/ResultView.tsx';
+import { MobileBottomNav, MobileNavSection } from './components/MobileBottomNav.tsx';
 import { NominationModal } from './components/NominationModal.tsx';
 import { PaymentModal } from './components/PaymentModal.tsx';
 import { AboutModal, RulesModal, ReportModal, AdminModal, LiveStatsModal } from './components/InfoModals.tsx';
+import { UserSettingsModal } from './components/UserSettingsModal.tsx';
 import { Footer } from './components/Footer.tsx';
 import { TermsPage } from './pages/TermsPage.tsx';
 import { PrivacyPage } from './pages/PrivacyPage.tsx';
@@ -17,7 +21,7 @@ import { RefundPage } from './pages/RefundPage.tsx';
 import { ContactPage } from './pages/ContactPage.tsx';
 import { AboutPage } from './pages/AboutPage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
-import { updatePageSeo } from './utils/seo.ts';
+import { updatePageSeo, updateProfileSeo } from './utils/seo.ts';
 import { Swords } from 'lucide-react';
 
 export default function App() {
@@ -52,6 +56,8 @@ export default function App() {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [isJustClaimed, setIsJustClaimed] = useState(false);
+  const [globalActivityRefreshKey, setGlobalActivityRefreshKey] = useState<number>(0);
 
   // Challenge Banner state
   const [incomingChallenge, setIncomingChallenge] = useState<{
@@ -62,6 +68,9 @@ export default function App() {
   // Navigation & Modals
   const [isChallengeModalOpen, setIsChallengeModalOpen] = useState(false);
   const [challengeTargetRank, setChallengeTargetRank] = useState<number | undefined>(undefined);
+  const [nominationModalTab, setNominationModalTab] = useState<'challenge' | 'notify' | 'reason'>('challenge');
+  const [nominationDefaultName, setNominationDefaultName] = useState<string>('');
+  const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isRulesOpen, setIsRulesOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -172,9 +181,12 @@ export default function App() {
       body: JSON.stringify({ event: 'homepageViews' })
     }).catch(() => {});
 
-    // Check query params (?rank=id or ?challenge=name)
+    // Check query params (?rank=id or ?challenge=name) and pathname (/profile/:id)
     const params = new URLSearchParams(window.location.search);
-    const rankId = params.get('rank') || params.get('profile');
+    let rankId = params.get('rank') || params.get('profile');
+    if (!rankId && window.location.pathname.startsWith('/profile/')) {
+      rankId = window.location.pathname.replace('/profile/', '').trim();
+    }
     if (rankId) {
       fetch(`/api/profile/${rankId}`)
         .then(res => res.json())
@@ -206,11 +218,24 @@ export default function App() {
     const handlePopState = () => {
       const path = window.location.pathname.replace(/\/+$/, '') || '/';
       setCurrentPath(path);
-      updatePageSeo(path);
       const params = new URLSearchParams(window.location.search);
-      const rankParam = params.get('rank') || params.get('profile');
+      let rankParam = params.get('rank') || params.get('profile');
+      if (!rankParam && path.startsWith('/profile/')) {
+        rankParam = path.replace('/profile/', '').trim();
+      }
+
       if (!rankParam) {
         setSelectedProfile(null);
+        updatePageSeo(path);
+      } else {
+        fetch(`/api/profile/${rankParam}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.profile) {
+              setSelectedProfile(data.profile);
+            }
+          })
+          .catch(() => {});
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -221,12 +246,22 @@ export default function App() {
     };
   }, []);
 
+  // Synchronize document title, meta tags, and ProfilePage JSON-LD when profile is viewed/closed
+  useEffect(() => {
+    if (selectedProfile) {
+      updateProfileSeo(selectedProfile);
+    } else {
+      updatePageSeo(currentPath);
+    }
+  }, [selectedProfile, currentPath]);
+
   const navigate = (path: string) => {
     const cleanPath = path.replace(/\/+$/, '') || '/';
     window.history.pushState({}, '', cleanPath);
     setCurrentPath(cleanPath);
     updatePageSeo(cleanPath);
     setSelectedProfile(null);
+    setIsJustClaimed(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -312,6 +347,7 @@ export default function App() {
   const handlePaymentSuccess = (profile: UserProfile, previousTop?: UserProfile, ownerToken?: string) => {
     setIsPaymentModalOpen(false);
     setOrderData(null);
+    setIsJustClaimed(true);
     setSelectedProfile(profile);
 
     if (ownerToken && profile.id) {
@@ -328,6 +364,7 @@ export default function App() {
     loadLeaderboard(currentPeriod, 0, 20, filterMode, false);
     loadAllTimeTop3();
     loadActivities();
+    setGlobalActivityRefreshKey(k => k + 1);
   };
 
   // Upgrading existing rank
@@ -366,6 +403,43 @@ export default function App() {
     }
   };
 
+  const handleMobileNavSelect = (section: MobileNavSection) => {
+    // If viewing a result card or a subpage (e.g. legal pages), return to home first
+    if (selectedProfile) {
+      setSelectedProfile(null);
+      setIsJustClaimed(false);
+    }
+    if (currentPath !== '/') {
+      navigate('/');
+    }
+
+    // Smoothly scroll to the target section
+    setTimeout(() => {
+      let targetId = 'leaderboard-section';
+      if (section === 'claim') targetId = 'action-panel-section';
+      if (section === 'activity') targetId = 'activity-section';
+
+      const el = document.getElementById(targetId);
+      if (el) {
+        const headerOffset = 64;
+        const elementPosition = el.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
+        });
+
+        if (section === 'claim') {
+          const nameInput = document.getElementById('claim-name-input') || el.querySelector('input');
+          if (nameInput) {
+            (nameInput as HTMLInputElement).focus({ preventScroll: true });
+          }
+        }
+      }
+    }, 60);
+  };
+
   const verifiedTop1 = profiles.find(p => p.rank === 1 && p.isVerified);
   const topProfile = verifiedTop1 || (topAmount > 0 ? { name: 'Current #1', amount: topAmount } : undefined);
 
@@ -385,9 +459,10 @@ export default function App() {
         onLogoClick={() => navigate('/')}
         liveStats={liveStats}
         onOpenLiveStats={() => setIsLiveStatsOpen(true)}
+        onOpenSettings={() => setIsUserSettingsOpen(true)}
       />
 
-      <main className="flex-1 w-full max-w-[1140px] mx-auto px-4 sm:px-6 lg:px-8 py-2">
+      <main className="flex-1 w-full max-w-[1140px] mx-auto px-4 sm:px-6 lg:px-8 py-2 pb-20 sm:pb-8">
         {currentPath === '/terms' ? (
           <TermsPage onNavigate={navigate} />
         ) : currentPath === '/privacy' ? (
@@ -427,15 +502,27 @@ export default function App() {
               /* RESULT / SHARE VIEW */
               <ResultView
                 profile={selectedProfile}
+                isNewClaim={isJustClaimed}
+                topProfile={topProfile}
+                topAmount={topProfile ? topProfile.amount : topAmount}
+                nextRankProfile={profiles.find(p => p.rank === selectedProfile.rank - 1)}
+                minAmountToBeatTop={minAmountToBeatTop}
                 onBackToLeaderboard={() => {
                   setSelectedProfile(null);
+                  setIsJustClaimed(false);
                   navigate('/');
                 }}
-                onOpenChallenge={(targetRank) => {
+                onOpenChallenge={(targetRank, initialTab = 'challenge', defaultName) => {
                   setChallengeTargetRank(targetRank);
+                  setNominationModalTab(initialTab);
+                  setNominationDefaultName(defaultName || selectedProfile?.name || '');
                   setIsChallengeModalOpen(true);
                 }}
                 onUpgradeRank={handleUpgradeRank}
+                onProfileUpdated={(updatedProfile) => {
+                  setSelectedProfile(updatedProfile);
+                  loadLeaderboard(currentPeriod);
+                }}
               />
             ) : (
               /* HOMEPAGE VIEW (Hero -> Claim Action Panel -> Leaderboard -> Live Feed) */
@@ -457,6 +544,7 @@ export default function App() {
                   currentPeriod={currentPeriod}
                   onSelectPeriod={handlePeriodChange}
                   onSelectProfile={(p) => {
+                    setIsJustClaimed(false);
                     setSelectedProfile(p);
                     window.history.pushState({}, '', `/?rank=${p.id}`);
                   }}
@@ -483,7 +571,28 @@ export default function App() {
                   }
                 />
 
-                <ActivityFeed activities={activities} />
+                {/* Small Interactive Poll Widget: Weekly Lazy Dilemma with real-time percentage results */}
+                <LazyDilemmaWidget />
+
+                {/* Small, non-intrusive Global Activity heat map & claims today counter (Social Proof) */}
+                <GlobalActivityHeatmap
+                  refreshTrigger={globalActivityRefreshKey}
+                  onClaimClick={() => {
+                    handleHeroClaim(minAmountToBeatTop);
+                    const el = document.getElementById('hero-claim-amount-input') || document.getElementById('action-panel-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                />
+
+                <ActivityFeed
+                  activities={activities}
+                  onOpenChallenge={() => {
+                    setChallengeTargetRank(undefined);
+                    setNominationModalTab('challenge');
+                    setNominationDefaultName('');
+                    setIsChallengeModalOpen(true);
+                  }}
+                />
 
                 <HowItWorks />
               </>
@@ -495,6 +604,34 @@ export default function App() {
       <Footer
         onNavigate={navigate}
         onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenSettings={() => setIsUserSettingsOpen(true)}
+      />
+
+      {/* Sticky Bottom Navigation for Mobile (Quick Access to Leaderboard, Claim, Activity) */}
+      <MobileBottomNav onSelectSection={handleMobileNavSelect} />
+
+      {/* User Settings Modal */}
+      <UserSettingsModal
+        isOpen={isUserSettingsOpen}
+        onClose={() => setIsUserSettingsOpen(false)}
+        currentProfile={selectedProfile || undefined}
+        allProfiles={profiles}
+        onProfileUpdated={(updatedProfile) => {
+          if (selectedProfile && selectedProfile.id === updatedProfile.id) {
+            setSelectedProfile(updatedProfile);
+          }
+          loadLeaderboard(currentPeriod);
+          loadAllTimeTop3();
+          loadActivities();
+        }}
+        onNavigateToClaim={() => {
+          setSelectedProfile(null);
+          navigate('/');
+          setTimeout(() => {
+            const el = document.getElementById('action-panel-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+        }}
       />
 
       {/* Payment / Verification Modal */}
@@ -505,12 +642,19 @@ export default function App() {
         onPaymentSuccess={handlePaymentSuccess}
       />
 
-      {/* Challenge Modal */}
+      {/* Challenge / Notify Me / Lazy Reason Modal */}
       <NominationModal
         isOpen={isChallengeModalOpen}
         onClose={() => setIsChallengeModalOpen(false)}
         targetRank={challengeTargetRank}
         minAmountToBeatTop={minAmountToBeatTop}
+        initialTab={nominationModalTab}
+        defaultName={nominationDefaultName || selectedProfile?.name || ''}
+        currentProfile={selectedProfile || undefined}
+        onProfileUpdated={(updatedProfile) => {
+          setSelectedProfile(updatedProfile);
+          loadLeaderboard(currentPeriod);
+        }}
       />
 
       {/* About Modal */}

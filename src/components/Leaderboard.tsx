@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserProfile, RankPeriod } from '../types.ts';
+import { TodayResetCountdown } from './TodayResetCountdown.tsx';
 import { 
   Trophy, 
   ExternalLink, 
@@ -96,10 +97,10 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
       <div className="mb-5 sm:mb-6">
         <div className="flex items-center justify-between pb-2.5">
           <div>
-            <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
+            <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
               <Trophy className="w-4 h-4 text-[#b44b1c] shrink-0" />
               <span>World's Top 3 (All-Time)</span>
-            </h3>
+            </h2>
             <p className="text-[11px] text-stone-500 mt-0.5">
               The highest verified payments in LAZY history.
             </p>
@@ -145,7 +146,8 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                       <button
                         type="button"
                         onClick={() => onClaimSpecificRank(1)}
-                        className="py-1.5 px-3 rounded-xl bg-white hover:bg-stone-50 text-stone-700 text-xs font-extrabold border border-[#ede5db] transition-all cursor-pointer shadow-2xs active:scale-95 whitespace-nowrap"
+                        aria-label={`Claim open spot rank #${rankNum} for ₹1`}
+                        className="py-1.5 px-3 rounded-xl bg-white hover:bg-stone-50 text-stone-700 text-xs font-extrabold border border-[#ede5db] transition-all cursor-pointer shadow-2xs active:scale-95 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1"
                       >
                         Claim Spot →
                       </button>
@@ -158,8 +160,17 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
             return (
               <div
                 key={prof.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`View verified profile for ${prof.name}, rank ${rankNum}, ₹${prof.amount.toLocaleString('en-IN')}`}
                 onClick={() => onSelectProfile(prof)}
-                className={`group rounded-2xl p-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all cursor-pointer border ${
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onSelectProfile(prof);
+                  }
+                }}
+                className={`group rounded-2xl p-3 sm:px-4 sm:py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 transition-all cursor-pointer border outline-hidden focus-visible:ring-2 focus-visible:ring-[#9c3a16] focus-visible:ring-offset-2 ${
                   isFirst
                     ? 'bg-[#fff8f2] border-[#f3ded0] hover:border-[#ebbfa7] shadow-[0_1px_3px_rgba(0,0,0,0.03)]'
                     : isSecond
@@ -199,6 +210,15 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                           {prof.badge}
                         </span>
                       )}
+                      {prof.lazyStreakDays && prof.lazyStreakDays > 0 && (
+                        <span
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-orange-50 text-orange-800 border border-orange-200"
+                          title={`${prof.lazyStreakDays} consecutive days maintained in Top 10`}
+                        >
+                          <Flame className="w-2.5 h-2.5 text-orange-600 fill-orange-500" />
+                          <span>{prof.lazyStreakDays}d streak</span>
+                        </span>
+                      )}
                     </div>
 
                     {/* Statement / Confession */}
@@ -215,8 +235,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                           href={`https://instagram.com/${prof.instagram.replace(/^@/, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-stone-500 hover:text-pink-600 transition-colors"
+                          className="inline-flex items-center gap-1 text-stone-500 hover:text-pink-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded-sm"
                           title={`@${prof.instagram.replace(/^@/, '')}`}
+                          aria-label={`${prof.name}'s Instagram profile`}
                         >
                           <Instagram className="w-3 h-3 text-stone-400 hover:text-pink-500 shrink-0" />
                           <span className="truncate max-w-[90px]">@{prof.instagram.replace(/^@/, '')}</span>
@@ -227,8 +248,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                           href={prof.linkedin.startsWith('http') ? prof.linkedin : `https://${prof.linkedin}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-stone-500 hover:text-blue-600 transition-colors"
+                          className="inline-flex items-center gap-1 text-stone-500 hover:text-blue-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded-sm"
                           title={prof.linkedin}
+                          aria-label={`${prof.name}'s LinkedIn profile`}
                         >
                           <Linkedin className="w-3 h-3 text-stone-400 hover:text-blue-500 shrink-0" />
                           <span>LinkedIn</span>
@@ -239,8 +261,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                           href={prof.website.startsWith('http') ? prof.website : `https://${prof.website}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-stone-500 hover:text-sky-600 transition-colors"
+                          className="inline-flex items-center gap-1 text-stone-500 hover:text-sky-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded-sm"
                           title={prof.website}
+                          aria-label={`${prof.name}'s personal website`}
                         >
                           <Globe className="w-3 h-3 text-stone-400 hover:text-sky-500 shrink-0" />
                           <span>Website</span>
@@ -268,12 +291,13 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                         e.stopPropagation();
                         onClaimSpecificRank(prof.amount + 1);
                       }}
-                      className={`inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer active:scale-95 shadow-2xs whitespace-nowrap ${
+                      className={`inline-flex items-center px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer active:scale-95 shadow-2xs whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                         isFirst
                           ? 'bg-[#fae7dc] hover:bg-[#f5dacb] text-[#913813] border border-[#f2cfbe]'
                           : 'bg-white hover:bg-stone-50 text-stone-700 border border-[#e5ded4]'
                       }`}
                       title={`Beat ₹${prof.amount.toLocaleString('en-IN')}`}
+                      aria-label={`Beat ${prof.name}'s rank with ₹${(prof.amount + 1).toLocaleString('en-IN')}`}
                     >
                       Beat ₹{prof.amount.toLocaleString('en-IN')} →
                     </button>
@@ -285,7 +309,10 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         </div>
       </div>
 
-      {/* 2. SELECTED PERIOD CONTEXT & CONTROLS */}
+      {/* 2. PAY TO PROVE YOUR LEGITIMACY (Slot for ActionPanel) */}
+      {actionPanelSlot}
+
+      {/* 3. SELECTED PERIOD CONTEXT & CONTROLS */}
       <div className="pt-2 pb-2.5 border-b border-[#eee6dc]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
@@ -307,18 +334,21 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
             <button
               id="tab-today-btn"
               onClick={() => onSelectPeriod('today')}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer ${
+              aria-pressed={currentPeriod === 'today'}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                 currentPeriod === 'today'
                   ? 'bg-white text-stone-900 shadow-xs'
                   : 'hover:text-stone-900 text-stone-600'
               }`}
             >
-              Today
+              <span>Today</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${currentPeriod === 'today' ? 'bg-orange-500 animate-pulse' : 'bg-stone-300'}`} />
             </button>
             <button
               id="tab-week-btn"
               onClick={() => onSelectPeriod('week')}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer ${
+              aria-pressed={currentPeriod === 'week'}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                 currentPeriod === 'week'
                   ? 'bg-white text-stone-900 shadow-xs'
                   : 'hover:text-stone-900 text-stone-600'
@@ -329,7 +359,8 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
             <button
               id="tab-month-btn"
               onClick={() => onSelectPeriod('month')}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer ${
+              aria-pressed={currentPeriod === 'month'}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                 currentPeriod === 'month'
                   ? 'bg-white text-stone-900 shadow-xs'
                   : 'hover:text-stone-900 text-stone-600'
@@ -340,7 +371,8 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
             <button
               id="tab-all-btn"
               onClick={() => onSelectPeriod('all')}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer ${
+              aria-pressed={currentPeriod === 'all'}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                 currentPeriod === 'all'
                   ? 'bg-white text-stone-900 shadow-xs'
                   : 'hover:text-stone-900 text-stone-600'
@@ -354,11 +386,12 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         {/* Sub-bar: Scope Filter & Count */}
         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-xs">
           {onSelectFilter && (
-            <div className="inline-flex items-center rounded-lg bg-[#f0eae1]/80 p-0.5 text-[10px] font-bold text-stone-600">
+            <div className="inline-flex items-center rounded-lg bg-[#f0eae1]/80 p-0.5 text-[10px] font-bold text-stone-600" role="group" aria-label="Ranking filter options">
               <button
                 type="button"
                 onClick={() => onSelectFilter('verified')}
-                className={`px-2 py-0.5 rounded-md tracking-tight cursor-pointer transition-colors ${
+                aria-pressed={currentFilter === 'verified'}
+                className={`px-2 py-0.5 rounded-md tracking-tight cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                   currentFilter === 'verified'
                     ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
                     : 'text-stone-500 hover:text-stone-800'
@@ -369,7 +402,8 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectFilter('all')}
-                className={`px-2 py-0.5 rounded-md tracking-tight cursor-pointer transition-colors ${
+                aria-pressed={currentFilter === 'all'}
+                className={`px-2 py-0.5 rounded-md tracking-tight cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                   currentFilter === 'all'
                     ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
                     : 'text-stone-500 hover:text-stone-800'
@@ -388,6 +422,24 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
               </span>
             ) : null}
           </div>
+        </div>
+
+        {/* COUNTDOWN TIMER COMPONENT: Shows how long until the 'Today' leaderboard resets */}
+        <div className="mt-3">
+          {currentPeriod === 'today' ? (
+            <TodayResetCountdown
+              variant="full"
+              topParticipantName={profiles.find(p => p.isVerified && p.amount > 0)?.name}
+              topParticipantAmount={profiles.find(p => p.isVerified && p.amount > 0)?.amount}
+              onClaimClick={onClaimSpecificRank ? () => onClaimSpecificRank(1) : undefined}
+              onReset={() => onSelectPeriod('today')}
+            />
+          ) : (
+            <TodayResetCountdown
+              variant="compact"
+              onClaimClick={() => onSelectPeriod('today')}
+            />
+          )}
         </div>
       </div>
 
@@ -415,173 +467,379 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         </div>
       )}
 
-      {/* 3. PAY TO PROVE YOUR LEGITIMACY (Slot for ActionPanel) */}
-      {actionPanelSlot}
-
-      {/* 4. FULL LEADERBOARD LIST - INDEPENDENT LIGHTWEIGHT ROWS WITH SMALL GAPS (NO GIANT BOX) */}
+      {/* 4. FULL LEADERBOARD LIST - RESPONSIVE CARD-BASED LAYOUT ON MOBILE, SLEEK ROWS ON DESKTOP */}
       {isLoading && profiles.length === 0 ? (
         <div className="py-12 text-center text-xs text-stone-400 flex flex-col items-center justify-center gap-2">
           <Loader2 className="w-5 h-5 animate-spin text-stone-400" />
           <span>Loading rankings...</span>
         </div>
       ) : profiles.length > 0 && (
-        <div className="flex flex-col gap-1.5 my-3">
-          {profiles.map((profile) => {
-            const isVerified = profile.isVerified && profile.amount > 0;
-            const isTop1 = isVerified && profile.rank === 1;
-            const isTop2 = isVerified && profile.rank === 2;
-            const isTop3 = isVerified && profile.rank === 3;
+        <div className="my-3">
+          {/* Desktop Table Column Header */}
+          <div className="hidden sm:flex items-center justify-between px-4 py-1.5 text-[10px] font-extrabold uppercase tracking-wider text-stone-400">
+            <div className="flex items-center gap-3">
+              <span className="w-8 text-center">Rank</span>
+              <span>Participant</span>
+            </div>
+            <div className="flex items-center gap-6 text-right">
+              <span>Claim Amount</span>
+              <span className="w-24 text-center">Action</span>
+            </div>
+          </div>
 
-            return (
-              <div
-                key={profile.id}
-                onClick={() => onSelectProfile(profile)}
-                className={`group rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 border flex items-center justify-between gap-2 transition-all cursor-pointer ${
-                  isTop1
-                    ? 'bg-[#fff8f2] border-[#f3ded0] hover:border-[#ebbfa7] shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
-                    : isTop2
-                    ? 'bg-[#fbf7f1] border-[#eee5d9] hover:border-[#dfd3c3] shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
-                    : isTop3
-                    ? 'bg-[#faf8f4] border-[#eae3d9] hover:border-[#ded5ca] shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
-                    : 'bg-white border-[#ece6de] hover:bg-[#faf8f5] shadow-[0_1px_2px_rgba(0,0,0,0.015)]'
-                }`}
-              >
-                {/* Left Side: Rank, Avatar/Badge, Name, Links */}
-                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 pr-2">
-                  {/* Rank Badge */}
-                  <div className="w-6 text-center shrink-0">
-                    {isTop1 ? (
-                      <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-[#fae2d4] text-[#9c3a16] font-black text-[11px] font-mono-numbers">
-                        1
-                      </span>
-                    ) : isTop2 ? (
-                      <span className="text-xs font-bold text-stone-700 font-mono-numbers">
-                        #2
-                      </span>
-                    ) : isTop3 ? (
-                      <span className="text-xs font-bold text-stone-600 font-mono-numbers">
-                        #3
-                      </span>
-                    ) : (
-                      <span className="text-xs font-semibold text-stone-400 font-mono-numbers">
-                        #{profile.rank}
-                      </span>
-                    )}
-                  </div>
+          <div className="flex flex-col gap-2.5 sm:gap-1.5">
+            {profiles.map((profile) => {
+              const isVerified = profile.isVerified && profile.amount > 0;
+              const isTop1 = isVerified && profile.rank === 1;
+              const isTop2 = isVerified && profile.rank === 2;
+              const isTop3 = isVerified && profile.rank === 3;
 
-                  {/* Profile Details */}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-bold text-xs sm:text-sm text-stone-900 group-hover:text-[#9c3a16] transition-colors truncate max-w-[140px] sm:max-w-[220px]">
-                        {profile.name}
-                      </span>
+              return (
+                <div key={profile.id} className="w-full">
+                  {/* MOBILE CARD ROW (<640px) */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View verified profile for ${profile.name}, rank #${profile.rank}, ₹${profile.amount.toLocaleString('en-IN')}`}
+                    onClick={() => onSelectProfile(profile)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelectProfile(profile);
+                      }
+                    }}
+                    className={`sm:hidden rounded-2xl p-3.5 border flex flex-col gap-2.5 transition-all active:scale-[0.99] cursor-pointer shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-2 ${
+                      isTop1
+                        ? 'bg-[#fff8f2] border-[#f3ded0] shadow-[0_2px_4px_rgba(180,75,28,0.05)]'
+                        : isTop2
+                        ? 'bg-[#fbf7f1] border-[#eee5d9]'
+                        : isTop3
+                        ? 'bg-[#faf8f4] border-[#eae3d9]'
+                        : 'bg-white border-[#ece6de]'
+                    }`}
+                  >
+                    {/* Top Row: Rank Badge & Name on Left; Claim Amount on Right */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {/* Rank Number Badge */}
+                        {isTop1 ? (
+                          <span className="inline-flex items-center justify-center gap-1 px-2.5 py-1 rounded-xl bg-[#fae2d4] text-[#9c3a16] font-black font-mono-numbers text-xs border border-[#f5cbba] shadow-2xs shrink-0">
+                            <Trophy className="w-3.5 h-3.5 text-[#b44b1c]" />
+                            #1
+                          </span>
+                        ) : isTop2 ? (
+                          <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-lg bg-[#f0eae1] text-stone-800 font-black font-mono-numbers text-xs border border-[#e4dcce] shrink-0">
+                            #2
+                          </span>
+                        ) : isTop3 ? (
+                          <span className="inline-flex items-center justify-center px-2.5 py-0.5 rounded-lg bg-[#f0eae1] text-stone-700 font-black font-mono-numbers text-xs border border-[#e4dcce] shrink-0">
+                            #3
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-lg bg-stone-100 text-stone-600 font-extrabold font-mono-numbers text-xs border border-stone-200/80 shrink-0">
+                            #{profile.rank}
+                          </span>
+                        )}
 
-                      {isVerified ? (
-                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="Verified Proof of Payment" />
-                      ) : (
-                        <span className="text-[9px] font-semibold text-stone-400 px-1 py-0.2 bg-stone-100 rounded">
-                          Unverified
-                        </span>
-                      )}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-extrabold text-sm text-stone-900 truncate">
+                            {profile.name}
+                          </span>
+                          {isVerified ? (
+                            <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" title="Verified Proof of Payment" />
+                          ) : (
+                            <span className="text-[9px] font-semibold text-stone-400 px-1 py-0.2 bg-stone-100 rounded shrink-0">
+                              Unverified
+                            </span>
+                          )}
+                          {profile.badge && (
+                            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-[#faeee5] text-[#913813] border border-[#f2ded0] shrink-0">
+                              {profile.badge}
+                            </span>
+                          )}
+                          {profile.rank <= 10 && profile.lazyStreakDays && profile.lazyStreakDays > 0 && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-orange-50 text-orange-800 border border-orange-200 shrink-0"
+                              title={`${profile.lazyStreakDays} consecutive days maintained in Top 10`}
+                            >
+                              <Flame className="w-2.5 h-2.5 text-orange-600 fill-orange-500" />
+                              <span>{profile.lazyStreakDays}d streak</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                      {profile.badge && (
-                        <span className="hidden sm:inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#faeee5] text-[#913813] border border-[#f2ded0]">
-                          {profile.badge}
-                        </span>
-                      )}
+                      {/* 'Claim' Amount & Status on Mobile */}
+                      <div className="text-right shrink-0">
+                        <div className="font-mono-numbers font-black text-base text-stone-950 leading-tight">
+                          ₹{profile.amount.toLocaleString('en-IN')}
+                        </div>
+                        <div className="text-[9px] uppercase tracking-wider font-bold text-stone-400">
+                          {isVerified ? 'CLAIMED' : 'PENDING'}
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Statement / Confession (if present) */}
+                    {/* Statement / Confession if present */}
                     {profile.reason && (
-                      <p className="text-[11px] text-stone-500 italic truncate max-w-[200px] sm:max-w-[340px] mt-0.5">
+                      <p className="text-xs text-stone-600 italic bg-[#faf8f5] px-2.5 py-1.5 rounded-lg border border-[#f0eae1] leading-relaxed">
                         "{profile.reason}"
                       </p>
                     )}
 
-                    {/* Social Links: Instagram → LinkedIn → Website */}
-                    <div className="flex items-center gap-2 mt-0.5 text-[11px] flex-wrap" onClick={(e) => e.stopPropagation()}>
-                      {profile.instagram && (
-                        <a
-                          href={`https://instagram.com/${profile.instagram.replace(/^@/, '')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-0.5 text-stone-400 hover:text-pink-600 transition-colors"
-                          title={`@${profile.instagram.replace(/^@/, '')}`}
+                    {/* Social Links */}
+                    {(profile.instagram || profile.linkedin || profile.website) && (
+                      <div className="flex items-center gap-2 text-xs flex-wrap" onClick={(e) => e.stopPropagation()}>
+                        {profile.instagram && (
+                          <a
+                            href={`https://instagram.com/${profile.instagram.replace(/^@/, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-stone-50 border border-stone-200 text-stone-600 hover:text-pink-600 transition-colors text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
+                            aria-label={`${profile.name}'s Instagram profile`}
+                          >
+                            <Instagram className="w-3 h-3 text-pink-500 shrink-0" />
+                            <span className="truncate max-w-[110px]">@{profile.instagram.replace(/^@/, '')}</span>
+                          </a>
+                        )}
+                        {profile.linkedin && (
+                          <a
+                            href={profile.linkedin.startsWith('http') ? profile.linkedin : `https://${profile.linkedin}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-stone-50 border border-stone-200 text-stone-600 hover:text-blue-600 transition-colors text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
+                            aria-label={`${profile.name}'s LinkedIn profile`}
+                          >
+                            <Linkedin className="w-3 h-3 text-blue-500 shrink-0" />
+                            <span>LinkedIn</span>
+                          </a>
+                        )}
+                        {profile.website && (
+                          <a
+                            href={profile.website.startsWith('http') ? profile.website : `https://${profile.website}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-stone-50 border border-stone-200 text-stone-600 hover:text-sky-600 transition-colors text-[11px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
+                            aria-label={`${profile.name}'s website`}
+                          >
+                            <Globe className="w-3 h-3 text-sky-500 shrink-0" />
+                            <span>Website</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Card Footer: Beat / Claim Action & Share Card */}
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#f0eae1]">
+                      {onClaimSpecificRank && isVerified ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onClaimSpecificRank(profile.amount + 1);
+                          }}
+                          aria-label={`Beat ${profile.name}'s rank with ₹${(profile.amount + 1).toLocaleString('en-IN')}`}
+                          className="flex-1 py-2 px-3 rounded-xl bg-[#fae7dc] hover:bg-[#f5dacb] text-[#913813] text-xs font-black border border-[#f2cfbe] flex items-center justify-center gap-1.5 shadow-2xs active:scale-95 transition-all cursor-pointer min-h-[42px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#913813] focus-visible:ring-offset-1"
                         >
-                          <Instagram className="w-3 h-3 shrink-0" />
-                          <span className="truncate max-w-[80px]">@{profile.instagram.replace(/^@/, '')}</span>
-                        </a>
+                          <span>Beat with ₹{(profile.amount + 1).toLocaleString('en-IN')}</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <span className="text-[11px] text-stone-400 font-semibold font-mono-numbers">
+                          Verified Public Rank #{profile.rank}
+                        </span>
                       )}
-                      {profile.linkedin && (
-                        <a
-                          href={profile.linkedin.startsWith('http') ? profile.linkedin : `https://${profile.linkedin}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-0.5 text-stone-400 hover:text-blue-600 transition-colors"
-                          title={profile.linkedin}
-                        >
-                          <Linkedin className="w-3 h-3 shrink-0" />
-                          <span>LinkedIn</span>
-                        </a>
-                      )}
-                      {profile.website && (
-                        <a
-                          href={profile.website.startsWith('http') ? profile.website : `https://${profile.website}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-0.5 text-stone-400 hover:text-sky-600 transition-colors"
-                          title={profile.website}
-                        >
-                          <Globe className="w-3 h-3 shrink-0" />
-                          <span>Website</span>
-                        </a>
-                      )}
+
+                      <button
+                        type="button"
+                        title="View Public Proof & Share Card"
+                        aria-label={`View public proof and share card for ${profile.name}, rank #${profile.rank}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectProfile(profile);
+                        }}
+                        className="py-2 px-3.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-extrabold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[42px] shrink-0 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-stone-600" />
+                        <span>Proof</span>
+                      </button>
                     </div>
                   </div>
-                </div>
 
-                {/* Right Side: Amount & Beat Action */}
-                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                  <div className="text-right">
-                    <div className="font-mono-numbers font-black text-xs sm:text-sm text-stone-900">
-                      ₹{profile.amount.toLocaleString('en-IN')}
-                    </div>
-                    <div className="text-[9px] uppercase tracking-wider text-stone-400 font-semibold">
-                      {isVerified ? 'Verified' : 'Pending'}
-                    </div>
-                  </div>
-
-                  {/* Beat This Rank Action */}
-                  {onClaimSpecificRank && isVerified && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onClaimSpecificRank(profile.amount + 1);
-                      }}
-                      className="hidden sm:inline-flex items-center px-2 py-1 rounded-md bg-[#faf8f4] hover:bg-[#f0eae1] text-stone-700 hover:text-stone-950 border border-[#ede5da] text-[11px] font-black transition-all cursor-pointer shadow-2xs active:scale-95 whitespace-nowrap"
-                      title={`Beat ₹${profile.amount.toLocaleString('en-IN')}`}
-                    >
-                      Beat ₹{profile.amount.toLocaleString('en-IN')} →
-                    </button>
-                  )}
-
-                  {/* Share Card Trigger */}
-                  <button
-                    type="button"
-                    title="View & Share Result Card"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSelectProfile(profile);
+                  {/* DESKTOP TABLE ROW (>=640px) */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View verified profile for ${profile.name}, rank #${profile.rank}, ₹${profile.amount.toLocaleString('en-IN')}`}
+                    onClick={() => onSelectProfile(profile)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onSelectProfile(profile);
+                      }
                     }}
-                    className="p-1.5 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-900 transition-colors cursor-pointer"
+                    className={`hidden sm:flex group rounded-xl px-4 py-2.5 sm:py-3 border items-center justify-between gap-3 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-2 ${
+                      isTop1
+                        ? 'bg-[#fff8f2] border-[#f3ded0] hover:border-[#ebbfa7] shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
+                        : isTop2
+                        ? 'bg-[#fbf7f1] border-[#eee5d9] hover:border-[#dfd3c3] shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
+                        : isTop3
+                        ? 'bg-[#faf8f4] border-[#eae3d9] hover:border-[#ded5ca] shadow-[0_1px_2px_rgba(0,0,0,0.02)]'
+                        : 'bg-white border-[#ece6de] hover:bg-[#faf8f5] shadow-[0_1px_2px_rgba(0,0,0,0.015)]'
+                    }`}
                   >
-                    <Share2 className="w-3.5 h-3.5" />
-                  </button>
+                    {/* Left Side: Rank, Avatar/Badge, Name, Links */}
+                    <div className="flex items-center gap-3 min-w-0 pr-2">
+                      {/* Rank Badge */}
+                      <div className="w-8 text-center shrink-0">
+                        {isTop1 ? (
+                          <span className="inline-flex items-center justify-center w-6 h-6 rounded-md bg-[#fae2d4] text-[#9c3a16] font-black text-xs font-mono-numbers">
+                            1
+                          </span>
+                        ) : isTop2 ? (
+                          <span className="text-xs font-bold text-stone-700 font-mono-numbers">
+                            #2
+                          </span>
+                        ) : isTop3 ? (
+                          <span className="text-xs font-bold text-stone-600 font-mono-numbers">
+                            #3
+                          </span>
+                        ) : (
+                          <span className="text-xs font-semibold text-stone-400 font-mono-numbers">
+                            #{profile.rank}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Profile Details */}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-xs sm:text-sm text-stone-900 group-hover:text-[#9c3a16] transition-colors truncate max-w-[140px] sm:max-w-[220px]">
+                            {profile.name}
+                          </span>
+
+                          {isVerified ? (
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" title="Verified Proof of Payment" />
+                          ) : (
+                            <span className="text-[9px] font-semibold text-stone-400 px-1 py-0.2 bg-stone-100 rounded">
+                              Unverified
+                            </span>
+                          )}
+
+                          {profile.badge && (
+                            <span className="inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-[#faeee5] text-[#913813] border border-[#f2ded0]">
+                              {profile.badge}
+                            </span>
+                          )}
+                          {profile.rank <= 10 && profile.lazyStreakDays && profile.lazyStreakDays > 0 && (
+                            <span
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-orange-50 text-orange-800 border border-orange-200"
+                              title={`${profile.lazyStreakDays} consecutive days maintained in Top 10`}
+                            >
+                              <Flame className="w-2.5 h-2.5 text-orange-600 fill-orange-500" />
+                              <span>{profile.lazyStreakDays}d streak</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Statement / Confession (if present) */}
+                        {profile.reason && (
+                          <p className="text-[11px] text-stone-500 italic truncate max-w-[200px] sm:max-w-[340px] mt-0.5">
+                            "{profile.reason}"
+                          </p>
+                        )}
+
+                        {/* Social Links: Instagram → LinkedIn → Website */}
+                        <div className="flex items-center gap-2 mt-0.5 text-[11px] flex-wrap" onClick={(e) => e.stopPropagation()}>
+                          {profile.instagram && (
+                            <a
+                              href={`https://instagram.com/${profile.instagram.replace(/^@/, '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-0.5 text-stone-400 hover:text-pink-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded-sm"
+                              title={`@${profile.instagram.replace(/^@/, '')}`}
+                              aria-label={`${profile.name}'s Instagram profile`}
+                            >
+                              <Instagram className="w-3 h-3 shrink-0" />
+                              <span className="truncate max-w-[80px]">@{profile.instagram.replace(/^@/, '')}</span>
+                            </a>
+                          )}
+                          {profile.linkedin && (
+                            <a
+                              href={profile.linkedin.startsWith('http') ? profile.linkedin : `https://${profile.linkedin}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-0.5 text-stone-400 hover:text-blue-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded-sm"
+                              title={profile.linkedin}
+                              aria-label={`${profile.name}'s LinkedIn profile`}
+                            >
+                              <Linkedin className="w-3 h-3 shrink-0" />
+                              <span>LinkedIn</span>
+                            </a>
+                          )}
+                          {profile.website && (
+                            <a
+                              href={profile.website.startsWith('http') ? profile.website : `https://${profile.website}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-0.5 text-stone-400 hover:text-sky-600 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded-sm"
+                              title={profile.website}
+                              aria-label={`${profile.name}'s website`}
+                            >
+                              <Globe className="w-3 h-3 shrink-0" />
+                              <span>Website</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right Side: Amount & Beat Action */}
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      <div className="text-right">
+                        <div className="font-mono-numbers font-black text-xs sm:text-sm text-stone-900">
+                          ₹{profile.amount.toLocaleString('en-IN')}
+                        </div>
+                        <div className="text-[9px] uppercase tracking-wider text-stone-400 font-semibold">
+                          {isVerified ? 'Verified' : 'Pending'}
+                        </div>
+                      </div>
+
+                      {/* Beat This Rank Action */}
+                      {onClaimSpecificRank && isVerified && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onClaimSpecificRank(profile.amount + 1);
+                          }}
+                          className="inline-flex items-center px-2.5 py-1.5 rounded-md bg-[#faf8f4] hover:bg-[#f0eae1] text-stone-700 hover:text-stone-950 border border-[#ede5da] text-[11px] font-black transition-all cursor-pointer shadow-2xs active:scale-95 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1"
+                          title={`Beat ₹${profile.amount.toLocaleString('en-IN')}`}
+                          aria-label={`Beat ${profile.name}'s rank with ₹${(profile.amount + 1).toLocaleString('en-IN')}`}
+                        >
+                          Beat ₹{profile.amount.toLocaleString('en-IN')} →
+                        </button>
+                      )}
+
+                      {/* Share Card Trigger */}
+                      <button
+                        type="button"
+                        title="View & Share Result Card"
+                        aria-label={`View and share proof card for ${profile.name}, rank #${profile.rank}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSelectProfile(profile);
+                        }}
+                        className="p-1.5 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-900 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1"
+                      >
+                        <Share2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -593,7 +851,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
             type="button"
             onClick={onLoadMore}
             disabled={isLoadingMore}
-            className="w-full sm:w-auto px-5 py-2 rounded-xl border border-[#ede5db] bg-white hover:bg-[#faf8f4] text-stone-900 font-extrabold text-xs tracking-tight shadow-2xs hover:shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full sm:w-auto px-5 py-2 rounded-xl border border-[#ede5db] bg-white hover:bg-[#faf8f4] text-stone-900 font-extrabold text-xs tracking-tight shadow-2xs hover:shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-2"
           >
             {isLoadingMore ? (
               <>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X, CheckCircle2, AlertCircle, Copy, Check, QrCode, Smartphone, Loader2, ArrowRight, ShieldCheck, ExternalLink } from 'lucide-react';
+import confetti from 'canvas-confetti';
 import { UserProfile } from '../types.ts';
 
 interface PaymentModalProps {
@@ -88,31 +89,63 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         throw new Error(data.error || 'Payment verification failed server-side.');
       }
 
+      // Celebratory confetti burst & tactile screen-shake on verified achievement
+      try {
+        confetti({
+          particleCount: 85,
+          spread: 80,
+          origin: { y: 0.55 },
+          colors: ['#f59e0b', '#d97706', '#10b981', '#6366f1', '#ec4899', '#fbbf24'],
+          disableForReducedMotion: true
+        });
+      } catch {
+        // Confetti fallback
+      }
+
       setStep('success');
       setTimeout(() => {
         onPaymentSuccess(data.profile, data.previousTop, data.ownerToken);
-      }, 750);
+      }, 950);
     } catch (err: any) {
       setStep('error');
       setErrorMessage(err?.message || 'Could not verify payment. Please try again.');
     }
   };
 
+  // Escape key handler for accessible modal dismissal
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && step !== 'verifying') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, step]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/70 backdrop-blur-xs p-4 overflow-y-auto">
-      <div className="relative w-full max-w-md rounded-2xl bg-white border border-zinc-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/70 backdrop-blur-xs p-4 overflow-y-auto" role="presentation">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="payment-modal-title"
+        className={`relative w-full max-w-md rounded-2xl bg-white border border-zinc-200 shadow-2xl overflow-hidden my-auto ${
+          step === 'success' ? 'animate-screen-shake' : 'animate-in fade-in zoom-in-95 duration-200'
+        }`}
+      >
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 bg-zinc-50/50">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-zinc-900" />
-            <h3 className="text-sm font-extrabold text-zinc-900 uppercase tracking-wider">
+            <h3 id="payment-modal-title" className="text-sm font-extrabold text-zinc-900 uppercase tracking-wider">
               Legitimacy Verification
             </h3>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer"
+            aria-label="Close payment modal"
+            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
           >
             <X className="w-4 h-4" />
           </button>
@@ -143,11 +176,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <label className="block text-xs font-bold text-zinc-700 mb-2">
                   Select Payment Method (India UPI)
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div role="tablist" aria-label="UPI payment options" className="grid grid-cols-4 gap-2">
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={selectedApp === 'qr'}
+                    aria-label="UPI QR Code"
                     onClick={() => setSelectedApp('qr')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
                       selectedApp === 'qr'
                         ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
                         : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
@@ -159,8 +195,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={selectedApp === 'gpay'}
+                    aria-label="Google Pay UPI"
                     onClick={() => setSelectedApp('gpay')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
                       selectedApp === 'gpay'
                         ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
                         : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
@@ -172,8 +211,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={selectedApp === 'phonepe'}
+                    aria-label="PhonePe UPI"
                     onClick={() => setSelectedApp('phonepe')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
                       selectedApp === 'phonepe'
                         ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
                         : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
@@ -185,8 +227,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={selectedApp === 'paytm'}
+                    aria-label="Paytm UPI"
                     onClick={() => setSelectedApp('paytm')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
                       selectedApp === 'paytm'
                         ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
                         : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
@@ -250,7 +295,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   </p>
                   <a
                     href={upiPayUrl}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-950 text-white text-xs font-bold shadow-xs hover:bg-zinc-800 transition-colors"
+                    aria-label={`Launch ${selectedApp.toUpperCase()} app`}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-950 text-white text-xs font-bold shadow-xs hover:bg-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                   >
                     <span>Launch {selectedApp.toUpperCase()} App</span>
                     <ExternalLink className="w-3.5 h-3.5" />
@@ -266,7 +312,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <button
                   type="button"
                   onClick={handleCopyUpi}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold text-zinc-700 bg-white border border-zinc-200 hover:bg-zinc-100 transition-all cursor-pointer"
+                  aria-label="Copy UPI ID"
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold text-zinc-700 bg-white border border-zinc-200 hover:bg-zinc-100 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
                 >
                   {copiedUpi ? (
                     <>
@@ -288,7 +335,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   id="confirm-verified-payment-btn"
                   type="button"
                   onClick={() => handleVerifyPayment()}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-xs transition-all active:scale-98 cursor-pointer"
+                  aria-label={`Confirm payment of ₹${orderData.amount.toLocaleString('en-IN')}`}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-xs transition-all active:scale-98 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
                 >
                   <span>I HAVE PAID ₹{orderData.amount.toLocaleString('en-IN')}</span>
                   <ArrowRight className="w-4 h-4" />
@@ -313,7 +361,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           )}
 
           {step === 'success' && (
-            <div className="py-12 text-center space-y-3">
+            <div className="py-12 text-center space-y-3 animate-celebration-pop">
               <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto animate-bounce" />
               <h4 className="text-base font-extrabold text-zinc-900">
                 Legitimacy Verified!

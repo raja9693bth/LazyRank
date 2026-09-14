@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+server-data*.json*
+server-data.json
+server-data.json.bak
+backup_pre_remediation/

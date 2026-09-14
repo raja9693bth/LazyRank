@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /api/admin/
 
-Sitemap: https://ais-pre-hnsuuah3ujahdhbfryoao5-980673809695.asia-southeast1.run.app/sitemap.xml
+Sitemap: https://lazyproof.online/sitemap.xml

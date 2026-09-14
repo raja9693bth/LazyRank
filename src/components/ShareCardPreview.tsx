@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { UserProfile } from '../types.ts';
+import { UserProfile, getLazyReasonEmoji } from '../types.ts';
 import { Download, Check, Copy, Share2, Sparkles, Flame } from 'lucide-react';
 
 export type CardTemplateType = 'bold_dark' | 'clean_white' | 'gold_winner';
@@ -54,7 +54,8 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#f59e0b';
       ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('LAZY • LEGITIMACY VERIFIED', width / 2, 220);
+      const streakText1 = profile.rank <= 10 && profile.lazyStreakDays ? `🔥 ${profile.lazyStreakDays}-DAY LAZY STREAK • TOP 10` : 'LAZY • LEGITIMACY VERIFIED';
+      ctx.fillText(streakText1, width / 2, 220);
 
       // Crown / Trophy
       ctx.font = '84px sans-serif';
@@ -96,6 +97,26 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.font = 'bold 34px sans-serif';
       ctx.fillText('✓ LEGITIMACY VERIFIED ON-CHAIN/SERVER', width / 2, 1240);
 
+      // Official Lazy Reason Badge
+      if (profile.lazyReason) {
+        ctx.save();
+        ctx.font = 'bold 28px sans-serif';
+        const emoji = getLazyReasonEmoji(profile.lazyReason);
+        const reasonText = `${emoji} REASON: ${profile.lazyReason.toUpperCase()}`;
+        const pillW = Math.min(width - 320, ctx.measureText(reasonText).width + 50);
+        ctx.fillStyle = '#fef3c7';
+        ctx.beginPath();
+        ctx.roundRect((width - pillW) / 2, 1276, pillW, 46, 23);
+        ctx.fill();
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#78350f';
+        ctx.textAlign = 'center';
+        ctx.fillText(reasonText, width / 2, 1308);
+        ctx.restore();
+      }
+
       // Quote / Roast / Reason
       if (includeRoast && roast) {
         ctx.fillStyle = '#f59e0b';
@@ -128,7 +149,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillText('TOP ME IF YOU CAN.', width / 2, 1750);
       ctx.fillStyle = '#71717a';
       ctx.font = 'bold 32px sans-serif';
-      ctx.fillText('lazy.lol', width / 2, 1810);
+      ctx.fillText('lazyproof.online', width / 2, 1810);
 
     } else if (activeTemplate === 'clean_white') {
       // TEMPLATE 2: Crisp Minimal White
@@ -144,7 +165,8 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#18181b';
       ctx.font = '900 40px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('LAZY • OFFICIAL LEADERBOARD', width / 2, 220);
+      const streakText2 = profile.rank <= 10 && profile.lazyStreakDays ? `🔥 ${profile.lazyStreakDays}-DAY LAZY STREAK • TOP 10` : 'LAZY • OFFICIAL LEADERBOARD';
+      ctx.fillText(streakText2, width / 2, 220);
 
       // Statement
       ctx.font = '900 72px sans-serif';
@@ -179,6 +201,26 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.font = 'bold 32px sans-serif';
       ctx.fillText('✓ LEGITIMACY VERIFIED', width / 2, 1240);
 
+      // Official Lazy Reason Badge
+      if (profile.lazyReason) {
+        ctx.save();
+        ctx.font = 'bold 28px sans-serif';
+        const emoji = getLazyReasonEmoji(profile.lazyReason);
+        const reasonText = `${emoji} REASON: ${profile.lazyReason.toUpperCase()}`;
+        const pillW = Math.min(width - 320, ctx.measureText(reasonText).width + 50);
+        ctx.fillStyle = '#fef3c7';
+        ctx.beginPath();
+        ctx.roundRect((width - pillW) / 2, 1276, pillW, 46, 23);
+        ctx.fill();
+        ctx.strokeStyle = '#d97706';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#92400e';
+        ctx.textAlign = 'center';
+        ctx.fillText(reasonText, width / 2, 1308);
+        ctx.restore();
+      }
+
       // Quote / Roast / Reason
       if (includeRoast && roast) {
         ctx.fillStyle = '#d97706';
@@ -211,7 +253,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillText('TOP ME IF YOU CAN.', width / 2, 1750);
       ctx.fillStyle = '#a1a1aa';
       ctx.font = 'bold 32px sans-serif';
-      ctx.fillText('lazy.lol', width / 2, 1810);
+      ctx.fillText('lazyproof.online', width / 2, 1810);
 
     } else {
       // TEMPLATE 3: Bold Dark Contrast
@@ -227,7 +269,8 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#a1a1aa';
       ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('LAZY • VERIFIED RANK', width / 2, 220);
+      const streakText3 = profile.rank <= 10 && profile.lazyStreakDays ? `🔥 ${profile.lazyStreakDays}-DAY LAZY STREAK • TOP 10` : 'LAZY • VERIFIED RANK';
+      ctx.fillText(streakText3, width / 2, 220);
 
       // Text
       ctx.fillStyle = '#ffffff';
@@ -261,6 +304,26 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.font = 'bold 34px sans-serif';
       ctx.fillText('✓ LEGITIMACY VERIFIED', width / 2, 1240);
 
+      // Official Lazy Reason Badge
+      if (profile.lazyReason) {
+        ctx.save();
+        ctx.font = 'bold 28px sans-serif';
+        const emoji = getLazyReasonEmoji(profile.lazyReason);
+        const reasonText = `${emoji} REASON: ${profile.lazyReason.toUpperCase()}`;
+        const pillW = Math.min(width - 320, ctx.measureText(reasonText).width + 50);
+        ctx.fillStyle = '#3f3f46';
+        ctx.beginPath();
+        ctx.roundRect((width - pillW) / 2, 1276, pillW, 46, 23);
+        ctx.fill();
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.fillStyle = '#38bdf8';
+        ctx.textAlign = 'center';
+        ctx.fillText(reasonText, width / 2, 1308);
+        ctx.restore();
+      }
+
       // Quote / Roast / Reason
       if (includeRoast && roast) {
         ctx.fillStyle = '#38bdf8';
@@ -293,7 +356,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillText('TOP ME IF YOU CAN.', width / 2, 1750);
       ctx.fillStyle = '#71717a';
       ctx.font = 'bold 32px sans-serif';
-      ctx.fillText('lazy.lol', width / 2, 1810);
+      ctx.fillText('lazyproof.online', width / 2, 1810);
     }
 
     if (onCardRendered) {
@@ -377,7 +440,9 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
           <button
             type="button"
             onClick={() => onToggleIncludeRoast?.(!includeRoast)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer ${
+            aria-pressed={includeRoast}
+            aria-label={`Toggle AI roast on card, currently ${includeRoast ? 'on' : 'off'}`}
+            className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
               includeRoast
                 ? 'bg-amber-400 text-zinc-950 shadow-2xs'
                 : 'bg-zinc-200 text-zinc-600 hover:bg-zinc-300'
@@ -389,11 +454,13 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       )}
 
       {/* Template Selector Tabs */}
-      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 mb-3 text-xs font-semibold">
+      <div role="tablist" aria-label="Card design templates" className="flex items-center gap-1.5 p-1 rounded-xl bg-zinc-100 mb-3 text-xs font-semibold">
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTemplate === 'gold_winner'}
           onClick={() => onChangeTemplate('gold_winner')}
-          className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+          className={`px-3 py-1 rounded-lg transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 ${
             activeTemplate === 'gold_winner'
               ? 'bg-amber-400 text-zinc-950 shadow-2xs font-bold'
               : 'text-zinc-600 hover:text-zinc-900'
@@ -403,8 +470,10 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTemplate === 'bold_dark'}
           onClick={() => onChangeTemplate('bold_dark')}
-          className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+          className={`px-3 py-1 rounded-lg transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800 ${
             activeTemplate === 'bold_dark'
               ? 'bg-zinc-950 text-white shadow-2xs font-bold'
               : 'text-zinc-600 hover:text-zinc-900'
@@ -414,8 +483,10 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={activeTemplate === 'clean_white'}
           onClick={() => onChangeTemplate('clean_white')}
-          className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+          className={`px-3 py-1 rounded-lg transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800 ${
             activeTemplate === 'clean_white'
               ? 'bg-white text-zinc-950 shadow-2xs font-bold'
               : 'text-zinc-600 hover:text-zinc-900'
@@ -440,7 +511,8 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
           type="button"
           onClick={handleDownload}
           disabled={downloading}
-          className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-xs"
+          aria-label="Save 9:16 story image to device"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:opacity-50"
         >
           <Download className="w-4 h-4" />
           <span>{downloading ? 'Exporting...' : 'Save 9:16 Image'}</span>
@@ -449,7 +521,8 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
         <button
           type="button"
           onClick={handleCopyImage}
-          className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold transition-all active:scale-95 cursor-pointer border border-zinc-200"
+          aria-label="Copy card image to clipboard"
+          className="inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold transition-all active:scale-95 cursor-pointer border border-zinc-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
           title="Copy Image to Clipboard"
         >
           {copiedImage ? (

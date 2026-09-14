@@ -93,7 +93,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   };
 
   return (
-    <div id="action-panel-section" className="w-full max-w-2xl mx-auto my-3 sm:my-4">
+    <div id="action-panel-section" className="w-full max-w-2xl mx-auto mb-5 sm:mb-6">
       <div className="rounded-2xl border border-[#ede5db] bg-white p-4 sm:p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
         {/* Panel Header */}
         <div className="border-b border-[#f0eae1] pb-3 mb-3.5">
@@ -145,8 +145,9 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => handleAdjustAmount(-10)}
-                  className="px-2.5 py-2 text-stone-500 hover:text-stone-900 hover:bg-[#f0eae1] transition-colors cursor-pointer"
+                  className="px-2.5 py-2 text-stone-500 hover:text-stone-900 hover:bg-[#f0eae1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
                   title="Decrease amount by ₹10"
+                  aria-label="Decrease payment amount by ₹10"
                 >
                   <Minus className="w-3.5 h-3.5" />
                 </button>
@@ -165,15 +166,16 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                       if (localError) setLocalError(null);
                     }}
                     required
-                    className="w-full py-2 px-1 text-xs sm:text-sm font-black font-mono-numbers text-stone-900 bg-transparent focus:outline-none text-left"
+                    className="w-full py-2 px-1 text-xs sm:text-sm font-black font-mono-numbers text-stone-900 bg-transparent focus:outline-none text-left focus-visible:ring-1 focus-visible:ring-stone-800"
                   />
                 </div>
 
                 <button
                   type="button"
                   onClick={() => handleAdjustAmount(10)}
-                  className="px-2.5 py-2 text-stone-500 hover:text-stone-900 hover:bg-[#f0eae1] transition-colors cursor-pointer"
+                  className="px-2.5 py-2 text-stone-500 hover:text-stone-900 hover:bg-[#f0eae1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
                   title="Increase amount by ₹10"
+                  aria-label="Increase payment amount by ₹10"
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
@@ -187,8 +189,9 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
 
             <button
               type="button"
+              aria-pressed={amount === minAmountToBeatTop}
               onClick={() => setAmount(minAmountToBeatTop)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono-numbers transition-all cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono-numbers transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-1 ${
                 amount === minAmountToBeatTop
                   ? 'bg-[#e86638] text-white shadow-2xs'
                   : 'bg-[#faeee5] hover:bg-[#f5ded0] text-[#9c3a16] border border-[#f2ded0]'
@@ -201,8 +204,9 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
               <button
                 key={chipVal}
                 type="button"
+                aria-pressed={amount === chipVal}
                 onClick={() => setAmount(chipVal)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono-numbers transition-all cursor-pointer ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono-numbers transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                   amount === chipVal
                     ? 'bg-stone-800 text-white'
                     : 'bg-[#f3ede5] hover:bg-[#eae2d6] text-stone-700'
@@ -239,7 +243,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
               <button
                 type="button"
                 onClick={() => setAmount(minAmountToBeatTop)}
-                className="text-[11px] font-bold text-[#b44b1c] hover:underline shrink-0 self-start sm:self-auto cursor-pointer"
+                className="text-[11px] font-bold text-[#b44b1c] hover:underline shrink-0 self-start sm:self-auto cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b44b1c] rounded"
               >
                 Need ₹{minAmountToBeatTop.toLocaleString('en-IN')} for #1 →
               </button>
@@ -251,8 +255,9 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             {!showOptionalLinks ? (
               <button
                 type="button"
+                aria-expanded={false}
                 onClick={() => setShowOptionalLinks(true)}
-                className="text-[11px] sm:text-xs text-stone-500 hover:text-stone-900 font-semibold underline underline-offset-2 transition-colors cursor-pointer"
+                className="text-[11px] sm:text-xs text-stone-500 hover:text-stone-900 font-semibold underline underline-offset-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded"
               >
                 + Add Instagram, LinkedIn, Website, or confession (optional)
               </button>
@@ -272,7 +277,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                       value={instagram}
                       onChange={(e) => setInstagram(e.target.value)}
                       maxLength={60}
-                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none"
+                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
                     />
                   </div>
 
@@ -289,7 +294,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                       value={linkedin}
                       onChange={(e) => setLinkedin(e.target.value)}
                       maxLength={100}
-                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none"
+                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
                     />
                   </div>
 
@@ -306,7 +311,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                       value={website}
                       onChange={(e) => setWebsite(e.target.value)}
                       maxLength={100}
-                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none"
+                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
                     />
                   </div>
                 </div>
@@ -324,7 +329,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     maxLength={140}
-                    className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none"
+                    className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
                   />
                   <div className="text-[10px] text-stone-400 text-right mt-0.5 font-mono-numbers">
                     {reason.length}/140
@@ -346,7 +351,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             id="prove-your-laziness-btn"
             type="submit"
             disabled={isLoading || !name.trim() || amount < 1}
-            className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] py-3 px-5 text-xs sm:text-sm font-black text-white shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label={`Prove your laziness - pay ₹${amount.toLocaleString('en-IN')}`}
+            className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] py-3 px-5 text-xs sm:text-sm font-black text-white shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-2"
           >
             {isLoading ? (
               <>

@@ -1,15 +1,16 @@
 import React from 'react';
 import { LazyLogo } from './LazyLogo';
-import { ShieldAlert, ShieldCheck } from 'lucide-react';
+import { ShieldAlert, ShieldCheck, Sliders } from 'lucide-react';
 
 interface FooterProps {
   onNavigate: (path: string) => void;
   onOpenAdmin: () => void;
+  onOpenSettings?: () => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin }) => {
+export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenSettings }) => {
   return (
-    <footer className="w-full border-t border-zinc-200 mt-10 sm:mt-12 py-8 sm:py-10 bg-white text-xs text-zinc-600">
+    <footer className="w-full border-t border-zinc-200 mt-10 sm:mt-12 py-8 sm:py-10 pb-24 sm:pb-10 bg-white text-xs text-zinc-600">
       <div className="mx-auto max-w-2xl px-4 sm:px-6 text-center space-y-4">
         {/* LAZY logo & descriptor */}
         <div className="flex flex-col items-center gap-1.5">
@@ -24,11 +25,25 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin }) => {
           <p className="text-xs text-zinc-500 max-w-md leading-relaxed">
             The public pay-to-rank game where higher verified payment equals higher rank. Serious interface, ridiculous product.
           </p>
-          <div className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-50 px-3 py-0.5 rounded-full border border-zinc-200/80">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>100% Server-Verified Payments</span>
-            <span className="text-zinc-300">·</span>
-            <span>Zero Client Authority</span>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <div className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-50 px-3 py-1 rounded-full border border-zinc-200/80">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+              <span>100% Server-Verified Payments</span>
+              <span className="text-zinc-300">·</span>
+              <span>Zero Client Authority</span>
+            </div>
+            {onOpenSettings && (
+              <button
+                type="button"
+                id="footer-settings-btn"
+                onClick={onOpenSettings}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-stone-700 hover:text-stone-950 bg-[#faf6f0] hover:bg-[#f3ede3] px-3 py-1 rounded-full border border-[#e4dcce] transition-colors cursor-pointer"
+                title="Manage participant profile and settings"
+              >
+                <Sliders className="w-3.5 h-3.5 text-stone-600" />
+                <span>Profile Settings</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -82,6 +97,16 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin }) => {
           >
             Contact
           </button>
+          {onOpenSettings && (
+            <button
+              id="footer-link-settings"
+              type="button"
+              onClick={onOpenSettings}
+              className="hover:text-zinc-950 transition-colors cursor-pointer font-bold"
+            >
+              Settings
+            </button>
+          )}
         </nav>
 
         {/* Admin Link (Unobtrusive) */}

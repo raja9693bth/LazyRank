@@ -8,14 +8,36 @@ interface ModalBaseProps {
 }
 
 export const AboutModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="about-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-          <h3 className="font-black text-lg text-zinc-950">About LAZY</h3>
-          <button onClick={onClose} className="p-1 text-zinc-400 hover:text-zinc-700 cursor-pointer">
+          <h2 id="about-modal-title" className="font-black text-lg text-zinc-950">About LAZY</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -43,36 +65,58 @@ export const AboutModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
 };
 
 export const RulesModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200 max-h-[85vh] overflow-y-auto">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="rules-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200 max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
-          <h3 className="font-black text-lg text-zinc-950">Official Rules & Terms (v2.0)</h3>
-          <button onClick={onClose} className="p-1 text-zinc-400 hover:text-zinc-700 cursor-pointer">
+          <h2 id="rules-modal-title" className="font-black text-lg text-zinc-950">Official Rules & Terms (v2.0)</h2>
+          <button
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="p-1 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
         <div className="mt-4 space-y-3 text-xs text-zinc-600 leading-relaxed">
           <div>
-            <h4 className="font-bold text-zinc-900">1. The Core Ranking Rule</h4>
+            <h3 className="font-bold text-zinc-900">1. The Core Ranking Rule</h3>
             <p>Rank is strictly determined by verified payment amount. Higher amount = higher rank. If two users pay identical amounts, earlier verification timestamp takes priority.</p>
           </div>
           <div>
-            <h4 className="font-bold text-zinc-900">2. Voluntary Entertainment Game</h4>
+            <h3 className="font-bold text-zinc-900">2. Voluntary Entertainment Game</h3>
             <p>Payments made to LAZY are for participation in a public internet joke and leaderboard ranking. No financial return, equity, or commercial benefit is offered.</p>
           </div>
           <div>
-            <h4 className="font-bold text-zinc-900">3. Verified Server Source of Truth</h4>
+            <h3 className="font-bold text-zinc-900">3. Verified Server Source of Truth</h3>
             <p>Client requests are never trusted for rank computation. Official rank is evaluated atomically upon confirmed receipt.</p>
           </div>
           <div>
-            <h4 className="font-bold text-zinc-900">4. Community Moderation & Links</h4>
+            <h3 className="font-bold text-zinc-900">4. Community Moderation & Links</h3>
             <p>Hate speech, profanity, harassment, or malicious links will be moderated or removed. Clean Instagram and website links are welcomed.</p>
           </div>
           <div>
-            <h4 className="font-bold text-zinc-900">5. Upgrades & Accumulation</h4>
+            <h3 className="font-bold text-zinc-900">5. Upgrades & Accumulation</h3>
             <p>Users may submit subsequent payments to increase their verified total amount and improve their position.</p>
           </div>
         </div>
@@ -400,6 +444,29 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
                 </div>
               </div>
             )}
+
+            {/* Notification Subscribers */}
+            {adminData?.notificationSubscriptions?.length > 0 && (
+              <div>
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-amber-800 mb-2">
+                  Email Alert Subscribers ({adminData.notificationSubscriptions.length})
+                </h4>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                  {adminData.notificationSubscriptions.map((sub: any) => (
+                    <div key={sub.id} className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-zinc-800 flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-zinc-950">{sub.email}</span>
+                        {sub.name && <span className="ml-1 text-zinc-600">({sub.name})</span>}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-amber-900">
+                        {sub.notifyOnOutranked && <span className="bg-amber-100 px-1.5 py-0.5 rounded">Outranked</span>}
+                        {sub.notifyOnNomination && <span className="bg-amber-100 px-1.5 py-0.5 rounded">Nomination</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -413,18 +480,36 @@ interface LiveStatsModalProps extends ModalBaseProps {
 }
 
 export const LiveStatsModal: React.FC<LiveStatsModalProps> = ({ isOpen, onClose, stats, onRefresh }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs">
-      <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="live-stats-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
             </span>
-            <h3 className="font-extrabold text-base text-zinc-950">Live Leaderboard Stats</h3>
+            <h2 id="live-stats-modal-title" className="font-extrabold text-base text-zinc-950">Live Leaderboard Stats</h2>
             <span className="text-[10px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 border border-emerald-200">
               REAL-TIME
             </span>
@@ -434,12 +519,17 @@ export const LiveStatsModal: React.FC<LiveStatsModalProps> = ({ isOpen, onClose,
               <button
                 onClick={onRefresh}
                 title="Refresh stats"
-                className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer"
+                aria-label="Refresh live statistics"
+                className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
-            <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 cursor-pointer">
+            <button
+              onClick={onClose}
+              aria-label="Close dialog"
+              className="p-1.5 text-zinc-400 hover:text-zinc-700 rounded-lg hover:bg-zinc-100 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>

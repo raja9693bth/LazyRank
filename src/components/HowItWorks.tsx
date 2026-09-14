@@ -26,9 +26,9 @@ export const HowItWorks: React.FC = () => {
   return (
     <section className="w-full max-w-2xl mx-auto my-5 sm:my-6">
       <div className="pb-2 border-b border-zinc-100 mb-3">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-500">
           How LAZY Works
-        </h3>
+        </h2>
         <p className="text-[11px] text-zinc-400 mt-0.5">
           A serious interface for a ridiculous social experiment.
         </p>
@@ -52,9 +52,9 @@ export const HowItWorks: React.FC = () => {
                   </span>
                 </div>
 
-                <h4 className="text-xs font-bold text-zinc-900 mb-1">
+                <h3 className="text-xs font-bold text-zinc-900 mb-1">
                   {s.title}
-                </h4>
+                </h3>
 
                 <p className="text-[11px] text-zinc-500 leading-relaxed">
                   {s.desc}

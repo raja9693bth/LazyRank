@@ -88,7 +88,7 @@ export async function generateRoast(
   }
 
   try {
-    const prompt = `You are the official witty, deadpan roast engine for "LAZY" (lazy.lol), an internet pay-to-rank game where users spend real money solely to prove how lazy they are.
+    const prompt = `You are the official witty, deadpan roast engine for "LAZY" (lazyproof.online), an internet pay-to-rank game where users spend real money solely to prove how lazy they are.
 
 PARTICIPANT DETAILS:
 - Name: ${profile.name}
@@ -110,20 +110,35 @@ STRICT TONE & FORMAT RULES:
 - NO hashtags, no emojis, no asterisks, no exclamation overload.
 - Keep it clean, harmless, and self-deprecating about money vs laziness.`;
 
-    const generatePromise = ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        temperature: 0.85,
-        maxOutputTokens: 80,
+    // Provide a comfortable 8.5s timeout for Gemini 3.8 Flash generation
+    const generateWithTimeout = async (timeoutMs = 8500) => {
+      const generatePromise = ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: prompt,
+        config: {
+          temperature: 0.85,
+          maxOutputTokens: 80,
+        }
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini API request timed out')), timeoutMs)
+      );
+
+      return Promise.race([generatePromise, timeoutPromise]);
+    };
+
+    let response;
+    try {
+      response = await generateWithTimeout(8500);
+    } catch (firstErr: any) {
+      // If timed out or transient rate limit, attempt one quick retry before dropping to fallback
+      if (firstErr?.message?.includes('timed out') || firstErr?.status === 429 || firstErr?.status === 503) {
+        response = await generateWithTimeout(6500);
+      } else {
+        throw firstErr;
       }
-    });
-
-    const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Gemini API request timed out')), 3500)
-    );
-
-    const response = await Promise.race([generatePromise, timeoutPromise]);
+    }
 
     let text = response.text ? response.text.trim() : '';
 

@@ -53,7 +53,8 @@ export const Hero: React.FC<HeroProps> = ({
           id="hero-take-rank1-btn"
           type="button"
           onClick={() => onClaimAmount(minAmountToBeatTop)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer"
+          aria-label={hasTopHolder ? `Take #1 for ₹${minAmountToBeatTop.toLocaleString('en-IN')}` : `Claim #1 for ₹${minAmountToBeatTop.toLocaleString('en-IN')}`}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-2"
         >
           <Flame className="w-3.5 h-3.5 text-white fill-white shrink-0" />
           <span>{hasTopHolder ? `Take #1 for ₹${minAmountToBeatTop.toLocaleString('en-IN')}` : `Claim #1 for ₹${minAmountToBeatTop.toLocaleString('en-IN')}`}</span>
@@ -63,7 +64,8 @@ export const Hero: React.FC<HeroProps> = ({
           id="hero-view-leaderboard-btn"
           type="button"
           onClick={onScrollToLeaderboard}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/90 hover:bg-white border border-[#eae2d6] text-stone-700 text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer"
+          aria-label="Scroll to live leaderboard"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/90 hover:bg-white border border-[#eae2d6] text-stone-700 text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-600 focus-visible:ring-offset-2"
         >
           <span>View Leaderboard</span>
           <ArrowDown className="w-3 h-3 text-stone-400 shrink-0" />

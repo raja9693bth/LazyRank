@@ -34,7 +34,8 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
         <button
           type="button"
           onClick={() => onNavigate('/')}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-700 hover:text-zinc-950 bg-white hover:bg-zinc-100 border border-zinc-200 shadow-2xs transition-all cursor-pointer"
+          aria-label="Back to leaderboard home"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-700 hover:text-zinc-950 bg-white hover:bg-zinc-100 border border-zinc-200 shadow-2xs transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
           <span>Back to Leaderboard</span>
@@ -44,7 +45,7 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
           <button
             type="button"
             onClick={() => onNavigate('/')}
-            className="hover:text-zinc-900 cursor-pointer"
+            className="hover:text-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800 rounded px-1"
           >
             Home
           </button>
@@ -92,15 +93,17 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
         </div>
 
         {/* Quick Cross-Policy Tabs */}
-        <div className="mt-4 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+        <div className="mt-4 flex items-center gap-1.5 overflow-x-auto pb-1 text-xs" role="tablist" aria-label="Documentation sections">
           {policyNav.map(item => {
             const isActive = currentPath === item.path;
             return (
               <button
                 key={item.path}
                 type="button"
+                role="tab"
+                aria-selected={isActive}
                 onClick={() => onNavigate(item.path)}
-                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-semibold transition-all cursor-pointer ${
+                className={`px-3 py-1.5 rounded-lg whitespace-nowrap font-semibold transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 ${
                   isActive
                     ? 'bg-zinc-950 text-white shadow-2xs'
                     : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'

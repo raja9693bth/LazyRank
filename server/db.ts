@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { UserProfile, Nomination, ActivityEvent, PurchaseRecord, ReportRecord, AnalyticsSummary, LiveStats, ContactMessage, NotificationSubscription, ClaimHistoryRecord, GlobalActivityData, HourlyActivityBucket, DayActivityBucket, LazyDilemma } from '../src/types.ts';
+import { PostgresDatabase } from './db/postgres.ts';
 
 const DATA_FILE = path.join(process.cwd(), 'server-data.json');
 
@@ -334,10 +335,14 @@ export class LazyDatabase {
   private state: DatabaseState;
   private activeSessions: Map<string, number> = new Map();
   private dailyVisits: Map<string, Set<string>> = new Map();
+  public pg = new PostgresDatabase();
 
   constructor() {
     this.state = this.loadData();
     this.recalculateRanks();
+    if (this.pg.isAvailable()) {
+      this.pg.init().catch(err => console.error('[PostgreSQL] Async init error:', err));
+    }
   }
 
   private loadData(): DatabaseState {
@@ -1137,6 +1142,31 @@ export class LazyDatabase {
       previousTop: previousTop && previousTop.id !== finalizedProfile.id ? previousTop : undefined,
       message: 'Legitimacy Verified.'
     };
+  }
+
+  public async reverseRefund(orderId: string, amount: number, reason: string): Promise<boolean> {
+    if (this.pg.isAvailable()) {
+      try {
+        await this.pg.reverseRefundAtomic({ orderId, amount, reason });
+      } catch (pgErr) {
+        console.error('[PostgreSQL] Reverse refund error:', pgErr);
+      }
+    }
+    if (this.state.orders && this.state.orders[orderId]) {
+      const ord = this.state.orders[orderId];
+      ord.status = 'REFUNDED';
+      if (ord.profileId) {
+        const prof = this.getRawProfile(ord.profileId);
+        if (prof) {
+          prof.amount = Math.max(0, prof.amount - Math.round(amount));
+          prof.updatedAt = new Date().toISOString();
+          this.recalculateRanks();
+          this.saveData();
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   public createParticipant(params: {

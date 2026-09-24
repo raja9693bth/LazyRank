@@ -1,5 +1,7 @@
 import React from 'react';
 import { LegalPageLayout } from '../components/LegalPageLayout';
+import { LEGAL_CONFIG } from '../config/legal';
+import { AlertCircle, CheckCircle2, RefreshCw } from 'lucide-react';
 
 interface RefundPageProps {
   onNavigate: (path: string) => void;
@@ -9,120 +11,151 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
   return (
     <LegalPageLayout
       title="Refund & Cancellation Policy"
-      subtitle="Clear and transparent guidelines on payment cancellation, transaction reversals, duplicate charges, and refund requests."
-      lastUpdated="September 10, 2026"
+      subtitle="Clear and transparent guidelines on payment cancellation, transaction reversals, duplicate charges, technical failures, and refund requests."
+      lastUpdated="September 24, 2026"
       currentPath="/refund-cancellation"
       onNavigate={onNavigate}
     >
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          1. Cancellation Before Payment
+          1. Overview of Digital Service & General Non-Refundability
         </h2>
         <p>
-          You are free to cancel or abandon your rank claim at any time before completing payment. If you close the payment modal, navigate away from the page, or decline authorization at the payment gateway window, no charge is made and no transaction is created. There are no cancellation fees, penalty charges, or hidden commitments.
+          {LEGAL_CONFIG.OPERATING_STATEMENT}
         </p>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          2. Nature of Digital Service & Post-Verification Policy
-        </h2>
         <div className="p-3.5 rounded-xl bg-zinc-100 border border-zinc-200 text-xs sm:text-sm text-zinc-800">
-          <strong>Immediate Digital Delivery:</strong> Upon successful verification of your payment by our backend server, your entry is calculated and permanently registered on the public LAZY leaderboard, your verified badge is activated, and your custom 9:16 high-resolution story cards are immediately generated and ready for download.
+          <strong>Immediate Digital Fulfillment:</strong> Upon successful cryptographic verification of your payment by our backend server, your profile is immediately committed to the public leaderboard, your verified badge is activated, your ranking position is computed, and your custom share cards are rendered.
         </div>
         <p>
-          Because the digital service and entertainment value (public rank allocation, digital legitimacy certification, and downloadable assets) are fulfilled and rendered immediately upon transaction verification, <strong>successfully verified payments are generally non-refundable</strong>, except in the specific circumstances detailed below.
+          Because the digital placement service and compute resources are delivered instantaneously upon server verification, <strong>successfully verified and delivered payments are non-refundable</strong>, except in the specific technical and billing scenarios defined below.
         </p>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          3. Debited But Unconfirmed / Failed Transactions
+          2. Specific Payment Scenarios & Refund Eligibility
         </h2>
-        <p>
-          Occasionally, due to network latency, inter-bank connectivity drops, or UPI timeout issues, funds may be debited from your bank account or UPI app while the order status on LAZY remains marked as "failed", "pending", or "expired".
-        </p>
-        <div className="space-y-2 text-xs sm:text-sm text-zinc-700">
-          <p>
-            <strong>Standard Banking Auto-Reversal:</strong> In such situations, the funds do not reach our account; they are held in the banking settlement clearing pool. Payment gateways and issuing banks have automated reconciliation engines that detect unconfirmed debits and reverse the money back to the original source account.
+        <div className="space-y-3 text-xs sm:text-sm">
+          {/* Scenario 1 */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+            <div className="font-bold text-zinc-950">Scenario A: Payment Abandoned or Cancelled Before Success</div>
+            <p className="text-zinc-600">
+              If you close the checkout modal, decline authorization at the bank or UPI app, or navigate away prior to completion, no transaction occurs. No funds are collected and no cancellation fee applies.
+            </p>
+          </div>
+
+          {/* Scenario 2 */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+            <div className="font-bold text-zinc-950">Scenario B: Failed Payment (No Debit)</div>
+            <p className="text-zinc-600">
+              If the payment gateway declines the transaction (e.g. insufficient funds, invalid OTP, bank server outage) and no money is debited from your account, the order is marked failed. No refund is necessary.
+            </p>
+          </div>
+
+          {/* Scenario 3 */}
+          <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 space-y-1 text-amber-900">
+            <div className="font-bold">Scenario C: Money Debited But Payment Not Confirmed (Technical Timeout)</div>
+            <p className="text-xs sm:text-sm leading-relaxed">
+              If funds are debited from your account or UPI wallet but the order on {LEGAL_CONFIG.BRAND_NAME} is not confirmed due to network timeouts, the funds remain in the inter-bank settlement clearing pool.
+            </p>
+            <ul className="list-disc list-inside space-y-1 pl-1 pt-1 text-xs">
+              <li><strong>Automated Bank Reversal:</strong> In most cases, the payment gateway or your issuing bank automatically reverses unconfirmed debits within <strong>3 to 7 business days</strong>.</li>
+              <li><strong>Assisted Reconciliation:</strong> If the funds do not reflect in your account within 7 business days, email us at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="font-bold underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> with your Bank Reference Number (UTR / RRN) and debit timestamp. We will coordinate directly with our payment gateway partner to expedite reconciliation.</li>
+            </ul>
+          </div>
+
+          {/* Scenario 4 */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+            <div className="font-bold text-zinc-950">Scenario D: Duplicate Charge for the Same Order</div>
+            <p className="text-zinc-600">
+              If your bank account was debited multiple times due to a browser glitch or rapid double-clicks, the duplicate payment is 100% eligible for a full refund.
+            </p>
+            <p className="text-zinc-600 text-[11px]">
+              <strong>Action Required:</strong> Contact support within 48 hours with both transaction reference IDs. Once verified against gateway logs, the duplicate amount will be refunded in full.
+            </p>
+          </div>
+
+          {/* Scenario 5 */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+            <div className="font-bold text-zinc-950">Scenario E: Payment Confirmed But Digital Placement Not Delivered</div>
+            <p className="text-zinc-600">
+              If our payment gateway confirms settlement but an unexpected server exception prevented your rank from updating within 15 minutes:
+            </p>
+            <p className="text-zinc-600 text-[11px]">
+              You may choose either: (a) immediate manual activation of your rank placement, or (b) an immediate 100% refund.
+            </p>
+          </div>
+
+          {/* Scenario 6 */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
+            <div className="font-bold text-zinc-950">Scenario F: Successfully Delivered Digital Placement</div>
+            <p className="text-zinc-600">
+              Once your placement has been successfully published to the live public leaderboard, rank assigned, and assets rendered, the digital service has been completely fulfilled. As clearly stated in our pricing transparency disclaimers, delivered placements are strictly non-refundable. Rank displacement by a subsequent participant does NOT constitute grounds for a refund.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2 flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 text-zinc-700" />
+          <span>3. Effect of Refunds & Reversals on Leaderboard Rank</span>
+        </h2>
+        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs sm:text-sm text-rose-900 space-y-2">
+          <div className="font-bold flex items-center gap-1.5">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>Leaderboard Integrity Rule:</span>
+          </div>
+          <p className="leading-relaxed">
+            A refunded, reversed, or charged-back payment will <strong>immediately cease to count toward verified ranking value</strong>. Our database will atomically debit the refunded amount from the profile's cumulative verified total and recalculate all leaderboard positions. If the cumulative balance drops to zero, the profile will be unranked or removed.
           </p>
-          <ul className="list-disc list-inside space-y-1 pl-1">
-            <li><strong>Turnaround Time:</strong> Depending on your bank and UPI app, reversals typically reflect within <strong>3 to 7 business days</strong>.</li>
-            <li><strong>If Not Received:</strong> If the debited amount has not reversed after 7 business days, please email us at <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a> with your Bank Reference Number (RRN / UTR number), order ID, payment date, and a screenshot of the debit entry from your banking statement. We will coordinate directly with our payment gateway partner to expedite reconciliation.</li>
-          </ul>
         </div>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          4. Duplicate Payments for the Same Order
+          4. Refund Processing Timeline & Method
         </h2>
-        <p>
-          If you accidentally paid twice for the same rank claim (for example, due to double-clicking during checkout or simultaneous UPI authorization), you are entitled to a full refund of the duplicate charge.
-        </p>
-        <p className="text-xs sm:text-sm text-zinc-700">
-          <strong>How to Request a Duplicate Refund:</strong> Email <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a> within 48 hours of the transaction with both payment reference numbers, the order ID, and your registered email address. Once verified by our payment gateway records, the duplicate payment will be refunded in full.
-        </p>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          5. Technical Service Delivery Failure
-        </h2>
-        <p>
-          If your payment is confirmed as successfully captured by our payment aggregator, but due to an irrecoverable server error or database malfunction, your verified rank is never allocated or displayed on the public leaderboard:
-        </p>
-        <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li>We will investigate and offer you the choice to either manually credit and publish your verified rank, or</li>
-          <li>Issue a 100% full refund of the paid amount.</li>
+        <ul className="list-disc list-inside space-y-2 text-xs sm:text-sm text-zinc-700 pl-1">
+          <li>
+            <strong>Internal Review & Approval:</strong> Validated refund requests are reviewed and approved by {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} within <strong>1 to 2 business days</strong>.
+          </li>
+          <li>
+            <strong>Original Payment Method Only:</strong> In strict compliance with Indian banking and anti-money laundering regulations, approved refunds are returned strictly to the original source account, card, or UPI VPA from which the payment originated. Cash or alternate-account refunds are never issued.
+          </li>
+          <li>
+            <strong>Final Bank Credit Timing:</strong> Once initiated by us, the funds typically credit your bank account within <strong>5 to 7 business days</strong>, depending on your issuing bank and payment aggregator processing schedules.
+          </li>
         </ul>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          6. Unauthorized or Fraudulent Charges
+          5. Chargebacks & Dispute Policy
         </h2>
         <p>
-          If you discover an unauthorized transaction on your card, net banking, or UPI account with a reference to LAZY:
-        </p>
-        <ol className="list-decimal list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li>Immediately notify your issuing bank or card provider to freeze the compromised instrument.</li>
-          <li>Notify our team immediately at <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a> with the transaction details. Upon receipt, we will freeze the associated leaderboard rank, conduct an audit, and cooperate with your bank and the payment gateway to process a reversal where fraud is established.</li>
-        </ol>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          7. Chargebacks & Payment Disputes
-        </h2>
-        <p>
-          We encourage participants to reach out to us first at <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a> before initiating a formal bank chargeback. Unwarranted chargebacks on legitimately verified claims harm platform continuity. Where a fraudulent chargeback is filed, the associated profile and rank will be permanently removed from the leaderboard.
+          We strongly urge users to contact our support team at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> first before initiating a bank chargeback. Unwarranted chargebacks on legitimately verified and delivered digital services cause unnecessary banking overhead. Where a fraudulent chargeback is filed, the associated profile and placement will be permanently terminated.
         </p>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          8. Refund Processing Method & Timelines
+          6. How to Submit a Refund Request
         </h2>
         <p>
-          All approved refunds are initiated through the originating payment processing provider and returned exclusively to the original payment source (the specific UPI ID, bank account, or debit/credit card used during payment).
+          To submit a refund request for an eligible transaction, please email us with:
         </p>
         <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li><strong>Processing Window:</strong> Once initiated by us, the refund typically reflects in your bank account within <strong>5 to 7 business days</strong>, depending on the recipient bank's standard settlement speed.</li>
-          <li><strong>Zero Cash / Third-Party Refunds:</strong> Under no circumstances will refunds be issued in cash or redirected to a different individual or account number than the original payer.</li>
+          <li>Your registered display name and order ID</li>
+          <li>Payment date, time, and exact amount in INR</li>
+          <li>Payment gateway transaction ID or Bank Reference Number (UTR / RRN)</li>
+          <li>Brief explanation of the technical issue or duplicate charge</li>
         </ul>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          9. Support Contact for Refund Inquiries
-        </h2>
-        <p>
-          For any refund, cancellation, or payment reconciliation assistance, please reach out to:
-        </p>
-        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs sm:text-sm">
-          <div><strong>Payment Support Email:</strong> <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a></div>
-          <div className="mt-1"><strong>Operating Entity:</strong> LAZY Project (Legal entity details pending finalization)</div>
+        <div className="mt-3 p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs sm:text-sm space-y-1">
+          <div><strong>Support Desk:</strong> <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a></div>
+          <div><strong>Support Phone:</strong> {LEGAL_CONFIG.SUPPORT_PHONE}</div>
+          <div><strong>Operating Entity:</strong> {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} ({LEGAL_CONFIG.ENTITY_TYPE})</div>
+          <div><strong>Business Hours:</strong> {LEGAL_CONFIG.BUSINESS_HOURS}</div>
         </div>
       </section>
     </LegalPageLayout>

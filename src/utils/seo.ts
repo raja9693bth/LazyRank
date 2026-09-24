@@ -60,9 +60,16 @@ export const PAGE_SEO: Record<string, PageSeoConfig> = {
     ogType: 'website',
     breadcrumbName: 'Refund Policy'
   },
+  '/delivery': {
+    title: "Delivery & Fulfillment Policy — LazyProof Digital Services",
+    description: "Official Delivery and Fulfillment Policy for LazyProof by Adabhra Group: transparent details on digital delivery timelines and automated server verification.",
+    canonicalPath: '/delivery',
+    ogType: 'website',
+    breadcrumbName: 'Delivery Policy'
+  },
   '/contact': {
-    title: "Contact Support & Verification Help — LAZY",
-    description: "Need assistance with a verified rank claim, duplicate charge, or dispute? Contact the LAZY engineering and support team at raja@xaivon.com.",
+    title: "Contact Support & Verification Help — LazyProof",
+    description: "Need assistance with a verified rank claim, duplicate charge, or dispute? Contact the LazyProof customer support desk at support@lazyproof.online.",
     canonicalPath: '/contact',
     ogType: 'website',
     breadcrumbName: 'Contact Us'
@@ -77,13 +84,13 @@ export function generateClientRouteJsonLd(route: string): object[] {
   const websiteNode = {
     '@type': 'WebSite',
     '@id': `${BASE_URL}/#website`,
-    name: 'LAZY',
+    name: 'LazyProof',
     url: `${BASE_URL}/`,
-    description: 'Public legitimacy leaderboard where higher verified payment equals higher rank.',
+    description: 'Digital Sponsored Profile Showcase & Public Leaderboard.',
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
-      name: 'LAZY Project',
+      name: 'Adabhra Group',
       url: BASE_URL
     }
   };

@@ -326,9 +326,16 @@ export const ROUTE_SEO: Record<string, RouteSeoMeta> = {
     ogType: 'website',
     breadcrumbName: 'Refund Policy'
   },
+  '/delivery': {
+    title: "Digital Delivery & Fulfillment Policy — LazyProof Digital Services",
+    description: "Official Delivery and Fulfillment Policy for LazyProof by Adabhra Group: transparent details on digital delivery timelines and automated server verification.",
+    canonicalPath: '/delivery',
+    ogType: 'website',
+    breadcrumbName: 'Delivery Policy'
+  },
   '/contact': {
-    title: "Contact Support & Verification Help — LAZY",
-    description: "Need assistance with a verified rank claim, duplicate charge, or dispute? Contact the LAZY engineering and support team at raja@xaivon.com.",
+    title: "Contact Support & Verification Help — LazyProof",
+    description: "Need assistance with a verified rank claim, duplicate charge, or dispute? Contact the LazyProof customer support desk at support@lazyproof.online.",
     canonicalPath: '/contact',
     ogType: 'website',
     breadcrumbName: 'Contact Us'
@@ -343,13 +350,13 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
   const websiteNode = {
     '@type': 'WebSite',
     '@id': `${baseUrl}/#website`,
-    name: 'LAZY',
+    name: 'LazyProof',
     url: `${baseUrl}/`,
-    description: 'Public legitimacy leaderboard where higher verified payment equals higher rank.',
+    description: 'Digital Sponsored Profile Showcase & Public Leaderboard.',
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
-      name: 'LAZY Project',
+      name: 'Adabhra Group',
       url: baseUrl
     }
   };

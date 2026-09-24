@@ -18,6 +18,7 @@ import { Footer } from './components/Footer.tsx';
 import { TermsPage } from './pages/TermsPage.tsx';
 import { PrivacyPage } from './pages/PrivacyPage.tsx';
 import { RefundPage } from './pages/RefundPage.tsx';
+import { DeliveryPage } from './pages/DeliveryPage.tsx';
 import { ContactPage } from './pages/ContactPage.tsx';
 import { AboutPage } from './pages/AboutPage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
@@ -296,6 +297,7 @@ export default function App() {
     name: string;
     amount: number;
     instagram?: string;
+    linkedin?: string;
     website?: string;
     reason?: string;
     profileId?: string;
@@ -333,7 +335,26 @@ export default function App() {
       });
 
       const data = await res.json();
-      if (!res.ok || !data.orderId) {
+      if (!res.ok) {
+        if (res.status === 503) {
+          setOrderData({
+            orderId: 'PENDING_ONBOARDING',
+            name: claimData.name,
+            amount: claimData.amount,
+            currency: 'INR',
+            isTop: false,
+            topAmount: 0,
+            minAmountToBeatTop: 1,
+            paymentMode: 'disabled',
+            instagram: claimData.instagram,
+            linkedin: claimData.linkedin,
+            website: claimData.website,
+            reason: claimData.reason,
+            profileId: targetProfileId
+          });
+          setIsPaymentModalOpen(true);
+          return;
+        }
         throw new Error(data.error || 'Failed to initiate payment.');
       }
 
@@ -474,6 +495,8 @@ export default function App() {
           <PrivacyPage onNavigate={navigate} />
         ) : currentPath === '/refund-cancellation' || currentPath === '/refund' ? (
           <RefundPage onNavigate={navigate} />
+        ) : currentPath === '/delivery' ? (
+          <DeliveryPage onNavigate={navigate} />
         ) : currentPath === '/contact' ? (
           <ContactPage onNavigate={navigate} />
         ) : currentPath === '/about' ? (

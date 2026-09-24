@@ -1,5 +1,6 @@
 import React from 'react';
-import { ArrowLeft, Mail, ShieldCheck, FileText, HelpCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Mail, ShieldCheck } from 'lucide-react';
+import { LEGAL_CONFIG } from '../config/legal';
 
 interface LegalPageLayoutProps {
   title: string;
@@ -13,7 +14,7 @@ interface LegalPageLayoutProps {
 export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
   title,
   subtitle,
-  lastUpdated = 'September 10, 2026',
+  lastUpdated = 'September 24, 2026',
   currentPath,
   onNavigate,
   children
@@ -22,6 +23,7 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
     { label: 'Terms & Conditions', path: '/terms' },
     { label: 'Privacy Policy', path: '/privacy' },
     { label: 'Refund & Cancellation', path: '/refund-cancellation' },
+    { label: 'Delivery Policy', path: '/delivery' },
     { label: 'Contact Us', path: '/contact' },
     { label: 'About LAZY', path: '/about' },
     { label: 'Rules & Ranking', path: '/rules' }
@@ -60,7 +62,7 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
       <header className="mb-8">
         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-100/70 border border-amber-200/80 text-[11px] font-black tracking-wider text-amber-900 uppercase mb-3">
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Official LAZY Documentation</span>
+          <span>Official {LEGAL_CONFIG.BRAND_NAME} Documentation</span>
         </div>
 
         <h1 className="text-2xl sm:text-3xl font-extrabold text-zinc-950 tracking-tight">
@@ -81,14 +83,14 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
           <span className="hidden sm:inline text-zinc-300">•</span>
           <div>
             <span className="text-zinc-400">Support email:</span>{' '}
-            <a href="mailto:raja@xaivon.com" className="font-semibold text-zinc-900 hover:underline">
-              raja@xaivon.com
+            <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="font-semibold text-zinc-900 hover:underline">
+              {LEGAL_CONFIG.SUPPORT_EMAIL}
             </a>
           </div>
           <span className="hidden sm:inline text-zinc-300">•</span>
           <div>
-            <span className="text-zinc-400">Entity:</span>{' '}
-            <span className="text-zinc-700 font-medium">LAZY Project (Legal entity details pending finalization)</span>
+            <span className="text-zinc-400">Operating Entity:</span>{' '}
+            <span className="text-zinc-700 font-medium">{LEGAL_CONFIG.LEGAL_BUSINESS_NAME} ({LEGAL_CONFIG.ENTITY_TYPE})</span>
           </div>
         </div>
 
@@ -128,15 +130,15 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
           <span>Have questions about our policies or your payment?</span>
         </h3>
         <p className="text-xs text-zinc-600 leading-relaxed mb-3">
-          Our team is available to assist with transaction confirmations, rank allocation queries, duplicate charge reconciliations, and content review.
+          Our team at {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} is available to assist with transaction confirmations, rank allocation queries, duplicate charge reconciliations, and content review.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <a
-            href="mailto:raja@xaivon.com"
+            href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold transition-colors"
           >
             <Mail className="w-3.5 h-3.5" />
-            <span>Email raja@xaivon.com</span>
+            <span>Email {LEGAL_CONFIG.SUPPORT_EMAIL}</span>
           </a>
           <button
             type="button"

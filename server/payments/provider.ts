@@ -1,0 +1,66 @@
+export interface CreateOrderParams {
+  orderId: string;
+  amount: number;
+  currency: string;
+  customerName: string;
+  customerEmail?: string;
+  customerPhone?: string;
+  returnUrl?: string;
+  notifyUrl?: string;
+  note?: string;
+}
+
+export interface ProviderOrderResult {
+  orderId: string;
+  providerOrderId?: string;
+  paymentSessionId?: string;
+  checkoutUrl?: string;
+  currency: string;
+  amount: number;
+  status: 'ACTIVE' | 'PAID' | 'FAILED' | 'PENDING';
+}
+
+export interface ProviderPaymentStatus {
+  orderId: string;
+  status: 'PAID' | 'PENDING' | 'FAILED' | 'USER_DROPPED' | 'CANCELLED';
+  providerPaymentId?: string;
+  amount?: number;
+  currency?: string;
+  paymentMethod?: string;
+  raw?: any;
+}
+
+export interface WebhookVerificationResult {
+  isValid: boolean;
+  event?: string;
+  orderId?: string;
+  providerPaymentId?: string;
+  amount?: number;
+  currency?: string;
+  status?: 'SUCCESS' | 'FAILED' | 'USER_DROPPED' | 'REFUNDED';
+  rawPayload?: any;
+  error?: string;
+}
+
+export interface RefundRequestParams {
+  orderId: string;
+  refundId: string;
+  amount: number;
+  reason: string;
+}
+
+export interface RefundResult {
+  success: boolean;
+  refundId: string;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED';
+  raw?: any;
+  error?: string;
+}
+
+export interface PaymentProvider {
+  name: string;
+  createOrder(params: CreateOrderParams): Promise<ProviderOrderResult>;
+  getPaymentStatus(orderId: string): Promise<ProviderPaymentStatus>;
+  verifyWebhook(rawBody: string, headers: Record<string, string | string[] | undefined>): Promise<WebhookVerificationResult>;
+  createRefund(params: RefundRequestParams): Promise<RefundResult>;
+}

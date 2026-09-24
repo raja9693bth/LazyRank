@@ -1,6 +1,7 @@
 import React from 'react';
 import { LazyLogo } from './LazyLogo';
 import { ShieldAlert, ShieldCheck, Sliders } from 'lucide-react';
+import { LEGAL_CONFIG } from '../config/legal';
 
 interface FooterProps {
   onNavigate: (path: string) => void;
@@ -23,7 +24,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
             <LazyLogo variant="horizontal" size="sm" />
           </button>
           <p className="text-xs text-zinc-500 max-w-md leading-relaxed">
-            The public pay-to-rank game where higher verified payment equals higher rank. Serious interface, ridiculous product.
+            {LEGAL_CONFIG.POSITIONING_TITLE}. Higher cumulative verified sponsorship determines leaderboard position.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-2">
             <div className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-50 px-3 py-1 rounded-full border border-zinc-200/80">
@@ -47,7 +48,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
           </div>
         </div>
 
-        {/* Link row: About, Rules, Terms, Privacy, Refund, Contact */}
+        {/* Link row: About, Rules, Terms, Privacy, Refund, Delivery, Contact */}
         <nav aria-label="Footer Navigation" className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-zinc-600 font-medium text-xs">
           <button
             id="footer-link-about"
@@ -90,6 +91,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
             Refund & Cancellation
           </button>
           <button
+            id="footer-link-delivery"
+            type="button"
+            onClick={() => onNavigate('/delivery')}
+            className="hover:text-zinc-950 transition-colors cursor-pointer"
+          >
+            Delivery Policy
+          </button>
+          <button
             id="footer-link-contact"
             type="button"
             onClick={() => onNavigate('/contact')}
@@ -124,15 +133,19 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
         </div>
 
         {/* Copyright, entity, & support email */}
-        <div className="pt-3 border-t border-zinc-100 text-[11px] text-zinc-400 space-y-0.5">
+        <div className="pt-3 border-t border-zinc-100 text-[11px] text-zinc-400 space-y-1">
           <div>
-            © {new Date().getFullYear()} LAZY. All rights reserved.
+            © {new Date().getFullYear()} {LEGAL_CONFIG.BRAND_NAME}. Operated by {LEGAL_CONFIG.LEGAL_BUSINESS_NAME}, a sole proprietorship registered in India.
           </div>
           <div>
-            Support: <a href="mailto:raja@xaivon.com" className="font-semibold text-zinc-600 hover:underline">raja@xaivon.com</a>
+            Support:{' '}
+            <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="font-semibold text-zinc-600 hover:underline">
+              {LEGAL_CONFIG.SUPPORT_EMAIL}
+            </a>{' '}
+            | {LEGAL_CONFIG.SUPPORT_PHONE}
           </div>
-          <div className="text-[10px] text-zinc-400">
-            Strictly an entertainment game. Not an investment, sweepstakes, or lottery.
+          <div className="text-[10px] text-zinc-400 max-w-lg mx-auto">
+            {LEGAL_CONFIG.DISCLAIMER}
           </div>
         </div>
       </div>

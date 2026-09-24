@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { LegalPageLayout } from '../components/LegalPageLayout';
-import { Mail, ShieldCheck, AlertCircle, CheckCircle, Send, Clock, HelpCircle, Lock } from 'lucide-react';
+import { LEGAL_CONFIG } from '../config/legal';
+import { Mail, ShieldCheck, AlertCircle, CheckCircle, Send, Clock, Phone, MapPin, Lock } from 'lucide-react';
 
 interface ContactPageProps {
   onNavigate: (path: string) => void;
@@ -9,7 +10,7 @@ interface ContactPageProps {
 export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [subject, setSubject] = useState('Payment Query');
+  const [subject, setSubject] = useState('Payment / Rank Claim Issue');
   const [orderId, setOrderId] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -25,7 +26,6 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
       return;
     }
 
-    // Basic email format check
     if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
       setErrorMessage('Please enter a valid email address.');
       return;
@@ -57,7 +57,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
       setOrderId('');
       setMessage('');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Something went wrong. Please email raja@xaivon.com directly.');
+      setErrorMessage(err.message || `Something went wrong. Please email ${LEGAL_CONFIG.SUPPORT_EMAIL} directly.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -65,47 +65,62 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
 
   return (
     <LegalPageLayout
-      title="Contact Us"
-      subtitle="Have a question about your rank, payment verification, duplicate charges, or content moderation? We're here to help."
-      lastUpdated="September 10, 2026"
+      title="Contact & Customer Support"
+      subtitle={`Have a question about your rank, payment verification, duplicate charge, or content moderation? Contact the ${LEGAL_CONFIG.LEGAL_BUSINESS_NAME} team.`}
+      lastUpdated="September 24, 2026"
       currentPath="/contact"
       onNavigate={onNavigate}
     >
       {/* Official Business Identity Information */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-2">
-        <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200">
-          <div className="flex items-center gap-2 mb-2 text-zinc-950 font-bold text-sm">
+        <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2">
+          <div className="flex items-center gap-2 text-zinc-950 font-bold text-sm">
             <Mail className="w-4 h-4 text-amber-600" />
-            <span>Direct Email Support</span>
+            <span>Direct Support Channels</span>
           </div>
-          <p className="text-xs text-zinc-600 mb-2">
-            Write to us for any urgent issues or inquiries:
-          </p>
-          <a
-            href="mailto:raja@xaivon.com"
-            className="inline-block text-sm font-black text-amber-900 bg-amber-100/80 px-3 py-1.5 rounded-lg border border-amber-300 hover:bg-amber-200 transition-colors"
-          >
-            raja@xaivon.com
-          </a>
-          <p className="text-[11px] text-zinc-400 mt-2">
-            Average response time: within 24 to 48 hours on business days.
-          </p>
+          <div className="text-xs text-zinc-600 space-y-1.5">
+            <div>
+              <span className="text-zinc-500">Email:</span>{' '}
+              <a
+                href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`}
+                className="font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-300 hover:bg-amber-200 transition-colors"
+              >
+                {LEGAL_CONFIG.SUPPORT_EMAIL}
+              </a>
+            </div>
+            <div>
+              <span className="text-zinc-500">Phone:</span>{' '}
+              <a href={`tel:${LEGAL_CONFIG.SUPPORT_PHONE}`} className="font-semibold text-zinc-900 hover:underline">
+                {LEGAL_CONFIG.SUPPORT_PHONE}
+              </a>
+            </div>
+            <div className="flex items-start gap-1 text-[11px] text-zinc-500 pt-1">
+              <Clock className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>Hours: {LEGAL_CONFIG.BUSINESS_HOURS}</span>
+            </div>
+          </div>
         </div>
 
-        <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200">
-          <div className="flex items-center gap-2 mb-2 text-zinc-950 font-bold text-sm">
+        <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-2">
+          <div className="flex items-center gap-2 text-zinc-950 font-bold text-sm">
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
-            <span>Business Association</span>
+            <span>Operating Entity Details</span>
           </div>
-          <p className="text-xs text-zinc-700 font-medium">
-            <strong>Platform:</strong> LAZY (Public Pay-to-Rank Experience)
-          </p>
-          <p className="text-xs text-zinc-600 mt-1">
-            <strong>Operating Entity:</strong> LAZY Project (Legal entity registration & verification pending finalization)
-          </p>
-          <p className="text-[11px] text-zinc-500 mt-2">
-            Jurisdiction: Republic of India
-          </p>
+          <div className="text-xs text-zinc-700 space-y-1">
+            <div>
+              <strong>Enterprise:</strong> {LEGAL_CONFIG.LEGAL_BUSINESS_NAME}
+            </div>
+            <div>
+              <strong>Entity Type:</strong> {LEGAL_CONFIG.ENTITY_TYPE}
+            </div>
+            <div className="flex items-start gap-1 text-[11px] text-zinc-500 pt-0.5">
+              <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-zinc-400" />
+              <span>{LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS}</span>
+            </div>
+            <div className="text-[11px] text-zinc-400">
+              Jurisdiction: Republic of India
+            </div>
+          </div>
         </div>
       </div>
 
@@ -116,16 +131,16 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
         </h2>
         <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-zinc-700">
           <li className="p-2.5 rounded-lg bg-white border border-zinc-200">
-            <strong>1. Payment Status:</strong> Checking unconfirmed or debited transactions.
+            <strong>1. Payment & Rank Verification:</strong> Resolving unconfirmed debits or delayed rank updates.
           </li>
           <li className="p-2.5 rounded-lg bg-white border border-zinc-200">
-            <strong>2. Rank Verification:</strong> Resolving rank sync or server verification delays.
+            <strong>2. Duplicate Debits:</strong> Reconciling accidental duplicate transactions for full refunds.
           </li>
           <li className="p-2.5 rounded-lg bg-white border border-zinc-200">
-            <strong>3. Duplicate Debits:</strong> Initiating refunds for unintentional double payments.
+            <strong>3. Content Moderation:</strong> Reporting abusive, defamatory, or infringing profile entries.
           </li>
           <li className="p-2.5 rounded-lg bg-white border border-zinc-200">
-            <strong>4. Content Moderation:</strong> Reporting abusive, defamatory, or infringing profiles.
+            <strong>4. Profile Updates & Inquiries:</strong> Updating profile statements or general platform questions.
           </li>
         </ul>
       </section>
@@ -137,7 +152,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
             Send an On-Site Message
           </h2>
           <p className="text-xs text-zinc-600">
-            Fill out the form below and our team will receive your message immediately.
+            Fill out the form below and our support desk will respond via email within 24 to 48 hours.
           </p>
         </div>
 
@@ -148,7 +163,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
               <span>Inquiry Received Successfully!</span>
             </div>
             <p className="leading-relaxed">
-              Thank you for reaching out. We have received your message. Our support desk (<a href="mailto:raja@xaivon.com" className="font-bold underline">raja@xaivon.com</a>) will review your query and respond via email within 24–48 hours.
+              Thank you for reaching out. We have received your message. Our support desk ({LEGAL_CONFIG.SUPPORT_EMAIL}) will review your query and respond via email within 24–48 hours.
             </p>
             <button
               type="button"
@@ -210,10 +225,10 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                   onChange={(e) => setSubject(e.target.value)}
                   className="w-full px-3 py-2 text-xs border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:border-zinc-950 bg-white"
                 >
-                  <option value="Payment Query">Payment Query / Unconfirmed Debit</option>
-                  <option value="Rank Verification">Rank Verification / Update</option>
-                  <option value="Duplicate Refund">Duplicate Charge / Refund Request</option>
-                  <option value="Report Content">Report Inappropriate Content / Profile</option>
+                  <option value="Payment / Rank Claim Issue">Payment / Rank Claim Issue</option>
+                  <option value="Refund / Cancellation Request">Refund / Cancellation Request</option>
+                  <option value="Duplicate Charge Inquiry">Duplicate Charge Inquiry</option>
+                  <option value="Content Moderation / Report Query">Content Moderation / Report Query</option>
                   <option value="Technical Bug">Technical Issue / Bug Report</option>
                   <option value="General Inquiry">General Inquiry</option>
                 </select>
@@ -228,7 +243,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
                   type="text"
                   value={orderId}
                   onChange={(e) => setOrderId(e.target.value)}
-                  placeholder="e.g. ord_abc123 or Rank #4"
+                  placeholder="e.g. order_abc123 or Rank #4"
                   className="w-full px-3 py-2 text-xs border border-zinc-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-zinc-950 focus:border-zinc-950"
                 />
               </div>
@@ -284,7 +299,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
         <div>
           <strong className="block text-amber-900 font-bold mb-0.5">Security Notice</strong>
           <span>
-            LAZY platform representatives will <strong>NEVER</strong> ask for your UPI PIN, ATM PIN, net banking password, or card CVV. Never share sensitive banking credentials with anyone.
+            {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} representatives will <strong>NEVER</strong> ask for your UPI PIN, ATM PIN, net-banking passwords, or card CVV. Never disclose sensitive financial credentials to anyone.
           </span>
         </div>
       </div>

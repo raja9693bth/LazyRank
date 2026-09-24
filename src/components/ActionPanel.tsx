@@ -42,6 +42,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   const [reason, setReason] = useState('');
   const [showOptionalLinks, setShowOptionalLinks] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [termsAccepted, setTermsAccepted] = useState(true);
 
   useEffect(() => {
     if (initialAmount && initialAmount > 0) {
@@ -98,6 +99,10 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
     }
     if (isNaN(amount) || amount < 1) {
       setLocalError('Minimum payment is ₹1.');
+      return;
+    }
+    if (!termsAccepted) {
+      setLocalError('Please accept the Terms & Conditions and Refund Policy to proceed.');
       return;
     }
 
@@ -393,11 +398,65 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             </div>
           )}
 
+          {/* Pricing & Checkout Transparency Box (Section 3F) */}
+          <div className="p-3.5 rounded-xl border border-[#ede5da] bg-[#faf8f4] text-xs space-y-2">
+            <div className="flex items-center justify-between font-bold text-stone-900 border-b border-[#ede5da] pb-1.5">
+              <span>Service Item</span>
+              <span>Amount</span>
+            </div>
+            <div className="flex items-center justify-between text-stone-700">
+              <span className="truncate pr-2">Digital Sponsored Profile Placement & Showcase</span>
+              <span className="font-mono-numbers font-bold">₹{amount.toLocaleString('en-IN')} INR</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-stone-500">
+              <span>Tax Consideration</span>
+              <span>Inclusive of applicable taxes</span>
+            </div>
+            <div className="flex items-center justify-between text-xs font-black text-stone-950 border-t border-[#ede5da] pt-1.5">
+              <span>Final Payable Total</span>
+              <span className="font-mono-numbers text-sm text-[#9c3a16]">₹{amount.toLocaleString('en-IN')} INR</span>
+            </div>
+
+            <div className="text-[11px] text-stone-500 space-y-1 pt-1 border-t border-[#ede5da]/60 leading-relaxed">
+              <p>
+                <strong>What you receive:</strong> Public leaderboard placement, verified badge, downloadable 9:16 story cards, and optional public social/website links.
+              </p>
+              <p>
+                <strong>Ranking Mechanics:</strong> Leaderboard position is determined deterministically by cumulative verified sponsorship. Another participant may sponsor a higher amount and displace your rank at any time.
+              </p>
+            </div>
+
+            {/* Terms & Refund Policy Agreement Checkbox */}
+            <label className="flex items-start gap-2 pt-1.5 cursor-pointer text-[11px] text-stone-700 font-medium">
+              <input
+                id="terms-checkbox"
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => {
+                  setTermsAccepted(e.target.checked);
+                  if (localError) setLocalError(null);
+                }}
+                className="mt-0.5 rounded border-stone-300 text-stone-900 focus:ring-stone-800"
+              />
+              <span>
+                I agree to the{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-bold underline text-stone-900 hover:text-[#9c3a16]">
+                  Terms & Conditions
+                </a>{' '}
+                and{' '}
+                <a href="/refund-cancellation" target="_blank" rel="noopener noreferrer" className="font-bold underline text-stone-900 hover:text-[#9c3a16]">
+                  Refund Policy
+                </a>
+                . I acknowledge that ranking is dynamic and that delivered placements are non-refundable.
+              </span>
+            </label>
+          </div>
+
           {/* Primary Submit Button */}
           <button
             id="prove-your-laziness-btn"
             type="submit"
-            disabled={isLoading || !name.trim() || amount < 1}
+            disabled={isLoading || !name.trim() || amount < 1 || !termsAccepted}
             aria-label={`Prove your laziness - pay ₹${amount.toLocaleString('en-IN')}`}
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] py-3 px-5 text-xs sm:text-sm font-black text-white shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-2"
           >

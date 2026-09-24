@@ -7,6 +7,8 @@ import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.ts';
 import { generateRoast, generateFallbackRoast } from './server/roast.ts';
 import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE_SEO } from './server/seo.ts';
+import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
+import { paymentManager } from './server/payments/index.ts';
 
 const BANNED_WORDS = [
   'kill', 'suicide', 'die', 'murder', 'bitch', 'asshole', 'bastard', 'slut', 'whore', 'nigger', 'faggot', 'chutiya', 'madarchod', 'bhenchod', 'gaand'
@@ -101,11 +103,12 @@ async function startServer() {
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     const cspDirectives = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://sdk.cashfree.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https: blob:",
-      "connect-src 'self' https: wss:",
+      "connect-src 'self' https: wss: https://sandbox.cashfree.com https://api.cashfree.com",
+      "frame-src 'self' https://sdk.cashfree.com",
       "frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://lazyproof.online",
       "object-src 'none'",
       "base-uri 'self'"
@@ -221,22 +224,39 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  // Payment Gateway Configuration / Status
+  app.get('/api/payment/config', (req: Request, res: Response) => {
+    res.json({
+      paymentMode: paymentManager.getMode(),
+      enabled: paymentManager.isEnabled(),
+      provider: paymentManager.getProvider().name,
+      isSandbox: paymentManager.getMode() === 'sandbox',
+      legalBusinessName: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
+      brandName: SERVER_LEGAL_CONFIG.BRAND_NAME,
+      serviceDescription: SERVER_LEGAL_CONFIG.SERVICE_DESCRIPTION,
+      currency: 'INR',
+      onboardingNotice: paymentManager.isEnabled()
+        ? null
+        : 'Payment gateway onboarding in progress with Cashfree Payments India Pvt Ltd. Digital sponsored profile checkout will activate immediately upon merchant account verification.'
+    });
+  });
+
   // Create payment order / initiate claim
-  app.post('/api/payment/create-order', (req: Request, res: Response) => {
+  app.post('/api/payment/create-order', async (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 30, 60000)) {
       return res.status(429).json({ error: 'Too many requests. Please slow down.' });
     }
 
-    // STRICT PAYMENT DISABLEMENT: Live payments are not approved yet (sandbox disabled in production)
-    if (PAYMENT_MODE === 'disabled' || process.env.NODE_ENV === 'production') {
+    // STRICT PAYMENT DISABLEMENT: When disabled or unconfigured
+    if (!paymentManager.isEnabled()) {
       return res.status(503).json({
         error: 'Payments are currently unavailable until payment processing is enabled.',
         paymentMode: 'disabled'
       });
     }
 
-    const { name, amount, instagram, linkedin, website, reason, lazyReason, profileId } = req.body;
+    const { name, amount, instagram, linkedin, website, reason, lazyReason, profileId, customerEmail, customerPhone } = req.body;
     const providedToken = (req.headers['x-profile-token'] as string) || req.body?.ownerToken;
 
     // For existing profile upgrades: profile must exist, owner token must be present and valid
@@ -261,7 +281,7 @@ async function startServer() {
     const num = Number(amount);
     const parsedAmount = parseInt(amount, 10);
     if (isNaN(parsedAmount) || !Number.isInteger(num) || parsedAmount < 1 || parsedAmount > 1000000) {
-      return res.status(400).json({ error: 'Payment amount must be a whole integer between ₹1 and ₹10,00,000.' });
+      return res.status(400).json({ error: 'Payment amount must be a whole integer between ₹1 and ₹10,000,00.' });
     }
 
     if (reason && typeof reason === 'string' && reason.length > 140) {
@@ -292,21 +312,45 @@ async function startServer() {
       lazyReason: lazyReason?.trim()
     });
 
-    res.json({
-      orderId,
-      name: name.trim(),
-      amount: parsedAmount,
-      currency: 'INR',
-      isTop,
-      topAmount,
-      minAmountToBeatTop: topAmount + 1,
-      profileId,
-      instagram: db.normalizeInstagram(instagram),
-      linkedin: db.normalizeLinkedIn(linkedin),
-      website: db.normalizeWebsite(website),
-      reason: reason?.trim(),
-      lazyReason: lazyReason?.trim()
-    });
+    try {
+      const providerOrder = await paymentManager.getProvider().createOrder({
+        orderId,
+        amount: parsedAmount,
+        currency: 'INR',
+        customerName: name.trim(),
+        customerEmail: (customerEmail && typeof customerEmail === 'string' ? customerEmail.trim() : undefined) || 'support@lazyproof.online',
+        customerPhone: (customerPhone && typeof customerPhone === 'string' ? customerPhone.trim() : undefined) || '9999999999',
+        returnUrl: `https://lazyproof.online/?order_id=${orderId}&status=return`,
+        notifyUrl: `https://lazyproof.online/api/payment/webhook`,
+        note: `Digital sponsored profile placement on LazyProof - ${name.trim()}`
+      });
+
+      res.json({
+        orderId,
+        paymentSessionId: providerOrder.paymentSessionId,
+        checkoutUrl: providerOrder.checkoutUrl,
+        providerOrderId: providerOrder.providerOrderId,
+        name: name.trim(),
+        amount: parsedAmount,
+        currency: 'INR',
+        isTop,
+        topAmount,
+        minAmountToBeatTop: topAmount + 1,
+        profileId,
+        paymentMode: paymentManager.getMode(),
+        instagram: db.normalizeInstagram(instagram),
+        linkedin: db.normalizeLinkedIn(linkedin),
+        website: db.normalizeWebsite(website),
+        reason: reason?.trim(),
+        lazyReason: lazyReason?.trim()
+      });
+    } catch (err: any) {
+      console.error('[PaymentManager] Provider createOrder error:', err);
+      res.status(502).json({
+        error: err?.message || 'Payment gateway order creation failed.',
+        orderId
+      });
+    }
   });
 
   // Server-side Payment Verification (Authoritative: grants rank only upon verified order & payment)
@@ -316,8 +360,8 @@ async function startServer() {
       return res.status(429).json({ error: 'Too many verification attempts. Please slow down.' });
     }
 
-    // STRICT PAYMENT DISABLEMENT: Live payments are not approved yet (sandbox disabled in production)
-    if (PAYMENT_MODE === 'disabled' || process.env.NODE_ENV === 'production') {
+    // STRICT PAYMENT DISABLEMENT
+    if (!paymentManager.isEnabled()) {
       return res.status(503).json({
         error: 'Payments are currently unavailable until payment processing is enabled.',
         paymentMode: 'disabled'
@@ -359,28 +403,7 @@ async function startServer() {
       return res.status(400).json({ error: 'Payment reference has already been processed.' });
     }
 
-    const gatewaySecret = process.env.RAZORPAY_KEY_SECRET || process.env.PAYMENT_WEBHOOK_SECRET;
-
-    // Strict cryptographic signature validation if payment gateway secret is configured
-    if (gatewaySecret) {
-      if (!razorpay_signature) {
-        return res.status(401).json({ error: 'Missing gateway verification signature.' });
-      }
-      try {
-        const expectedSig = crypto
-          .createHmac('sha256', gatewaySecret)
-          .update(`${orderId}|${cleanRef}`)
-          .digest('hex');
-        const sigBuf = Buffer.from(razorpay_signature.trim());
-        const expectedBuf = Buffer.from(expectedSig);
-        if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
-          return res.status(401).json({ error: 'Invalid payment signature from gateway.' });
-        }
-      } catch {
-        return res.status(401).json({ error: 'Payment signature validation failed.' });
-      }
-    } else if (process.env.NODE_ENV === 'production') {
-      // In production without configured gateway secrets, direct client claims without verified webhook settlement are prohibited
+    if (process.env.NODE_ENV === 'production') {
       return res.status(403).json({
         error: 'Direct client-side verification is disabled in production. Payments must settle via verified gateway webhook.'
       });
@@ -416,9 +439,102 @@ async function startServer() {
     });
   });
 
-  // Authoritative Provider Webhook (Aggregators)
-  app.post('/api/payment/webhook', (req: Request, res: Response) => {
-    if (PAYMENT_MODE === 'disabled' || process.env.NODE_ENV === 'production') {
+  // Client polling endpoint: Authoritative status check
+  app.get('/api/payment/status/:orderId', async (req: Request, res: Response) => {
+    const orderId = req.params.orderId;
+    if (!orderId || typeof orderId !== 'string') {
+      return res.status(400).json({ error: 'Order ID is required.' });
+    }
+    const order = db.getOrder(orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+    if (order.status === 'completed') {
+      const profile = order.profileId ? db.getProfile(order.profileId) : undefined;
+      return res.json({
+        orderId,
+        status: 'PAID',
+        profile: profile ? db.sanitizeProfile(profile) : undefined,
+        ownerToken: profile ? profile.ownerToken : undefined
+      });
+    }
+
+    if (paymentManager.isEnabled()) {
+      try {
+        const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
+        if (providerStatus.status === 'PAID' && order.status !== 'completed') {
+          const result = db.verifyAndClaimRank({
+            name: order.name,
+            amount: order.amount,
+            paymentRef: providerStatus.providerPaymentId || `cf_${orderId}`,
+            orderId,
+            instagram: order.instagram,
+            linkedin: order.linkedin,
+            website: order.website,
+            reason: order.reason,
+            lazyReason: order.lazyReason,
+            profileId: order.profileId,
+            ownerToken: order.ownerToken
+          });
+          if (result.success && result.profile) {
+            return res.json({
+              orderId,
+              status: 'PAID',
+              profile: db.sanitizeProfile(result.profile),
+              ownerToken: result.profile.ownerToken
+            });
+          }
+        }
+        return res.json({
+          orderId,
+          status: providerStatus.status
+        });
+      } catch {
+        // Fall back to order record
+      }
+    }
+
+    return res.json({
+      orderId,
+      status: order.status === 'completed' ? 'PAID' : (order.status || 'PENDING')
+    });
+  });
+
+  // Digital Service Payment Receipt Endpoint
+  app.get('/api/payment/receipt/:orderId', (req: Request, res: Response) => {
+    const orderId = req.params.orderId;
+    if (!orderId || typeof orderId !== 'string') {
+      return res.status(400).json({ error: 'Order ID is required.' });
+    }
+    const order = db.getOrder(orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+    res.json({
+      receiptId: 'REC-' + order.orderId.toUpperCase(),
+      operator: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
+      entityType: SERVER_LEGAL_CONFIG.ORGANISATION_TYPE,
+      brand: SERVER_LEGAL_CONFIG.BRAND_NAME,
+      website: SERVER_LEGAL_CONFIG.APP_URL,
+      supportEmail: SERVER_LEGAL_CONFIG.SUPPORT_EMAIL,
+      supportPhone: SERVER_LEGAL_CONFIG.SUPPORT_PHONE,
+      businessAddress: SERVER_LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS,
+      orderId: order.orderId,
+      paymentReference: order.paymentRef || 'PENDING_CONFIRMATION',
+      paymentStatus: order.status === 'completed' ? 'PAID' : (order.status || 'PENDING'),
+      customerName: order.name,
+      serviceDescription: SERVER_LEGAL_CONFIG.SERVICE_DESCRIPTION,
+      rankingDynamic: SERVER_LEGAL_CONFIG.RANKING_DYNAMIC,
+      amount: order.amount,
+      currency: 'INR',
+      taxTreatment: 'Commercial digital profile service receipt. Standard GST invoicing is not applicable at current turnover threshold.',
+      timestamp: order.createdAt || new Date().toISOString()
+    });
+  });
+
+  // Authoritative Provider Webhook (Cashfree PG v2023-08-01 + fallback)
+  app.post('/api/payment/webhook', async (req: Request, res: Response) => {
+    if (!paymentManager.isEnabled()) {
       return res.status(503).json({ error: 'Payment processing is currently disabled.' });
     }
     const clientIp = getClientIp(req);
@@ -426,11 +542,69 @@ async function startServer() {
       return res.status(429).json({ error: 'Too many webhook requests.' });
     }
 
+    const rawBodyBuf = (req as any).rawBody || Buffer.from(JSON.stringify(req.body));
+    const rawBodyStr = rawBodyBuf.toString('utf8');
+
+    // Case 1: Cashfree PG official webhook (identified by x-webhook-timestamp header)
+    if (req.headers['x-webhook-timestamp']) {
+      const verification = await paymentManager.getProvider().verifyWebhook(rawBodyStr, req.headers as any);
+      if (!verification.isValid) {
+        return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
+      }
+
+      if (verification.status === 'REFUNDED' && verification.orderId) {
+        await db.reverseRefund(verification.orderId, verification.amount || 0, verification.providerPaymentId || 'webhook_refund');
+        return res.json({ received: true, processed: true, status: 'REFUNDED' });
+      }
+
+      if (verification.status === 'SUCCESS' && verification.orderId && verification.providerPaymentId) {
+        const order = db.getOrder(verification.orderId);
+        if (!order) {
+          return res.status(404).json({ error: 'Referenced order not found.' });
+        }
+        if (verification.amount !== undefined && verification.amount !== order.amount) {
+          return res.status(400).json({ error: 'Payment amount mismatch against order record.' });
+        }
+        if (verification.currency && verification.currency !== 'INR') {
+          return res.status(400).json({ error: 'Payment currency mismatch.' });
+        }
+        if (order.status === 'completed') {
+          return res.json({ received: true, processed: true, message: 'Order already completed.' });
+        }
+
+        const result = db.verifyAndClaimRank({
+          name: order.name,
+          amount: order.amount,
+          paymentRef: verification.providerPaymentId,
+          orderId: verification.orderId,
+          instagram: order.instagram,
+          linkedin: order.linkedin,
+          website: order.website,
+          reason: order.reason,
+          lazyReason: order.lazyReason,
+          profileId: order.profileId,
+          ownerToken: order.ownerToken
+        });
+
+        if (!result.success || !result.profile) {
+          return res.status(400).json({ error: result.message || 'Payment claim failed.' });
+        }
+
+        return res.json({
+          received: true,
+          processed: true,
+          profileId: result.profile.id,
+          rank: result.profile.rank
+        });
+      }
+
+      return res.json({ received: true, processed: false, reason: 'Event acknowledged, no rank update required.' });
+    }
+
+    // Case 2: Standard webhook signature HMAC check (legacy or non-timestamp providers)
     const signature = (req.headers['x-razorpay-signature'] || req.headers['x-webhook-signature']) as string | undefined;
     const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
-    const rawBody = (req as any).rawBody || Buffer.from(JSON.stringify(req.body));
 
-    // If secret is configured, enforce strict HMAC-SHA256 signature verification
     if (webhookSecret) {
       if (!signature) {
         return res.status(401).json({ error: 'Missing webhook signature header.' });
@@ -438,7 +612,7 @@ async function startServer() {
       try {
         const expectedSignature = crypto
           .createHmac('sha256', webhookSecret)
-          .update(rawBody)
+          .update(rawBodyBuf)
           .digest('hex');
 
         const sigBuf = Buffer.from(signature.trim());
@@ -506,6 +680,47 @@ async function startServer() {
       processed: true,
       profileId: result.profile.id,
       rank: result.profile.rank
+    });
+  });
+
+  // Admin-authorized refund endpoint
+  app.post('/api/payment/refund', async (req: Request, res: Response) => {
+    const adminKey = req.headers['x-admin-key'] as string | undefined;
+    if (!verifyAdminKey(adminKey)) {
+      return res.status(403).json({ error: 'Unauthorized: Admin authentication required.' });
+    }
+    const { orderId, amount, reason } = req.body;
+    if (!orderId || typeof orderId !== 'string') {
+      return res.status(400).json({ error: 'orderId is required.' });
+    }
+    const order = db.getOrder(orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+    const refundAmount = Number(amount) || order.amount;
+    const refundReason = (reason && typeof reason === 'string') ? reason : 'Customer refund request';
+    const refundId = 'ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+
+    if (paymentManager.isEnabled()) {
+      try {
+        await paymentManager.getProvider().createRefund({
+          orderId,
+          refundId,
+          amount: refundAmount,
+          reason: refundReason
+        });
+      } catch (err: any) {
+        console.warn('[Refund] Provider refund failed or not supported:', err?.message);
+      }
+    }
+
+    const reversed = await db.reverseRefund(orderId, refundAmount, refundReason);
+    return res.json({
+      success: reversed,
+      orderId,
+      refundId,
+      amount: refundAmount,
+      status: 'REFUNDED'
     });
   });
 
@@ -781,7 +996,7 @@ async function startServer() {
   app.post('/api/contact', (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 6, 60000)) {
-      return res.status(429).json({ error: 'Too many messages sent. Please wait a minute or email raja@xaivon.com directly.' });
+      return res.status(429).json({ error: `Too many messages sent. Please wait a minute or email ${SERVER_LEGAL_CONFIG.SUPPORT_EMAIL} directly.` });
     }
 
     const { name, email, subject, orderId, message } = req.body;
@@ -806,7 +1021,7 @@ async function startServer() {
 
     res.json({
       success: true,
-      message: 'Inquiry received successfully. Our support desk (raja@xaivon.com) will review and reply within 24–48 hours.',
+      message: `Inquiry received successfully. Our support desk (${SERVER_LEGAL_CONFIG.SUPPORT_EMAIL}) will review and reply within 24–48 hours.`,
       inquiryId: saved.id
     });
   });

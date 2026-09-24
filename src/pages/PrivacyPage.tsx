@@ -1,5 +1,7 @@
 import React from 'react';
 import { LegalPageLayout } from '../components/LegalPageLayout';
+import { LEGAL_CONFIG } from '../config/legal';
+import { ShieldCheck, Lock, Eye, AlertTriangle } from 'lucide-react';
 
 interface PrivacyPageProps {
   onNavigate: (path: string) => void;
@@ -9,23 +11,20 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
   return (
     <LegalPageLayout
       title="Privacy Policy"
-      subtitle="How we collect, handle, store, and protect the information you provide while participating in LAZY."
-      lastUpdated="September 10, 2026"
+      subtitle={`Transparent disclosure of how personal information is collected, processed, and safeguarded when using ${LEGAL_CONFIG.PRODUCT_NAME}.`}
+      lastUpdated="September 24, 2026"
       currentPath="/privacy"
       onNavigate={onNavigate}
     >
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          1. Overview & Commitment
+          1. Who We Are & Scope of this Policy
         </h2>
         <p>
-          This Privacy Policy explains the data handling practices of <strong>LAZY</strong> ("Platform"), operated by LAZY Project (entity details pending final legal registration) ("we", "us", or "our").
+          {LEGAL_CONFIG.OPERATING_STATEMENT}
         </p>
         <p>
-          We respect user privacy and adhere to data protection principles recognized under applicable Indian legislation, including the Information Technology Act, 2000, the Information Technology (Reasonable Security Practices and Procedures and Sensitive Personal Data or Information) Rules, 2011, and the Digital Personal Data Protection Act, 2023 (DPDP Act).
-        </p>
-        <p>
-          This document describes strictly what data is collected, why it is needed, how it is secured, and how you can exercise your rights.
+          This Privacy Policy explains how {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} ("we", "us", or "our") collects, uses, stores, and protects information when you visit our website ({LEGAL_CONFIG.APP_URL}), claim a rank, or use our digital services.
         </p>
       </section>
 
@@ -34,137 +33,92 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
           2. Information We Actually Collect
         </h2>
         <p>
-          We only collect data necessary to provide leaderboard rankings, process legitimate payments, verify profile ownership, prevent platform abuse, and respond to support requests. Specifically:
+          We adhere to data minimization principles. We collect only what is necessary to operate our digital sponsored showcase and maintain transaction security:
         </p>
-
-        <div className="space-y-3 text-xs sm:text-sm">
+        <div className="space-y-2.5 text-xs sm:text-sm text-zinc-700">
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-            <strong className="text-zinc-950 block mb-1">A. Public Profile Information (Provided by you voluntarily)</strong>
-            <ul className="list-disc list-inside space-y-1 text-zinc-700">
-              <li><strong>Display Name:</strong> The name or moniker you choose to represent your entry on the public leaderboard.</li>
-              <li><strong>Reason / Statement:</strong> An optional short quote or justification of your laziness.</li>
-              <li><strong>Social & Website Links:</strong> An optional Instagram handle or website URL you provide for your public profile.</li>
-            </ul>
+            <strong className="text-zinc-950 block mb-0.5">A. Public Profile Information</strong>
+            When you claim or upgrade a rank, you provide a public display name, an optional statement/reason of laziness, and optional public links (Instagram handle, LinkedIn profile URL, personal website). This information is published publicly on our leaderboard and share cards.
           </div>
-
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-            <strong className="text-zinc-950 block mb-1">B. Payment & Verification Data</strong>
-            <ul className="list-disc list-inside space-y-1 text-zinc-700">
-              <li><strong>Email Address:</strong> Collected during checkout to deliver payment confirmations, order status, and customer support.</li>
-              <li><strong>Transaction Identifiers:</strong> Internal order ID, payment aggregator reference ID, payment timestamp, verified amount in INR, and verification status.</li>
-              <li><strong>Card & Banking Details (NOT stored by us):</strong> We <em>do not</em> collect, process, or store raw credit/debit card numbers, CVVs, net-banking passwords, or UPI PINs. All financial credential processing occurs directly on PCI-DSS certified, RBI-licensed payment aggregator infrastructure (upon gateway activation).</li>
-            </ul>
+            <strong className="text-zinc-950 block mb-0.5">B. Contact Details (If Provided)</strong>
+            If you optionally subscribe to rank displacement notifications or submit a query through our contact form, we collect your email address and message contents to respond to you.
           </div>
-
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-            <strong className="text-zinc-950 block mb-1">C. Technical & Security Logs</strong>
-            <ul className="list-disc list-inside space-y-1 text-zinc-700">
-              <li><strong>IP Address & Request Headers:</strong> Collected in server access logs strictly to enforce rate limiting, prevent denial-of-service (DDoS) attacks, detect bot floods, and protect platform stability.</li>
-              <li><strong>Browser Client Info:</strong> User-agent strings used for responsive rendering and debugging.</li>
-            </ul>
+            <strong className="text-zinc-950 block mb-0.5">C. Transaction & Order Metadata</strong>
+            When you make a payment, we record your internal order ID, gateway payment ID (e.g. Cashfree payment reference), payment timestamp, amount paid in INR, currency, and payment status (e.g. PENDING, PAID, REFUNDED).
           </div>
-
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-            <strong className="text-zinc-950 block mb-1">D. Client Storage (Local Storage & Session State)</strong>
-            <ul className="list-disc list-inside space-y-1 text-zinc-700">
-              <li><strong>Profile Ownership Tokens (`lazy_tokens`):</strong> Stored locally in your browser to verify that you are the rightful creator of your profile if you decide to upgrade your rank later, preventing unauthorized edits by other users.</li>
-              <li><strong>Session Identifier (`lazy_session_id`):</strong> A pseudonymous identifier in `sessionStorage` used strictly to calculate aggregate, real-time live visitor statistics without tracking across sessions.</li>
-              <li><strong>No Advertising Cookies:</strong> We do not use third-party marketing trackers, behavioral ad pixels, or cross-site tracking cookies.</li>
-            </ul>
+            <strong className="text-zinc-950 block mb-0.5">D. Technical & Security Logs</strong>
+            We record client IP addresses, browser user-agent headers, and request timestamps strictly for abuse prevention, rate-limiting, and denial-of-service mitigation. These logs are stored in server memory and rotating system logs.
           </div>
-
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
-            <strong className="text-zinc-950 block mb-1">E. Support Communications</strong>
-            <p className="text-zinc-700">
-              If you email us at <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a> or use the on-site contact form, we collect your name, email, order reference, and the content of your message to resolve your inquiry.
-            </p>
+            <strong className="text-zinc-950 block mb-0.5">E. Moderation & Abuse Reports</strong>
+            If a user submits a report concerning inappropriate profile content, we record the reported profile ID, reason, and reporter IP to prevent malicious spam.
           </div>
         </div>
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          3. How We Use Your Information
+        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2 flex items-center gap-2">
+          <Lock className="w-4 h-4 text-emerald-600" />
+          <span>3. What We DO NOT Store (Sensitive Payment Credentials)</span>
         </h2>
-        <p>
-          We use collected information solely for the following legitimate purposes:
+        <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs sm:text-sm text-emerald-900 space-y-1.5">
+          <div className="font-bold flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-700" />
+            <span>Strict Zero-Payment-Credential Storage</span>
+          </div>
+          <p className="leading-relaxed">
+            {LEGAL_CONFIG.BRAND_NAME} <strong>NEVER</strong> collects, handles, or stores your credit/debit card numbers, CVVs, expiration dates, UPI PINs, net-banking passwords, or bank account credentials. All payment processing occurs entirely within certified, PCI-DSS compliant payment gateways (such as Cashfree). We only receive cryptographic status tokens and transaction references.
+          </p>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
+          4. AI Processing Disclosure (Automated Roast Generation)
+        </h2>
+        <p className="text-xs sm:text-sm text-zinc-700 leading-relaxed">
+          {LEGAL_CONFIG.BRAND_NAME} offers an optional humorous "AI Roast" generation feature. When invoked, your public display name, rank, paid amount, and submitted reason are sent via API to Google Gemini (an external large language model provider) solely to generate the humor text. No private contact details, emails, or payment credentials are ever transmitted to the AI provider.
         </p>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
+          5. How We Use Collected Information
+        </h2>
         <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li>To calculate, order, and display your verified rank on the public LAZY leaderboard.</li>
-          <li>To generate your personalized, downloadable 9:16 social story cards and verified badges.</li>
-          <li>To reconcile transactions with our payment aggregator and provide proof of verified ranking.</li>
-          <li>To facilitate profile upgrades and verify profile ownership using client-stored cryptographic tokens.</li>
-          <li>To safeguard the Platform against cyberattacks, spam, rate-limit violations, and fraudulent payment activities.</li>
-          <li>To respond promptly to customer service requests, refund evaluations, and content moderation reports.</li>
+          <li>To display your public profile and rank on the live showcase leaderboard.</li>
+          <li>To verify payments authoritatively against gateway webhooks and grant owner tokens.</li>
+          <li>To generate downloadable 9:16 social share cards and digital payment receipts.</li>
+          <li>To prevent payment fraud, bot spam, and denial-of-service attacks.</li>
+          <li>To respond to customer support inquiries and process eligible refund requests.</li>
         </ul>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          4. Sharing & Disclosure of Information
+          6. Data Retention & Deletion Rights
         </h2>
-        <p>
-          We respect user privacy and do not sell, rent, or trade your personal information. We disclose data only in the following limited circumstances:
-        </p>
-        <ul className="list-disc list-inside space-y-1.5 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li><strong>Payment Gateway Partners:</strong> Order details (order ID, amount, email) are communicated via encrypted TLS protocols to authorized payment aggregators to facilitate checkout and receive webhook verification confirmations upon activation.</li>
-          <li><strong>Public Leaderboard Display:</strong> Your submitted display name, reason, social/website handle, verified payment amount, and derived rank are publicly visible to anyone visiting the website.</li>
-          <li><strong>Legal & Regulatory Compliance:</strong> We may disclose information if strictly required to comply with an applicable law, judicial proceeding, court order, or lawful request from government authorities in India.</li>
-        </ul>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          5. Data Security & Storage
-        </h2>
-        <p>
-          We implement technical and organizational security measures to protect your data, including:
-        </p>
-        <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li>End-to-end encryption in transit via HTTPS/TLS protocols.</li>
-          <li>Security HTTP headers including nosniff, strict frame controls, and Content Security Policy restrictions.</li>
-          <li>Strict rate-limiting on all API endpoints to defend against brute-force attacks and automated flooding.</li>
-          <li>Constant-time cryptographic key comparisons for administrative endpoints.</li>
-          <li>Zero storage of sensitive financial credentials on our servers.</li>
-        </ul>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          6. Data Retention
-        </h2>
-        <p>
-          Leaderboard records and verified ranks remain on the public platform for the operational duration of the game to maintain historical ranking integrity. Technical server logs and IP records are automatically rotated and purged on a regular cycle. If you request profile removal, your public record will be anonymized or deleted from active display within 7 business days of request verification.
+        <p className="text-xs sm:text-sm text-zinc-700 leading-relaxed">
+          Public profile data is retained as long as your profile remains active on the leaderboard. Transaction metadata is retained as required by Indian commercial and taxation laws. You have the right to request deletion or redaction of your public display name and social links by emailing us at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> with your owner token or order reference.
         </p>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          7. User Rights & Data Removal Requests
+          7. Grievance Redressal & Contact Information
         </h2>
-        <p>
-          In accordance with applicable law, you have the right to:
+        <p className="text-xs sm:text-sm text-zinc-700 leading-relaxed">
+          For any questions, concerns, or data requests, please contact our designated grievance contact:
         </p>
-        <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li>Review the personal data held about your entry.</li>
-          <li>Request correction or removal of any inaccurate, defamatory, or unwanted public links/statements.</li>
-          <li>Request complete removal or pseudonymization of your profile from the public leaderboard.</li>
-        </ul>
-        <p className="text-xs sm:text-sm text-zinc-700">
-          To exercise any of these rights, please email <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a> with your profile name, order reference, and the nature of your request.
-        </p>
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-zinc-950 border-b border-zinc-200 pb-2">
-          8. Policy Updates & Contact
-        </h2>
-        <p>
-          We may update this Privacy Policy from time to time to reflect changes in our legal obligations or platform features. When changes are published, the "Last updated" date at the top of this page will be revised.
-        </p>
-        <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs sm:text-sm">
-          <div><strong>Grievance & Privacy Inquiries:</strong> <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a></div>
-          <div className="mt-1"><strong>Entity:</strong> LAZY Project (Legal entity details pending finalization)</div>
+        <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 text-xs sm:text-sm space-y-1">
+          <div><strong>Grievance Officer:</strong> Compliance Desk, {LEGAL_CONFIG.LEGAL_BUSINESS_NAME}</div>
+          <div><strong>Entity:</strong> {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} ({LEGAL_CONFIG.ENTITY_TYPE})</div>
+          <div><strong>Address:</strong> {LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS}</div>
+          <div><strong>Email:</strong> <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a></div>
+          <div><strong>Support Phone:</strong> {LEGAL_CONFIG.SUPPORT_PHONE}</div>
         </div>
       </section>
     </LegalPageLayout>

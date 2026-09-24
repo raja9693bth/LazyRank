@@ -39,7 +39,7 @@ export interface NominationModalProps {
 const FUNNY_CHALLENGES = [
   "Think you're lazier than me? Put ₹ on it.",
   "You've been in bed since morning. Prove you belong on the leaderboard.",
-  "I paid to prove my laziness. Bet you can't top my rank.",
+  "I sponsored to prove my laziness. Challenge you to top my rank.",
   "Moving your mouse on Slack doesn't count. Take #1 if you dare."
 ];
 

@@ -19,7 +19,7 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
           1. Introduction & Overview of the Service
         </h2>
         <p>
-          Welcome to <strong>LAZY</strong> (the "Platform" or "Game"), operated by and associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME] ("we", "us", or "our").
+          Welcome to <strong>LAZY</strong> (the "Platform" or "Game"), operated by LAZY Project (operating entity details pending finalization) ("we", "us", or "our").
         </p>
         <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-300 text-zinc-900 text-xs sm:text-sm font-medium leading-relaxed">
           <strong>Service Description:</strong> LAZY is an entertainment-based public pay-to-rank experience. A participant selects an amount and, after the payment is successfully verified, that verified amount determines their position on the LAZY leaderboard under the published rules.
@@ -79,7 +79,7 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
           4. Payments & Pricing
         </h2>
         <p>
-          All amounts displayed and processed on LAZY are denominated in Indian Rupees (INR). Payments are processed through secure, RBI-licensed payment aggregators (including Cashfree Payments).
+          All amounts displayed and processed on LAZY are denominated in Indian Rupees (INR). Payments are processed through secure, RBI-licensed payment aggregators (upon gateway activation).
         </p>
         <p>
           By clicking to pay, you authorize the payment aggregator to charge the designated amount to your chosen payment method. You agree that:
@@ -155,7 +155,7 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
           The Platform is provided on an <em>"as is"</em> and <em>"as available"</em> basis. We make no warranty that the service will be completely uninterrupted, timely, error-free, or compatible with all devices or browsers. We reserve the right to modify, maintain, update, or discontinue the service at any time.
         </p>
         <p>
-          To the maximum extent permitted by applicable law, neither LAZY, XAIVON, nor its contributors shall be liable for any indirect, incidental, special, consequential, or punitive damages arising out of your participation.
+          To the maximum extent permitted by applicable law, neither LAZY, its operators, nor its contributors shall be liable for any indirect, incidental, special, consequential, or punitive damages arising out of your participation.
         </p>
       </section>
 
@@ -177,7 +177,7 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
         </p>
         <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs sm:text-sm">
           <div><strong>Support & Compliance Email:</strong> <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a></div>
-          <div className="mt-1"><strong>Operating Entity:</strong> Associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME]</div>
+          <div className="mt-1"><strong>Operating Entity:</strong> LAZY Project (Legal entity details pending finalization)</div>
         </div>
       </section>
     </LegalPageLayout>

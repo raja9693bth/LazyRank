@@ -19,7 +19,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
           1. Overview & Commitment
         </h2>
         <p>
-          This Privacy Policy explains the data handling practices of <strong>LAZY</strong> ("Platform"), associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME] ("we", "us", or "our").
+          This Privacy Policy explains the data handling practices of <strong>LAZY</strong> ("Platform"), operated by LAZY Project (entity details pending final legal registration) ("we", "us", or "our").
         </p>
         <p>
           We respect user privacy and adhere to data protection principles recognized under applicable Indian legislation, including the Information Technology Act, 2000, the Information Technology (Reasonable Security Practices and Procedures and Sensitive Personal Data or Information) Rules, 2011, and the Digital Personal Data Protection Act, 2023 (DPDP Act).
@@ -52,7 +52,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
             <ul className="list-disc list-inside space-y-1 text-zinc-700">
               <li><strong>Email Address:</strong> Collected during checkout to deliver payment confirmations, order status, and customer support.</li>
               <li><strong>Transaction Identifiers:</strong> Internal order ID, payment aggregator reference ID, payment timestamp, verified amount in INR, and verification status.</li>
-              <li><strong>Card & Banking Details (NOT stored by us):</strong> We <em>do not</em> collect, process, or store raw credit/debit card numbers, CVVs, net-banking passwords, or UPI PINs. All financial credential processing occurs directly on PCI-DSS certified, RBI-licensed payment aggregator infrastructure (such as Cashfree Payments).</li>
+              <li><strong>Card & Banking Details (NOT stored by us):</strong> We <em>do not</em> collect, process, or store raw credit/debit card numbers, CVVs, net-banking passwords, or UPI PINs. All financial credential processing occurs directly on PCI-DSS certified, RBI-licensed payment aggregator infrastructure (upon gateway activation).</li>
             </ul>
           </div>
 
@@ -107,7 +107,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
           We respect user privacy and do not sell, rent, or trade your personal information. We disclose data only in the following limited circumstances:
         </p>
         <ul className="list-disc list-inside space-y-1.5 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li><strong>Payment Gateway Partners:</strong> Order details (order ID, amount, email) are communicated via encrypted TLS protocols to our payment aggregator (such as Cashfree Payments) to facilitate checkout and receive webhook verification confirmations.</li>
+          <li><strong>Payment Gateway Partners:</strong> Order details (order ID, amount, email) are communicated via encrypted TLS protocols to authorized payment aggregators to facilitate checkout and receive webhook verification confirmations upon activation.</li>
           <li><strong>Public Leaderboard Display:</strong> Your submitted display name, reason, social/website handle, verified payment amount, and derived rank are publicly visible to anyone visiting the website.</li>
           <li><strong>Legal & Regulatory Compliance:</strong> We may disclose information if strictly required to comply with an applicable law, judicial proceeding, court order, or lawful request from government authorities in India.</li>
         </ul>
@@ -164,7 +164,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
         </p>
         <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs sm:text-sm">
           <div><strong>Grievance & Privacy Inquiries:</strong> <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a></div>
-          <div className="mt-1"><strong>Entity:</strong> Associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME]</div>
+          <div className="mt-1"><strong>Entity:</strong> LAZY Project (Legal entity details pending finalization)</div>
         </div>
       </section>
     </LegalPageLayout>

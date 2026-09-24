@@ -101,7 +101,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
             <strong>Platform:</strong> LAZY (Public Pay-to-Rank Experience)
           </p>
           <p className="text-xs text-zinc-600 mt-1">
-            <strong>Operating Entity:</strong> Associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME]
+            <strong>Operating Entity:</strong> LAZY Project (Legal entity registration & verification pending finalization)
           </p>
           <p className="text-[11px] text-zinc-500 mt-2">
             Jurisdiction: Republic of India
@@ -284,7 +284,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
         <div>
           <strong className="block text-amber-900 font-bold mb-0.5">Security Notice</strong>
           <span>
-            LAZY and XAIVON representatives will <strong>NEVER</strong> ask for your UPI PIN, ATM PIN, net banking password, or card CVV. Never share sensitive banking credentials with anyone.
+            LAZY platform representatives will <strong>NEVER</strong> ask for your UPI PIN, ATM PIN, net banking password, or card CVV. Never share sensitive banking credentials with anyone.
           </span>
         </div>
       </div>

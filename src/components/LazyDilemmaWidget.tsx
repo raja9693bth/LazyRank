@@ -8,7 +8,7 @@ function getOrCreateVoterId(): string {
   try {
     let id = localStorage.getItem(STORAGE_VOTER_KEY);
     if (!id) {
-      id = 'voter_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now().toString(36);
+      id = 'voter_' + (typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : (Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9)));
       localStorage.setItem(STORAGE_VOTER_KEY, id);
     }
     return id;

@@ -47,11 +47,7 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
-  }
-  return req.socket.remoteAddress || 'unknown';
+  return req.ip || req.socket.remoteAddress || 'unknown';
 }
 
 const ADMIN_SECRET = process.env.ADMIN_KEY || process.env.ADMIN_SECRET;
@@ -71,12 +67,31 @@ function verifyAdminKey(providedKey?: string): boolean {
   }
 }
 
+const PAYMENT_MODE = (process.env.PAYMENT_MODE || 'disabled').toLowerCase().trim();
+
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = parseInt(process.env.PORT || '3000', 10);
 
   // Disable server technology fingerprinting
   app.disable('x-powered-by');
+
+  // Explicit trust proxy configuration to prevent X-Forwarded-For IP spoofing
+  if (process.env.TRUST_PROXY) {
+    const tp = process.env.TRUST_PROXY.trim();
+    if (tp === 'true') {
+      app.set('trust proxy', true);
+    } else if (tp === 'false') {
+      app.set('trust proxy', false);
+    } else if (!isNaN(Number(tp))) {
+      app.set('trust proxy', Number(tp));
+    } else {
+      app.set('trust proxy', tp);
+    }
+  } else {
+    // In production without an explicit TRUST_PROXY setting, default to false
+    app.set('trust proxy', false);
+  }
 
   // Security Headers Middleware
   app.use((req: Request, res: Response, next) => {
@@ -84,7 +99,18 @@ async function startServer() {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://lazyproof.online;");
+    const cspDirectives = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com data:",
+      "img-src 'self' data: https: blob:",
+      "connect-src 'self' https: wss:",
+      "frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://lazyproof.online",
+      "object-src 'none'",
+      "base-uri 'self'"
+    ].join('; ');
+    res.setHeader('Content-Security-Policy', cspDirectives);
     if (req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     }
@@ -92,6 +118,7 @@ async function startServer() {
   });
 
   app.use(express.json({
+    limit: '100kb',
     verify: (req: any, _res, buf) => {
       req.rawBody = buf;
     }
@@ -155,9 +182,23 @@ async function startServer() {
     });
   });
 
-  // Genuine live status and session heartbeat (Section 4, 5, 6, 7)
+  // Genuine live status and session heartbeat (API contract: supports x-session-id header and sessionId query)
   app.get('/api/stats/live', (req: Request, res: Response) => {
-    const sessionId = (req.query.sessionId as string) || undefined;
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 60, 60000)) {
+      return res.status(429).json({ error: 'Too many stats requests. Please slow down.' });
+    }
+
+    const headerSession = req.headers['x-session-id'];
+    const querySession = req.query.sessionId;
+    const rawSession = (typeof headerSession === 'string' ? headerSession : undefined) ||
+                       (typeof querySession === 'string' ? querySession : undefined);
+
+    let sessionId: string | undefined;
+    if (rawSession && rawSession.trim().length > 0) {
+      sessionId = rawSession.trim().slice(0, 64);
+    }
+
     const stats = db.getLiveStats(sessionId);
     res.json({
       ...stats,
@@ -166,9 +207,15 @@ async function startServer() {
   });
 
   app.post('/api/stats/heartbeat', (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 60, 60000)) {
+      return res.status(429).json({ error: 'Too many heartbeat requests.' });
+    }
+
     const { sessionId } = req.body;
-    if (sessionId && typeof sessionId === 'string') {
-      const result = db.recordHeartbeat(sessionId);
+    if (sessionId && typeof sessionId === 'string' && sessionId.trim().length > 0) {
+      const sanitizedSessionId = sessionId.trim().slice(0, 64);
+      const result = db.recordHeartbeat(sanitizedSessionId);
       return res.json({ ok: true, ...result });
     }
     res.json({ ok: true });
@@ -181,13 +228,25 @@ async function startServer() {
       return res.status(429).json({ error: 'Too many requests. Please slow down.' });
     }
 
+    // STRICT PAYMENT DISABLEMENT: Live payments are not approved yet (sandbox disabled in production)
+    if (PAYMENT_MODE === 'disabled' || process.env.NODE_ENV === 'production') {
+      return res.status(503).json({
+        error: 'Payments are currently unavailable until payment processing is enabled.',
+        paymentMode: 'disabled'
+      });
+    }
+
     const { name, amount, instagram, linkedin, website, reason, lazyReason, profileId } = req.body;
     const providedToken = (req.headers['x-profile-token'] as string) || req.body?.ownerToken;
 
+    // For existing profile upgrades: profile must exist, owner token must be present and valid
     if (profileId) {
       const existing = db.getRawProfile(profileId);
-      if (existing && existing.ownerToken && existing.ownerToken !== providedToken) {
-        return res.status(403).json({ error: 'Unauthorized: You do not have permission to modify this profile.' });
+      if (!existing) {
+        return res.status(404).json({ error: 'Profile not found.' });
+      }
+      if (!providedToken || !db.constantTimeMatch(existing.ownerToken, providedToken)) {
+        return res.status(403).json({ error: 'Unauthorized: Valid owner token is required to upgrade this profile.' });
       }
     }
 
@@ -213,7 +272,7 @@ async function startServer() {
       return res.status(400).json({ error: 'Please keep name and reason respectful.' });
     }
 
-    const orderId = 'order_' + Math.random().toString(36).substring(2, 10);
+    const orderId = 'order_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
     const topAmount = db.getTopAmount();
     const isTop = parsedAmount > topAmount;
 
@@ -246,8 +305,7 @@ async function startServer() {
       linkedin: db.normalizeLinkedIn(linkedin),
       website: db.normalizeWebsite(website),
       reason: reason?.trim(),
-      lazyReason: lazyReason?.trim(),
-      vpa: 'lazy@upi'
+      lazyReason: lazyReason?.trim()
     });
   });
 
@@ -256,6 +314,14 @@ async function startServer() {
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 25, 60000)) {
       return res.status(429).json({ error: 'Too many verification attempts. Please slow down.' });
+    }
+
+    // STRICT PAYMENT DISABLEMENT: Live payments are not approved yet (sandbox disabled in production)
+    if (PAYMENT_MODE === 'disabled' || process.env.NODE_ENV === 'production') {
+      return res.status(503).json({
+        error: 'Payments are currently unavailable until payment processing is enabled.',
+        paymentMode: 'disabled'
+      });
     }
 
     const { paymentReference, razorpay_signature, razorpay_payment_id, orderId, instagram, linkedin, website, reason, profileId } = req.body;
@@ -350,8 +416,11 @@ async function startServer() {
     });
   });
 
-  // Authoritative Provider Webhook (Razorpay / Cashfree / Aggregators)
+  // Authoritative Provider Webhook (Aggregators)
   app.post('/api/payment/webhook', (req: Request, res: Response) => {
+    if (PAYMENT_MODE === 'disabled' || process.env.NODE_ENV === 'production') {
+      return res.status(503).json({ error: 'Payment processing is currently disabled.' });
+    }
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 60, 60000)) {
       return res.status(429).json({ error: 'Too many webhook requests.' });
@@ -556,6 +625,10 @@ async function startServer() {
       return res.status(400).json({ error: 'Lazy reason is required.' });
     }
 
+    if (!providedToken || typeof providedToken !== 'string' || providedToken.trim().length === 0) {
+      return res.status(401).json({ error: 'Unauthorized: Owner token is required.' });
+    }
+
     try {
       const updated = db.setProfileLazyReason(profileId, lazyReason.trim(), providedToken);
       if (!updated) {
@@ -567,7 +640,7 @@ async function startServer() {
     }
   });
 
-  // AI Lazy Roast Generation (Server-side Gemini 3.8 Flash, cached for permanent sharing)
+  // AI Lazy Roast Generation (Server-side Gemini, cached for permanent sharing)
   app.post('/api/roast', async (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 25, 60000)) {
@@ -584,6 +657,25 @@ async function startServer() {
       return res.status(404).json({ error: 'Profile not found.' });
     }
 
+    // Force regeneration requires ownership or admin authorization (Prevents arbitrary public users from regenerating someone else's roast)
+    if (forceRegenerate) {
+      const providedToken = (req.headers['x-profile-token'] as string) || req.body?.ownerToken;
+      const authHeader = req.headers['authorization'];
+      const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
+      const adminKey = (req.headers['x-admin-key'] as string) || bearerKey;
+      const isAdmin = verifyAdminKey(adminKey);
+
+      if ((!providedToken || typeof providedToken !== 'string' || providedToken.trim().length === 0) && !isAdmin) {
+        return res.status(401).json({ error: 'Unauthorized: Owner token is required to force roast regeneration.' });
+      }
+
+      const isOwner = providedToken ? db.constantTimeMatch(profile.ownerToken, providedToken) : false;
+
+      if (!isOwner && !isAdmin) {
+        return res.status(403).json({ error: 'Forbidden: Invalid owner token or unauthorized admin key.' });
+      }
+    }
+
     // Return cached roast if it exists and force regeneration is not requested
     if (profile.roast && !forceRegenerate) {
       return res.json({
@@ -595,7 +687,7 @@ async function startServer() {
     }
 
     try {
-      const topProfile = db.getRawProfile('p-aarav-1');
+      const topProfile = db.getTopProfile();
       const { roast, source } = await generateRoast(profile, {
         previousTopName: topProfile?.name,
         forceRegenerate: !!forceRegenerate
@@ -624,32 +716,64 @@ async function startServer() {
   // Vote for laziness (+1 social appreciation)
   app.post('/api/vote', (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 40, 60000)) {
+    if (!checkRateLimit(clientIp, 30, 60000)) {
       return res.status(429).json({ error: 'Voting rate limit reached. Please wait.' });
     }
 
     const { profileId } = req.body;
-    if (!profileId) {
-      return res.status(400).json({ error: 'Profile ID required.' });
+    if (!profileId || typeof profileId !== 'string' || profileId.trim().length === 0 || profileId.length > 64) {
+      return res.status(400).json({ error: 'Valid profile ID is required.' });
     }
 
-    const result = db.voteLazy(profileId, clientIp);
+    const prof = db.getProfile(profileId.trim());
+    if (!prof) {
+      return res.status(404).json({ error: 'Profile not found.' });
+    }
+
+    const result = db.voteLazy(profileId.trim(), clientIp);
     res.json(result);
   });
 
-  // Report content
+  // Report content (Strict target existence validation and character limits)
   app.post('/api/report', (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 10, 60000)) {
+    if (!checkRateLimit(clientIp, 40, 60000)) {
       return res.status(429).json({ error: 'Too many reports submitted. Please wait.' });
     }
 
     const { targetType, targetId, reason } = req.body;
-    if (!targetId || !reason) {
-      return res.status(400).json({ error: 'Target ID and reason required.' });
+    const validTypes = ['profile', 'nomination'];
+    const effectiveType = (targetType || 'profile').toLowerCase();
+    if (!validTypes.includes(effectiveType)) {
+      return res.status(400).json({ error: 'Invalid target type. Must be profile or nomination.' });
     }
 
-    db.reportContent(targetType || 'profile', targetId, reason);
+    if (!targetId || typeof targetId !== 'string' || targetId.trim().length === 0 || targetId.trim().length > 64) {
+      return res.status(400).json({ error: 'Valid target ID is required.' });
+    }
+
+    if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+      return res.status(400).json({ error: 'Reason is required.' });
+    }
+
+    if (reason.trim().length > 500) {
+      return res.status(400).json({ error: 'Reason cannot exceed 500 characters.' });
+    }
+
+    const cleanTargetId = targetId.trim();
+    if (effectiveType === 'profile') {
+      const target = db.getRawProfile(cleanTargetId);
+      if (!target) {
+        return res.status(404).json({ error: 'Reported profile does not exist.' });
+      }
+    } else if (effectiveType === 'nomination') {
+      const target = db.getNomination(cleanTargetId);
+      if (!target) {
+        return res.status(404).json({ error: 'Reported challenge does not exist.' });
+      }
+    }
+
+    db.reportContent(effectiveType as 'profile' | 'nomination', cleanTargetId, reason.trim());
     res.json({ success: true, message: 'Report submitted for review.' });
   });
 
@@ -699,26 +823,37 @@ async function startServer() {
     res.json(data);
   });
 
-  // Weekly Lazy Dilemma Poll endpoints
+  // Weekly Lazy Dilemma Poll endpoints (Server-controlled voter identity derived from client IP)
   app.get('/api/dilemma', (req: Request, res: Response) => {
-    const voterKey = (req.query.voterKey as string) || getClientIp(req);
+    const ip = getClientIp(req);
+    const voterKey = crypto
+      .createHash('sha256')
+      .update(`${ip}:${process.env.VOTER_SALT || 'lazy-poll-voter-salt'}`)
+      .digest('hex')
+      .slice(0, 32);
     const dilemma = db.getDilemma(voterKey);
     res.json(dilemma);
   });
 
   app.post('/api/dilemma/vote', (req: Request, res: Response) => {
     const ip = getClientIp(req);
-    if (!checkRateLimit(ip, 60)) {
+    if (!checkRateLimit(ip, 30, 60000)) {
       return res.status(429).json({ error: 'Too many voting attempts. Please wait.' });
     }
 
-    const { optionId, voterKey } = req.body;
-    if (!optionId || typeof optionId !== 'string') {
+    const { optionId } = req.body;
+    if (!optionId || typeof optionId !== 'string' || optionId.trim().length === 0) {
       return res.status(400).json({ error: 'Option ID is required.' });
     }
 
-    const key = voterKey && typeof voterKey === 'string' && voterKey.trim().length > 0 ? voterKey.trim() : ip;
-    const result = db.voteDilemma(optionId, key);
+    // Server-controlled anonymous voter key using SHA256 of client IP + salt
+    const voterKey = crypto
+      .createHash('sha256')
+      .update(`${ip}:${process.env.VOTER_SALT || 'lazy-poll-voter-salt'}`)
+      .digest('hex')
+      .slice(0, 32);
+
+    const result = db.voteDilemma(optionId.trim(), voterKey);
 
     if (!result.success) {
       return res.status(400).json(result);
@@ -726,17 +861,40 @@ async function startServer() {
     res.json(result);
   });
 
-  // Analytics tracking
+  // Non-sensitive UI analytics tracking with strict allowlist
+  const ALLOWED_ANALYTICS_EVENTS = new Set([
+    'homepageViews',
+    'claimStarts',
+    'amountSelected',
+    'checkoutStarts',
+    'shareClicks',
+    'leaderboardClicks',
+    'instagramClicks',
+    'websiteClicks',
+    'challengeClicks'
+  ]);
+
   app.post('/api/analytics/track', (req: Request, res: Response) => {
-    const { event } = req.body;
-    if (event) {
-      db.trackEvent(event);
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 60, 60000)) {
+      return res.status(429).json({ error: 'Rate limit exceeded.' });
     }
+    const { event } = req.body;
+    if (!event || typeof event !== 'string' || !ALLOWED_ANALYTICS_EVENTS.has(event)) {
+      return res.status(400).json({ error: 'Invalid or disallowed analytics event.' });
+    }
+    db.trackEvent(event as any);
     res.json({ ok: true });
   });
 
-  // Protected admin data endpoint (Header-only authentication, constant-time check)
+  // Protected admin data endpoint (Header-only authentication, constant-time check, no-store)
   app.get('/api/admin/data', (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 20, 60000)) {
+      return res.status(429).json({ error: 'Too many admin requests.' });
+    }
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+
     const authHeader = req.headers['authorization'];
     const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
     const adminKey = (req.headers['x-admin-key'] as string) || bearerKey;
@@ -747,8 +905,14 @@ async function startServer() {
     res.json(db.getAdminData());
   });
 
-  // Protected admin action endpoint (Header-only authentication, constant-time check)
+  // Protected admin action endpoint (Header-only authentication, constant-time check, no-store)
   app.post('/api/admin/moderate', (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 30, 60000)) {
+      return res.status(429).json({ error: 'Too many admin requests.' });
+    }
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+
     const authHeader = req.headers['authorization'];
     const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
     const adminKey = (req.headers['x-admin-key'] as string) || bearerKey;
@@ -758,8 +922,19 @@ async function startServer() {
     }
 
     const { action, targetId } = req.body;
-    db.moderate(action, targetId);
-    res.json({ success: true, message: `Action ${action} applied.` });
+    const validActions = ['remove', 'restore', 'resolve_report'];
+    if (!action || typeof action !== 'string' || !validActions.includes(action)) {
+      return res.status(400).json({ error: 'Invalid moderation action. Must be remove, restore, or resolve_report.' });
+    }
+    if (!targetId || typeof targetId !== 'string' || targetId.trim().length === 0) {
+      return res.status(400).json({ error: 'Valid target ID is required.' });
+    }
+
+    const success = db.moderate(action as any, targetId.trim());
+    if (!success) {
+      return res.status(404).json({ error: 'Target not found or action could not be applied.' });
+    }
+    res.json({ success: true, message: `Action ${action} applied successfully.` });
   });
 
   // In-memory cache for rendered OG card PNG buffers (LRU-capped)
@@ -849,7 +1024,9 @@ async function startServer() {
         return next();
       }
 
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const configuredAppUrl = process.env.APP_URL?.trim().replace(/\/+$/, '');
+      const defaultOrigin = process.env.NODE_ENV === 'production' ? 'https://lazyproof.online' : `http://localhost:${process.env.PORT || 3000}`;
+      const baseUrl = configuredAppUrl || defaultOrigin;
       let rankId = (req.query.rank as string) || (req.query.profile as string);
       if (!rankId && req.path.startsWith('/profile/')) {
         rankId = req.path.replace('/profile/', '').trim();

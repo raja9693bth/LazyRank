@@ -1,6 +1,18 @@
 import { UserProfile } from '../src/types.ts';
 
-export const BASE_URL = 'https://lazyproof.online';
+const DEFAULT_APP_URL = process.env.NODE_ENV === 'production' ? 'https://lazyproof.online' : 'http://localhost:3000';
+export const BASE_URL = (process.env.APP_URL || DEFAULT_APP_URL).replace(/\/+$/, '');
+
+/**
+ * Safely serializes JSON-LD structured data for injection into <script type="application/ld+json">
+ * Escapes <, >, and & characters to prevent script-breakout XSS attacks (e.g. </script><script>alert(1)</script>)
+ */
+export function serializeJsonLd(data: unknown): string {
+  return JSON.stringify(data, null, 2)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
 
 function escapeXml(unsafe: string): string {
   return unsafe
@@ -73,15 +85,6 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
             interactionType: 'https://schema.org/LikeAction',
             userInteractionCount: profile.votesCount || 0
           }
-        },
-        hasPart: {
-          '@type': 'Offer',
-          name: 'Verified Public Rank Proof',
-          price: profile.amount,
-          priceCurrency: 'INR',
-          availability: 'https://schema.org/InStock',
-          category: 'EntertainmentRanking',
-          validFrom: profile.verifiedAt || profile.createdAt
         }
       },
       {
@@ -93,8 +96,8 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
         inLanguage: 'en-IN',
         publisher: {
           '@type': 'Organization',
-          name: 'XAIVON',
-          email: 'raja@xaivon.com'
+          name: 'LAZY Project',
+          url: baseUrl
         }
       }
     ]
@@ -179,7 +182,7 @@ export function injectProfileMetadata(
   const ogImageUrl = `${baseUrl}/api/og/card/${encodeURIComponent(profile.id)}.png`;
   const imageAlt = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) Verified Proof Card on LAZY`;
   const jsonLdData = generateProfileJsonLd(profile, baseUrl);
-  const jsonLdString = JSON.stringify(jsonLdData, null, 2);
+  const jsonLdString = serializeJsonLd(jsonLdData);
 
   let output = htmlTemplate;
 
@@ -251,11 +254,16 @@ export function injectProfileMetadata(
     `<meta name="twitter:image:alt" content="${escapeHtml(imageAlt)}" />`
   );
 
-  // Replace <script type="application/ld+json">...</script>
-  safeReplace(
-    /<script\s+(?:id=["']schema-structured-data["']\s+)?type=["']application\/ld\+json["']>[\s\S]*?<\/script>/i,
-    `<script id="schema-structured-data" type="application/ld+json">\n${jsonLdString}\n    </script>`
-  );
+  // Replace or inject <script type="application/ld+json">...</script>
+  const jsonLdTag = `<script id="schema-structured-data" type="application/ld+json">\n${jsonLdString}\n    </script>`;
+  const jsonLdRegex = /<script\s+(?:id=["']schema-structured-data["']\s+)?type=["']application\/ld\+json["']>[\s\S]*?<\/script>/i;
+  if (jsonLdRegex.test(output)) {
+    safeReplace(jsonLdRegex, jsonLdTag);
+  } else if (/<\/head>/i.test(output)) {
+    output = output.replace(/<\/head>/i, `  ${jsonLdTag}\n</head>`);
+  } else {
+    output += `\n${jsonLdTag}`;
+  }
 
   return output;
 }
@@ -299,7 +307,7 @@ export const ROUTE_SEO: Record<string, RouteSeoMeta> = {
   },
   '/privacy': {
     title: "Privacy Policy — How LAZY Handles Your Data",
-    description: "LAZY Privacy Policy: understanding public display of names and handles, secure payment gateway processing via Razorpay, and user data rights.",
+    description: "LAZY Privacy Policy: understanding public display of names and handles, user data security, and participant data rights.",
     canonicalPath: '/privacy',
     ogType: 'website',
     breadcrumbName: 'Privacy Policy'
@@ -341,8 +349,8 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
-      name: 'XAIVON',
-      email: 'raja@xaivon.com'
+      name: 'LAZY Project',
+      url: baseUrl
     }
   };
 
@@ -358,13 +366,7 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
           url: `${baseUrl}/`,
           description: config.description,
           applicationCategory: 'EntertainmentApplication',
-          operatingSystem: 'All',
-          offers: {
-            '@type': 'Offer',
-            priceCurrency: 'INR',
-            price: '1',
-            availability: 'https://schema.org/InStock'
-          }
+          operatingSystem: 'All'
         }
       ]
     };
@@ -399,11 +401,11 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
     extraProps = {
       mainEntity: {
         '@type': 'Organization',
-        name: 'XAIVON',
-        email: 'raja@xaivon.com',
+        name: 'LAZY Project',
+        url: baseUrl,
         contactPoint: {
           '@type': 'ContactPoint',
-          email: 'raja@xaivon.com',
+          email: 'contact@lazyproof.online',
           contactType: 'customer service',
           availableLanguage: ['English', 'Hindi']
         }
@@ -447,7 +449,7 @@ export function injectRouteMetadata(
   const config = ROUTE_SEO[normalized] || ROUTE_SEO['/'];
   const canonicalUrl = `${baseUrl}${config.canonicalPath}`;
   const jsonLdData = generateRouteJsonLd(normalized, baseUrl);
-  const jsonLdString = JSON.stringify(jsonLdData, null, 2);
+  const jsonLdString = serializeJsonLd(jsonLdData);
 
   let output = htmlTemplate;
 
@@ -498,11 +500,16 @@ export function injectRouteMetadata(
     `<meta name="twitter:description" content="${escapeHtml(config.description)}" />`
   );
 
-  // Replace <script id="schema-structured-data" type="application/ld+json">...</script>
-  safeReplace(
-    /<script\s+(?:id=["']schema-structured-data["']\s+)?type=["']application\/ld\+json["']>[\s\S]*?<\/script>/i,
-    `<script id="schema-structured-data" type="application/ld+json">\n${jsonLdString}\n    </script>`
-  );
+  // Replace or inject <script id="schema-structured-data" type="application/ld+json">...</script>
+  const jsonLdTag = `<script id="schema-structured-data" type="application/ld+json">\n${jsonLdString}\n    </script>`;
+  const jsonLdRegex = /<script\s+(?:id=["']schema-structured-data["']\s+)?type=["']application\/ld\+json["']>[\s\S]*?<\/script>/i;
+  if (jsonLdRegex.test(output)) {
+    safeReplace(jsonLdRegex, jsonLdTag);
+  } else if (/<\/head>/i.test(output)) {
+    output = output.replace(/<\/head>/i, `  ${jsonLdTag}\n</head>`);
+  } else {
+    output += `\n${jsonLdTag}`;
+  }
 
   return output;
 }

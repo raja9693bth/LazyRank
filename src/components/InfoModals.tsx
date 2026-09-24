@@ -143,23 +143,31 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
   if (!isOpen) return null;
 
+  const [reportError, setReportError] = useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setReportError(null);
     if (!reason.trim()) return;
 
     try {
-      await fetch('/api/report', {
+      const res = await fetch('/api/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetType, targetId, reason: reason.trim() })
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setReportError(data.error || 'Failed to submit report. Please try again.');
+        return;
+      }
       setSubmitted(true);
       setTimeout(() => {
         onReportSubmitted();
         onClose();
       }, 1500);
     } catch {
-      // Handled
+      setReportError('Network error connecting to moderation service.');
     }
   };
 
@@ -188,11 +196,19 @@ export const ReportModal: React.FC<ReportModalProps> = ({
             <textarea
               rows={3}
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => {
+                setReason(e.target.value);
+                if (reportError) setReportError(null);
+              }}
               placeholder="Explain the issue..."
               className="w-full rounded-xl border border-zinc-300 p-2.5 text-xs text-zinc-900 focus:outline-none focus:border-zinc-900"
               required
             />
+            {reportError && (
+              <div className="text-xs font-semibold text-rose-600">
+                {reportError}
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button
                 type="button"
@@ -258,16 +274,25 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
   if (!isOpen) return null;
 
   const handleModerate = async (action: 'remove' | 'restore', targetId: string) => {
-    await fetch('/api/admin/moderate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-admin-key': key.trim()
-      },
-      body: JSON.stringify({ action, targetId })
-    });
-    loadData(key);
-    onRefreshLeaderboard();
+    try {
+      const res = await fetch('/api/admin/moderate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': key.trim()
+        },
+        body: JSON.stringify({ action, targetId })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Failed to apply moderation action.');
+        return;
+      }
+      loadData(key);
+      onRefreshLeaderboard();
+    } catch {
+      alert('Network error while applying moderation action.');
+    }
   };
 
   return (

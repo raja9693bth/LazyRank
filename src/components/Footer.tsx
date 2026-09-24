@@ -126,7 +126,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
         {/* Copyright, entity, & support email */}
         <div className="pt-3 border-t border-zinc-100 text-[11px] text-zinc-400 space-y-0.5">
           <div>
-            © {new Date().getFullYear()} LAZY. All rights reserved. Associated with XAIVON.
+            © {new Date().getFullYear()} LAZY. All rights reserved.
           </div>
           <div>
             Support: <a href="mailto:raja@xaivon.com" className="font-semibold text-zinc-600 hover:underline">raja@xaivon.com</a>

@@ -110,10 +110,10 @@ STRICT TONE & FORMAT RULES:
 - NO hashtags, no emojis, no asterisks, no exclamation overload.
 - Keep it clean, harmless, and self-deprecating about money vs laziness.`;
 
-    // Provide a comfortable 8.5s timeout for Gemini 3.8 Flash generation
+    // Provide a comfortable 8.5s timeout for Gemini 2.5 Flash generation
     const generateWithTimeout = async (timeoutMs = 8500) => {
       const generatePromise = ai.models.generateContent({
-        model: 'gemini-3.8-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: {
           temperature: 0.85,

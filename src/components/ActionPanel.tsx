@@ -7,6 +7,8 @@ interface ActionPanelProps {
   minAmountToBeatTop: number;
   initialAmount?: number;
   profiles: UserProfile[];
+  upgradingProfile?: UserProfile | null;
+  onCancelUpgrade?: () => void;
   onStartPayment: (data: {
     name: string;
     amount: number;
@@ -14,6 +16,8 @@ interface ActionPanelProps {
     linkedin?: string;
     website?: string;
     reason?: string;
+    profileId?: string;
+    ownerToken?: string;
   }) => void;
   isLoading?: boolean;
   errorMessage?: string | null;
@@ -24,6 +28,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   minAmountToBeatTop,
   initialAmount,
   profiles,
+  upgradingProfile,
+  onCancelUpgrade,
   onStartPayment,
   isLoading = false,
   errorMessage
@@ -42,6 +48,19 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       setAmount(initialAmount);
     }
   }, [initialAmount]);
+
+  useEffect(() => {
+    if (upgradingProfile) {
+      setName(upgradingProfile.name);
+      setInstagram(upgradingProfile.instagram || '');
+      setLinkedin(upgradingProfile.linkedin || '');
+      setWebsite(upgradingProfile.website || '');
+      setReason(upgradingProfile.reason || '');
+      if (upgradingProfile.instagram || upgradingProfile.linkedin || upgradingProfile.website || upgradingProfile.reason) {
+        setShowOptionalLinks(true);
+      }
+    }
+  }, [upgradingProfile]);
 
   // Compute expected rank based on verified amount
   const getExpectedRank = (val: number): number => {
@@ -82,19 +101,47 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       return;
     }
 
+    let storedOwnerToken: string | undefined;
+    if (upgradingProfile?.id) {
+      try {
+        const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
+        storedOwnerToken = tokens[upgradingProfile.id];
+      } catch {}
+    }
+
     onStartPayment({
       name: trimmedName,
       amount: Math.round(amount),
       instagram: instagram.trim() || undefined,
       linkedin: linkedin.trim() || undefined,
       website: website.trim() || undefined,
-      reason: reason.trim() || undefined
+      reason: reason.trim() || undefined,
+      profileId: upgradingProfile?.id,
+      ownerToken: storedOwnerToken
     });
   };
 
   return (
     <div id="action-panel-section" className="w-full max-w-2xl mx-auto mb-5 sm:mb-6">
       <div className="rounded-2xl border border-[#ede5db] bg-white p-4 sm:p-5 shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
+        {/* Upgrading existing profile banner */}
+        {upgradingProfile && (
+          <div className="mb-3.5 p-3 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between gap-2">
+            <div className="text-xs text-amber-900 font-medium">
+              <strong className="font-bold">Upgrading:</strong> {upgradingProfile.name} (Current Rank #{upgradingProfile.rank}, ₹{upgradingProfile.amount.toLocaleString('en-IN')})
+            </div>
+            {onCancelUpgrade && (
+              <button
+                type="button"
+                onClick={onCancelUpgrade}
+                className="text-[11px] font-bold text-amber-700 hover:text-amber-900 underline cursor-pointer"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Panel Header */}
         <div className="border-b border-[#f0eae1] pb-3 mb-3.5">
           <div className="flex items-center justify-between gap-2 flex-wrap">

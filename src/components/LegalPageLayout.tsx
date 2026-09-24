@@ -88,7 +88,7 @@ export const LegalPageLayout: React.FC<LegalPageLayoutProps> = ({
           <span className="hidden sm:inline text-zinc-300">•</span>
           <div>
             <span className="text-zinc-400">Entity:</span>{' '}
-            <span className="text-zinc-700 font-medium">Associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME]</span>
+            <span className="text-zinc-700 font-medium">LAZY Project (Legal entity details pending finalization)</span>
           </div>
         </div>
 

@@ -95,7 +95,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
 
       ctx.fillStyle = '#10b981';
       ctx.font = 'bold 34px sans-serif';
-      ctx.fillText('✓ LEGITIMACY VERIFIED ON-CHAIN/SERVER', width / 2, 1240);
+      ctx.fillText('✓ SERVER-VERIFIED PARTICIPANT', width / 2, 1240);
 
       // Official Lazy Reason Badge
       if (profile.lazyReason) {

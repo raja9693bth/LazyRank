@@ -84,14 +84,25 @@ export const ResultView: React.FC<ResultViewProps> = ({
     if (isGeneratingRoast) return;
     setIsGeneratingRoast(true);
     try {
+      let storedToken: string | undefined;
+      try {
+        const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
+        storedToken = tokens[profile.id];
+      } catch {}
+
       const res = await fetch('/api/roast', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(storedToken ? { 'x-profile-token': storedToken } : {})
+        },
         body: JSON.stringify({ profileId: profile.id, forceRegenerate: force })
       });
-      const data = await res.json();
-      if (data.success && data.roast) {
-        setRoast(data.roast);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.roast) {
+          setRoast(data.roast);
+        }
       }
     } catch {
       // Fallback handled gracefully
@@ -309,43 +320,34 @@ export const ResultView: React.FC<ResultViewProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const expiryTimestamp = useMemo(() => {
-    if (profile.rankExpiresAt) {
-      const parsed = new Date(profile.rankExpiresAt).getTime();
-      if (!isNaN(parsed) && parsed > 0) return parsed;
-    }
-    const baseIso = profile.verifiedAt || profile.updatedAt || profile.createdAt;
-    const baseTime = baseIso ? new Date(baseIso).getTime() : Date.now();
-    if (!isNaN(baseTime) && baseTime > 0) {
-      return baseTime + 24 * 60 * 60 * 1000;
-    }
-    return Date.now() + 18 * 60 * 60 * 1000;
-  }, [profile.rankExpiresAt, profile.verifiedAt, profile.updatedAt, profile.createdAt]);
+  const dailyResetTimestamp = useMemo(() => {
+    // Indian Standard Time (IST) is UTC+05:30 (19,800,000 ms)
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowUtc = currentTime;
+    const nowIst = new Date(nowUtc + IST_OFFSET_MS);
+    const tomorrowMidnightUtc = Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate() + 1);
+    return tomorrowMidnightUtc - IST_OFFSET_MS;
+  }, [currentTime]);
 
-  const remainingMs = Math.max(0, expiryTimestamp - currentTime);
-  const isExpired = remainingMs <= 0;
-
-  const totalCycleMs = 24 * 60 * 60 * 1000; // 24-hour standard validity cycle
-  const percentRemaining = isExpired ? 0 : Math.min(100, Math.max(1, Math.round((remainingMs / totalCycleMs) * 100)));
+  const remainingMs = Math.max(0, dailyResetTimestamp - currentTime);
+  const totalDailyMs = 24 * 60 * 60 * 1000;
+  const percentElapsed = Math.min(100, Math.max(0, Math.round(((totalDailyMs - remainingMs) / totalDailyMs) * 100)));
 
   const hours = Math.floor(remainingMs / (1000 * 60 * 60));
   const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
 
-  const formattedExpiryTime = useMemo(() => {
+  const formattedResetTime = useMemo(() => {
     try {
-      return new Date(expiryTimestamp).toLocaleTimeString('en-IN', {
+      return new Date(dailyResetTimestamp).toLocaleTimeString('en-IN', {
         hour: '2-digit',
         minute: '2-digit',
         hour12: true
       });
     } catch {
-      return '';
+      return '12:00 AM IST';
     }
-  }, [expiryTimestamp]);
-
-  const isCritical = remainingMs > 0 && remainingMs <= 2 * 60 * 60 * 1000; // Under 2 hours left
-  const isWarning = remainingMs > 2 * 60 * 60 * 1000 && remainingMs <= 6 * 60 * 60 * 1000; // 2-6 hours left
+  }, [dailyResetTimestamp]);
 
   const handleCopyRoast = async () => {
     if (!roast) return;
@@ -533,23 +535,15 @@ export const ResultView: React.FC<ResultViewProps> = ({
             ₹{profile.amount.toLocaleString('en-IN')} Paid to Prove It
           </div>
 
-          {/* Mini Live Rank Expiry Urgency Pill */}
+          {/* Live Dynamic Rank Status Pill */}
           <div
             id="rank-expiry-mini-pill"
             data-testid="rank-expiry-mini-badge"
-            className={`mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black tracking-wide border transition-all ${
-              isCritical || isExpired
-                ? 'bg-rose-50 text-rose-800 border-rose-300 animate-pulse'
-                : isWarning
-                ? 'bg-amber-50 text-amber-900 border-amber-300'
-                : 'bg-stone-100 text-stone-700 border-stone-200'
-            }`}
+            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold tracking-wide border bg-stone-100 text-stone-700 border-stone-200"
           >
-            <Clock className={`w-3.5 h-3.5 ${isCritical || isExpired ? 'text-rose-600' : isWarning ? 'text-amber-600' : 'text-stone-500'}`} />
+            <Clock className="w-3.5 h-3.5 text-stone-500" />
             <span>
-              {isExpired
-                ? 'Rank Protection Expired • Scheduled Drop Pending'
-                : `Drops in ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`}
+              Dynamic Rank • Displaced only when out-paid
             </span>
           </div>
 
@@ -785,101 +779,51 @@ export const ResultView: React.FC<ResultViewProps> = ({
           </div>
         </div>
 
-        {/* Rank Expiry & Scheduled Drop Urgency Card */}
+        {/* Leaderboard Position & Daily Cycle Card */}
         <div
           id="rank-expiry-card"
           data-testid="rank-expiry-indicator"
-          className={`mt-6 p-4 sm:p-5 rounded-2xl border text-left shadow-2xs transition-all relative overflow-hidden ${
-            isCritical || isExpired
-              ? 'bg-rose-50/70 border-rose-300 shadow-rose-500/5'
-              : isWarning
-              ? 'bg-amber-50/70 border-amber-300 shadow-amber-500/5'
-              : 'bg-white border-stone-200'
-          }`}
+          className="mt-6 p-4 sm:p-5 rounded-2xl border text-left shadow-2xs transition-all relative overflow-hidden bg-white border-stone-200"
         >
-          {/* Top Urgency Color Bar */}
-          <div
-            className={`absolute top-0 left-0 right-0 h-1 ${
-              isCritical || isExpired
-                ? 'bg-gradient-to-r from-rose-500 via-red-500 to-rose-600 animate-pulse'
-                : isWarning
-                ? 'bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500'
-                : 'bg-gradient-to-r from-emerald-400 via-teal-400 to-emerald-500'
-            }`}
-          />
-
-          {/* Header: Status, Title, Badge */}
+          {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-stone-200/80">
             <div className="flex items-start gap-2.5">
-              <div
-                className={`p-2 rounded-xl mt-0.5 ${
-                  isCritical || isExpired
-                    ? 'bg-rose-100 text-rose-700'
-                    : isWarning
-                    ? 'bg-amber-100 text-amber-700'
-                    : 'bg-emerald-100 text-emerald-800'
-                }`}
-              >
-                {isCritical || isExpired ? (
-                  <AlertTriangle className="w-4 h-4 text-rose-600 animate-bounce" />
-                ) : (
-                  <Clock className="w-4 h-4 text-amber-600" />
-                )}
+              <div className="p-2 rounded-xl mt-0.5 bg-amber-100 text-amber-800">
+                <Clock className="w-4 h-4 text-amber-600" />
               </div>
               <div>
                 <h3 className="text-sm sm:text-base font-extrabold text-zinc-950 tracking-tight flex items-center gap-1.5">
-                  <span>Rank Retention & Scheduled Drop</span>
+                  <span>Leaderboard Status & Daily Cycle</span>
                 </h3>
                 <p className="text-xs text-stone-500 mt-0.5">
-                  {isExpired
-                    ? '24-hour immunity period has elapsed • Scheduled to drop position'
-                    : `Verified claim validity window expires ${formattedExpiryTime ? `at ${formattedExpiryTime}` : 'soon'}`}
+                  Your rank is determined strictly by verified payment amount. Active until outranked.
                 </p>
               </div>
             </div>
 
-            {/* Urgency Status Pill */}
             <div className="self-start sm:self-auto">
-              {isExpired ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-600 text-white text-[11px] font-black uppercase tracking-wider shadow-2xs animate-pulse">
-                  <span className="w-2 h-2 rounded-full bg-white" />
-                  <span>Drop Imminent</span>
-                </span>
-              ) : isCritical ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-100 border border-rose-300 text-rose-900 text-[11px] font-black uppercase tracking-wider shadow-2xs">
-                  <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping" />
-                  <span>Critical Drop Risk</span>
-                </span>
-              ) : isWarning ? (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 border border-amber-300 text-amber-900 text-[11px] font-black uppercase tracking-wider">
-                  <span className="w-2 h-2 rounded-full bg-amber-600 animate-pulse" />
-                  <span>Expiring Soon</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span>24h Lock Active</span>
-                </span>
-              )}
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Permanent & Active</span>
+              </span>
             </div>
           </div>
 
-          {/* Digital Countdown Timer Block */}
-          <div className="my-3.5 p-3 sm:p-4 rounded-xl bg-white border border-stone-200 shadow-2xs">
+          {/* Daily Cycle Countdown Block */}
+          <div className="my-3.5 p-3 sm:p-4 rounded-xl bg-stone-50 border border-stone-200 shadow-2xs">
             <div className="flex items-center justify-between text-xs font-bold text-stone-600 mb-2 px-1">
               <span className="flex items-center gap-1.5">
                 <Timer className="w-3.5 h-3.5 text-stone-500" />
-                <span>Time Remaining Before Rank Drop</span>
+                <span>Today's Board Cycle Ends In (00:00 IST)</span>
               </span>
               <span className="font-mono text-[11px] text-stone-400 font-semibold">
-                Rolling 24h Cycle
+                Resets at Midnight IST
               </span>
             </div>
 
-            {/* Large Digital Clock Units */}
+            {/* Digital Clock Units */}
             <div className="flex items-center justify-center gap-2 sm:gap-3 py-1 font-mono">
-              {/* Hours Block */}
-              <div className="flex flex-col items-center bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
+              <div className="flex flex-col items-center bg-white border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
                 <span className="text-2xl sm:text-3xl font-black text-zinc-950 tracking-tight">
                   {String(hours).padStart(2, '0')}
                 </span>
@@ -888,8 +832,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
               <span className="text-xl sm:text-2xl font-black text-stone-400 pb-3">:</span>
 
-              {/* Minutes Block */}
-              <div className="flex flex-col items-center bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
+              <div className="flex flex-col items-center bg-white border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
                 <span className="text-2xl sm:text-3xl font-black text-zinc-950 tracking-tight">
                   {String(minutes).padStart(2, '0')}
                 </span>
@@ -898,107 +841,79 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
               <span className="text-xl sm:text-2xl font-black text-stone-400 pb-3">:</span>
 
-              {/* Seconds Block */}
-              <div className="flex flex-col items-center bg-stone-50 border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px] relative overflow-hidden">
-                <span
-                  className={`text-2xl sm:text-3xl font-black tracking-tight ${
-                    isCritical || isExpired ? 'text-rose-600' : 'text-amber-600'
-                  }`}
-                >
+              <div className="flex flex-col items-center bg-white border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
+                <span className="text-2xl sm:text-3xl font-black text-amber-600 tracking-tight">
                   {String(seconds).padStart(2, '0')}
                 </span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 mt-0.5">Secs</span>
               </div>
             </div>
 
-            {/* Slender Decay Progress Track */}
             <div className="mt-3.5 space-y-1.5">
               <div className="flex items-center justify-between text-[11px] font-medium text-stone-500 px-0.5">
-                <span>Immunity Elapsed: <strong className="font-mono text-zinc-700">{100 - percentRemaining}%</strong></span>
-                <span>Remaining: <strong className="font-mono text-zinc-800">{percentRemaining}%</strong></span>
+                <span>Daily Period Cycle Elapsed: <strong className="font-mono text-zinc-700">{percentElapsed}%</strong></span>
+                <span>Reset: <strong className="font-mono text-zinc-800">{formattedResetTime}</strong></span>
               </div>
               <div className="w-full bg-stone-200/80 rounded-full h-2 p-0.5 overflow-hidden">
                 <div
-                  style={{ width: `${percentRemaining}%` }}
-                  className={`h-full rounded-full transition-all duration-1000 ${
-                    isCritical || isExpired
-                      ? 'bg-rose-500'
-                      : isWarning
-                      ? 'bg-amber-500'
-                      : 'bg-emerald-500'
-                  }`}
+                  style={{ width: `${percentElapsed}%` }}
+                  className="h-full rounded-full bg-amber-500 transition-all duration-1000"
                 />
               </div>
             </div>
           </div>
 
-          {/* Scheduled Drop Consequence Box */}
-          <div
-            className={`p-3 rounded-xl border text-xs leading-relaxed ${
-              isCritical || isExpired
-                ? 'bg-rose-100/70 border-rose-300 text-rose-950 font-medium'
-                : isWarning
-                ? 'bg-amber-100/70 border-amber-300 text-amber-950 font-medium'
-                : 'bg-stone-100/70 border-stone-200 text-stone-700'
-            }`}
-          >
+          {/* Defense & Displacement Notice */}
+          <div className="p-3 rounded-xl border border-stone-200 bg-stone-50/80 text-xs leading-relaxed text-stone-700">
             <div className="flex items-start gap-2">
-              <ShieldAlert
-                className={`w-4 h-4 shrink-0 mt-0.5 ${
-                  isCritical || isExpired ? 'text-rose-600' : isWarning ? 'text-amber-700' : 'text-stone-500'
-                }`}
-              />
+              <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
               <div>
-                <div className="font-extrabold text-[12px]">
+                <div className="font-extrabold text-[12px] text-zinc-900">
                   {isRankOne
-                    ? 'Scheduled Drop: Crown Defense Expiration'
-                    : `Scheduled Drop: Rank #${profile.rank} → Rank #${profile.rank + 1}`}
+                    ? 'Current Leader: Defend the Crown'
+                    : `Rank #${profile.rank}: Climbing Higher`}
                 </div>
-                <p className="mt-0.5 text-[11px] leading-normal opacity-90">
+                <p className="mt-0.5 text-[11px] text-stone-600 leading-normal">
                   {isRankOne
-                    ? `When this countdown expires, your exclusive Crown protection terminates. Runner-up ${secondName} is scheduled to reclaim the #1 Apex unless you extend your lead.`
-                    : `If not defended, your verified claim drops 1 spot to #${profile.rank + 1} as active contenders push their proof forward. Boosting any amount resets your 24-hour immunity lock.`}
+                    ? `You currently hold #1 on LAZY with ₹${profile.amount.toLocaleString('en-IN')}. Anyone who verifies more than ₹${profile.amount.toLocaleString('en-IN')} will push you to #2.`
+                    : `Your entry is permanent on the All-Time leaderboard. When another contender verifies a higher payment, positions adjust in real time according to total paid amount.`}
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Action Relief CTAs */}
+          {/* Action CTAs */}
           <div className="mt-3.5 pt-3 border-t border-stone-200/80 flex flex-col sm:flex-row items-center justify-between gap-2.5">
             <button
               type="button"
               onClick={() => onUpgradeRank(profile)}
-              aria-label={isRankOne ? 'Renew Crown Defense and extend your lead' : `Defend Rank #${profile.rank} and reset 24 hour lock`}
+              aria-label={isRankOne ? 'Extend your lead on the leaderboard' : `Pay more to climb higher than Rank #${profile.rank}`}
               className="w-full sm:w-auto flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-black transition-all active:scale-98 cursor-pointer shadow-2xs min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
             >
               <PlusCircle className="w-4 h-4 text-amber-400" />
               <span>
                 {isRankOne
-                  ? 'Renew Crown Defense (+Extend Lead)'
-                  : `Defend Rank #${profile.rank} & Reset 24h Lock`}
+                  ? 'Extend Your Lead (Boost)'
+                  : 'Pay More to Climb Higher'}
               </span>
             </button>
 
             <button
               type="button"
               onClick={() => onOpenChallenge(profile.rank, 'notify', profile.name)}
-              aria-label="Set drop alert to be notified if outranked"
+              aria-label="Set alert to be notified if outranked"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white hover:bg-stone-50 border border-stone-200 text-stone-800 text-xs font-bold transition-all active:scale-98 cursor-pointer min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-2"
-              title="Get alerted the moment your rank expires or someone passes you"
             >
               <Bell className="w-3.5 h-3.5 text-amber-600" />
-              <span>Set Drop Alert</span>
+              <span>Notify If Outranked</span>
             </button>
           </div>
 
-          {/* Explanatory footer note */}
+          {/* Footer note */}
           <div className="mt-2.5 text-[10px] text-stone-400 flex items-center justify-between flex-wrap gap-1">
             <span className="flex items-center gap-1">
               <Info className="w-3 h-3 text-stone-400" />
-              <span>Leaderboard integrity: Ranks decay if not refreshed within 24h</span>
-            </span>
-            <span className="text-stone-500 font-mono">
-              Any boost adds +24h protection
+              <span>Leaderboard integrity: Ranks are deterministic based strictly on verified payment amount</span>
             </span>
           </div>
         </div>

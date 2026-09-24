@@ -695,10 +695,10 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
                 <h3 className="text-sm font-extrabold text-zinc-900">
-                  Email Alerts Activated!
+                  Notification Preference Saved
                 </h3>
                 <p className="mt-1 text-xs text-zinc-600 max-w-xs mx-auto leading-relaxed">
-                  {notifyMessage}
+                  {notifyMessage || 'Notification preference saved. Email delivery is not active yet.'}
                 </p>
                 <div className="mt-2.5 inline-block text-[11px] font-mono-numbers text-emerald-900 font-semibold bg-emerald-100/70 py-1 px-3 rounded-md">
                   {notifyEmail}
@@ -728,7 +728,7 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                 <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 flex items-start gap-2.5">
                   <BellRing className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                   <p className="text-[11px] leading-relaxed text-amber-950 font-medium">
-                    Never lose track of your glory. Get an instant email alert if another participant overtakes your rank or if a friend nominates you on LAZY.
+                    Save your notification preference. Automated email delivery is not active yet and will be enabled following provider setup.
                   </p>
                 </div>
 

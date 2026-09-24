@@ -67,7 +67,7 @@ export const GlobalActivityHeatmap: React.FC<GlobalActivityHeatmapProps> = ({
               {/* Verified Proof Tag */}
               <span className="inline-flex items-center gap-1 text-[11px] font-bold text-stone-500">
                 <ShieldCheck className="w-3.5 h-3.5 text-stone-400" />
-                <span>100% On-Chain UPI Claims</span>
+                <span>Verified Database Records</span>
               </span>
             </div>
 

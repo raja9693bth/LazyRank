@@ -5,7 +5,22 @@ import { UserProfile, Nomination, ActivityEvent, PurchaseRecord, ReportRecord, A
 
 const DATA_FILE = path.join(process.cwd(), 'server-data.json');
 
-// Initial seed profiles with verified paid amounts and social/website links
+export function constantTimeMatch(a?: string, b?: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const trimmedA = a.trim();
+  const trimmedB = b.trim();
+  if (trimmedA.length === 0 || trimmedB.length === 0) return false;
+  const bufA = Buffer.from(trimmedA);
+  const bufB = Buffer.from(trimmedB);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+export function generateId(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID().replace(/-/g, '').slice(0, 12)}`;
+}
+
+// Initial seed profiles with verified paid amounts and social/website links (Loaded ONLY when DEMO_MODE=true)
 const INITIAL_PROFILES: UserProfile[] = [
   {
     id: 'p-aarav-1',
@@ -312,6 +327,9 @@ interface DatabaseState {
   dilemmaVotes?: { [ipOrUser: string]: string }; // maps voter identifier to optionId
 }
 
+const SEED_PROFILE_IDS = new Set(INITIAL_PROFILES.map(p => p.id));
+const SEED_ACTIVITY_IDS = new Set(INITIAL_ACTIVITIES.map(a => a.id));
+
 export class LazyDatabase {
   private state: DatabaseState;
   private activeSessions: Map<string, number> = new Map();
@@ -323,15 +341,35 @@ export class LazyDatabase {
   }
 
   private loadData(): DatabaseState {
+    const isProd = process.env.NODE_ENV === 'production';
+    const isDemo = process.env.DEMO_MODE === 'true';
+
+    // Section 8: Production with DEMO_MODE=true must fail fast with a fatal error
+    if (isProd && isDemo) {
+      throw new Error('FATAL CONFIGURATION ERROR: DEMO_MODE cannot be enabled in production environment.');
+    }
+
     const parseState = (raw: string): DatabaseState | null => {
       try {
         const parsed = JSON.parse(raw);
         if (parsed.profiles && Array.isArray(parsed.profiles)) {
-          // Ensure migration of any missing fields for v2.0 & v2.3
-          const hasV2Amounts = parsed.profiles.some((p: any) => typeof p.amount === 'number' && p.amount > 0);
-          if (!hasV2Amounts) {
-            parsed.profiles = [...INITIAL_PROFILES];
-            parsed.activities = [...INITIAL_ACTIVITIES];
+          // In production or when DEMO_MODE is false, isolate and purge any demo seed profiles and activities
+          if (!isDemo || isProd) {
+            parsed.profiles = parsed.profiles.filter(
+              (p: any) => !SEED_PROFILE_IDS.has(p.id) && !p.ownerToken?.startsWith('seed_')
+            );
+            if (Array.isArray(parsed.activities)) {
+              parsed.activities = parsed.activities.filter(
+                (a: any) => !SEED_ACTIVITY_IDS.has(a.id) && !a.id?.startsWith('act-')
+              );
+            }
+          } else {
+            // In demo development mode, ensure migration of any missing fields for v2.0 & v2.3
+            const hasV2Amounts = parsed.profiles.some((p: any) => typeof p.amount === 'number' && p.amount > 0);
+            if (!hasV2Amounts) {
+              parsed.profiles = [...INITIAL_PROFILES];
+              parsed.activities = [...INITIAL_ACTIVITIES];
+            }
           }
           // Ensure every profile has ownerToken and verifiedAt set
           parsed.profiles.forEach((p: any) => {
@@ -420,15 +458,17 @@ export class LazyDatabase {
       console.error('Backup database file also unreadable.', bakErr);
     }
 
-    const defaultProfiles = INITIAL_PROFILES.map(p => ({
-      ...p,
-      ownerToken: 'seed_' + p.id + '_' + crypto.randomBytes(24).toString('hex')
-    }));
+    const defaultProfiles = isDemo
+      ? INITIAL_PROFILES.map(p => ({
+          ...p,
+          ownerToken: 'seed_' + p.id + '_' + crypto.randomBytes(24).toString('hex')
+        }))
+      : [];
 
     return {
       profiles: defaultProfiles,
       nominations: [],
-      activities: [...INITIAL_ACTIVITIES],
+      activities: isDemo ? [...INITIAL_ACTIVITIES] : [],
       purchases: [],
       reports: [],
       votes: {},
@@ -450,12 +490,18 @@ export class LazyDatabase {
     };
   }
 
-  private saveData() {
+  public saveData() {
     try {
-      const tempFile = `${DATA_FILE}.tmp.${Date.now()}.${Math.random().toString(36).slice(2, 8)}`;
+      const tempFile = `${DATA_FILE}.tmp.${Date.now()}.${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
       const payload = JSON.stringify(this.state, null, 2);
       fs.writeFileSync(tempFile, payload, 'utf-8');
-      fs.renameSync(tempFile, DATA_FILE);
+      try {
+        fs.renameSync(tempFile, DATA_FILE);
+      } catch {
+        // Windows atomic rename fallback if destination file is momentarily locked
+        fs.copyFileSync(tempFile, DATA_FILE);
+        try { fs.unlinkSync(tempFile); } catch {}
+      }
 
       // Maintain synced backup file for point-in-time recovery
       try {
@@ -475,10 +521,10 @@ export class LazyDatabase {
    * 3. Final deterministic tie-breaker: stable unique ID.
    * 4. Current #1 amount and minimum amount to beat #1 are derived dynamically.
    */
-  public recalculateRanks(): { topAmount: number; minAmountToBeatTop: number } {
-    // Calculate authoritative ranks for all verified active profiles
+  public recalculateRanks(persist: boolean = true): { topAmount: number; minAmountToBeatTop: number } {
+    // Calculate authoritative ranks for all verified active profiles (only admin 'removed' excludes)
     const allVerifiedProfiles = this.state.profiles.filter(
-      p => p.isVerified && p.amount > 0 && !p.isReported && p.reason !== '[Content Removed]'
+      p => p.isVerified && p.amount > 0 && p.moderationStatus !== 'removed' && p.reason !== '[Content Removed]'
     );
 
     allVerifiedProfiles.sort((a, b) => {
@@ -526,7 +572,9 @@ export class LazyDatabase {
       }
     });
 
-    this.saveData();
+    if (persist) {
+      this.saveData();
+    }
 
     const topAmount = allVerifiedProfiles.length > 0 ? allVerifiedProfiles[0].amount : 0;
     const minAmountToBeatTop = topAmount + 1;
@@ -632,7 +680,7 @@ export class LazyDatabase {
     // Filter verified profiles for the selected period
     const verifiedFiltered = this.state.profiles.filter(p => {
       if (!p.isVerified || p.amount <= 0) return false;
-      if (p.isReported && p.reason === '[Content Removed]') return false;
+      if (p.moderationStatus === 'removed' || p.reason === '[Content Removed]') return false;
       if (cutoff === 0) return true;
       const t = new Date(p.verifiedAt || p.createdAt).getTime();
       return t >= cutoff;
@@ -666,7 +714,7 @@ export class LazyDatabase {
       // Include unverified / ₹0 participants (Section 5)
       const unverified = this.state.profiles.filter(p => {
         if (p.isVerified && p.amount > 0) return false;
-        if (p.isReported && p.reason === '[Content Removed]') return false;
+        if (p.moderationStatus === 'removed' || p.reason === '[Content Removed]') return false;
         if (cutoff === 0) return true;
         const t = new Date(p.createdAt).getTime();
         return t >= cutoff;
@@ -707,12 +755,13 @@ export class LazyDatabase {
   }
 
   /**
-   * Sanitizes profile to strip private server-only tokens before sending to public clients
+   * Sanitizes profile to strip private server-only tokens and internal fields before sending to public clients
    */
   public sanitizeProfile(profile: UserProfile): UserProfile {
     const { ownerToken, ...safe } = profile as any;
     delete safe.isGhostMode;
     delete safe.is_ghost_mode;
+    delete safe.adminNotes;
     return safe as UserProfile;
   }
 
@@ -733,8 +782,11 @@ export class LazyDatabase {
     // IDOR / BOLA Prevention: Verify ownership if attempting to update an existing profile
     if (order.profileId) {
       const existing = this.getRawProfile(order.profileId);
-      if (existing && existing.ownerToken && existing.ownerToken !== order.ownerToken) {
-        throw new Error('Unauthorized: You cannot modify another participant\'s profile.');
+      if (!existing) {
+        throw new Error('Profile not found.');
+      }
+      if (!order.ownerToken || !this.constantTimeMatch(existing.ownerToken, order.ownerToken)) {
+        throw new Error('Unauthorized: Valid owner token is required to upgrade this profile.');
       }
     }
 
@@ -751,21 +803,41 @@ export class LazyDatabase {
     return this.state.orders ? this.state.orders[orderId] : undefined;
   }
 
+  public constantTimeMatch(a?: string, b?: string): boolean {
+    return constantTimeMatch(a, b);
+  }
+
+  public getNomination(id: string): Nomination | undefined {
+    return this.state.nominations ? this.state.nominations.find(n => n.id === id) : undefined;
+  }
+
   public getRawProfile(id: string): UserProfile | undefined {
     return this.state.profiles.find(p => p.id === id);
   }
 
   public getProfile(id: string): UserProfile | undefined {
-    this.recalculateRanks();
     const p = this.getRawProfile(id);
-    return p ? this.sanitizeProfile(p) : undefined;
+    if (!p) return undefined;
+    if (p.reason === '[Content Removed]' || p.moderationStatus === 'removed') return undefined;
+    return this.sanitizeProfile(p);
+  }
+
+  public getTopProfile(): UserProfile | undefined {
+    const verified = this.state.profiles.filter(
+      p => p.isVerified && p.amount > 0 && p.reason !== '[Content Removed]' && p.moderationStatus !== 'removed'
+    );
+    if (verified.length === 0) return undefined;
+    const top = verified.reduce((max, cur) => cur.amount > max.amount ? cur : max, verified[0]);
+    return this.sanitizeProfile(top);
   }
 
   public getProfileByName(name: string): UserProfile | undefined {
     const p = this.state.profiles.find(
       prof => prof.name.toLowerCase().trim() === name.toLowerCase().trim()
     );
-    return p ? this.sanitizeProfile(p) : undefined;
+    if (!p) return undefined;
+    if (p.reason === '[Content Removed]' || p.moderationStatus === 'removed') return undefined;
+    return this.sanitizeProfile(p);
   }
 
   public isPaymentRefProcessed(paymentRef: string): boolean {
@@ -784,9 +856,15 @@ export class LazyDatabase {
   public setProfileLazyReason(profileId: string, lazyReason: string, ownerToken?: string): UserProfile | undefined {
     const p = this.getRawProfile(profileId);
     if (!p) return undefined;
-    if (p.ownerToken && ownerToken && p.ownerToken !== ownerToken) {
+
+    // Strict authorization: owner token is mandatory and must match using constant-time comparison
+    if (!ownerToken || typeof ownerToken !== 'string' || !ownerToken.trim()) {
+      throw new Error('Unauthorized: Owner token is required to modify this profile.');
+    }
+    if (!p.ownerToken || !constantTimeMatch(p.ownerToken, ownerToken.trim())) {
       throw new Error('Unauthorized: Invalid owner token for this profile.');
     }
+
     p.lazyReason = lazyReason.trim();
     p.updatedAt = new Date().toISOString();
     this.saveData();
@@ -875,6 +953,16 @@ export class LazyDatabase {
   }): { success: boolean; profile?: UserProfile; previousTop?: UserProfile; message?: string } {
     const { name, amount, paymentRef, orderId, instagram, linkedin, website, reason, lazyReason, profileId, ownerToken } = params;
 
+    // Defense-in-depth: Reject any settlement mutation when live payment is disabled or in production
+    const paymentMode = (process.env.PAYMENT_MODE || 'disabled').toLowerCase().trim();
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (paymentMode === 'disabled' || isProduction) {
+      return {
+        success: false,
+        message: 'Settlement disabled: Live payment processing is currently disabled.'
+      };
+    }
+
     // Validate amount
     if (!amount || typeof amount !== 'number' || isNaN(amount) || amount < 1 || amount > 1000000) {
       return { success: false, message: 'Invalid payment amount. Must be between ₹1 and ₹10,00,000.' };
@@ -899,10 +987,22 @@ export class LazyDatabase {
     // Upgrade existing profile ONLY when an explicit existing profileId is provided and ownerToken matches
     if (profileId) {
       targetProfile = this.getRawProfile(profileId);
-      if (targetProfile && targetProfile.ownerToken && targetProfile.ownerToken !== ownerToken) {
+      if (!targetProfile) {
         return {
           success: false,
-          message: 'Unauthorized: Invalid profile credentials. You cannot modify another participant\'s profile.'
+          message: 'Referenced profile not found for upgrade.'
+        };
+      }
+      if (!ownerToken || typeof ownerToken !== 'string' || !ownerToken.trim()) {
+        return {
+          success: false,
+          message: 'Unauthorized: Owner token required to upgrade an existing profile.'
+        };
+      }
+      if (!targetProfile.ownerToken || !constantTimeMatch(targetProfile.ownerToken, ownerToken.trim())) {
+        return {
+          success: false,
+          message: "Unauthorized: Invalid profile credentials. You cannot modify another participant's profile."
         };
       }
     }
@@ -924,8 +1024,8 @@ export class LazyDatabase {
       targetProfile.updatedAt = new Date().toISOString();
     } else {
       // Create new profile
-      const newId = 'p-' + Math.random().toString(36).substring(2, 9);
-      const newUserId = 'u-' + Math.random().toString(36).substring(2, 9);
+      const newId = generateId('p');
+      const newUserId = generateId('u');
       const newOwnerToken = crypto.randomBytes(24).toString('hex');
       const nowIso = new Date().toISOString();
 
@@ -953,7 +1053,7 @@ export class LazyDatabase {
     // Record purchase
     const verifiedIso = new Date().toISOString();
     const purchase: PurchaseRecord = {
-      id: 'pur-' + Math.random().toString(36).substring(2, 9),
+      id: generateId('pur'),
       profileId: targetProfile.id,
       amount: Math.round(amount),
       currency: 'INR',
@@ -988,14 +1088,14 @@ export class LazyDatabase {
       finalizedProfile.claimHistory = [];
     }
     finalizedProfile.claimHistory.push({
-      id: 'ch-' + Math.random().toString(36).substring(2, 9),
+      id: generateId('ch'),
       amount: Math.round(amount),
       totalAmount: finalizedProfile.amount,
       rank: finalizedProfile.rank,
       timestamp: verifiedIso,
       note: finalizedProfile.rank === 1 ? 'Crown Claim (#1)' : finalizedProfile.claimHistory.length === 0 ? 'Initial Claim' : 'Rank Upgrade'
     });
-    // Renew 24h rank protection and scheduled drop timer
+    // Set daily board reset indicator
     finalizedProfile.rankExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     this.saveData();
 
@@ -1047,8 +1147,8 @@ export class LazyDatabase {
   }): UserProfile {
     const normInsta = this.normalizeInstagram(params.instagram);
     const normWeb = this.normalizeWebsite(params.website);
-    const newId = 'p-' + Math.random().toString(36).substring(2, 9);
-    const newUserId = 'u-' + Math.random().toString(36).substring(2, 9);
+    const newId = generateId('p');
+    const newUserId = generateId('u');
     const ownerToken = crypto.randomBytes(24).toString('hex');
 
     const profile: UserProfile = {
@@ -1081,7 +1181,7 @@ export class LazyDatabase {
     targetAmount?: number,
     lazyReason?: string
   ): Nomination {
-    const nomId = 'nom-' + Math.random().toString(36).substring(2, 9);
+    const nomId = generateId('nom');
     const nomination: Nomination = {
       id: nomId,
       nomineeName: nomineeName.trim(),
@@ -1100,17 +1200,6 @@ export class LazyDatabase {
       `${nomination.nominatorName} nominated ${nomination.nomineeName}${lazyReasonTag} on LAZY (Target: ₹${nomination.targetAmount}).`
     );
 
-    // Check for registered notification subscribers matching nominee
-    if (this.state.notificationSubscriptions && this.state.notificationSubscriptions.length > 0) {
-      const nomineeKey = nomineeName.trim().toLowerCase();
-      const matched = this.state.notificationSubscriptions.filter(
-        s => s.active && s.notifyOnNomination && s.name && s.name.trim().toLowerCase() === nomineeKey
-      );
-      if (matched.length > 0) {
-        console.log(`[Notification Alert] Triggered nomination notification email to ${matched.map(m => m.email).join(', ')} for friend nomination by ${nomination.nominatorName}`);
-      }
-    }
-
     this.saveData();
     return nomination;
   }
@@ -1118,6 +1207,14 @@ export class LazyDatabase {
   public voteLazy(profileId: string, voterIp: string): { success: boolean; profile?: UserProfile; message: string } {
     const profile = this.getRawProfile(profileId);
     if (!profile) return { success: false, message: 'Profile not found' };
+
+    // Bound in-memory vote keys to avoid unbounded memory growth
+    const voteKeys = Object.keys(this.state.votes);
+    if (voteKeys.length > 5000) {
+      for (let i = 0; i < 500; i++) {
+        delete this.state.votes[voteKeys[i]];
+      }
+    }
 
     const voteKey = `${profileId}-${voterIp}`;
     if (this.state.votes[voteKey]) {
@@ -1133,22 +1230,32 @@ export class LazyDatabase {
   }
 
   public reportContent(targetType: 'profile' | 'nomination', targetId: string, reason: string): boolean {
-    const repId = 'rep-' + Math.random().toString(36).substring(2, 9);
+    if (targetType === 'profile') {
+      const p = this.getRawProfile(targetId);
+      if (!p) return false;
+      p.isReported = true;
+      p.moderationStatus = 'reported';
+      p.updatedAt = new Date().toISOString();
+    } else if (targetType === 'nomination') {
+      const n = this.state.nominations.find(nom => nom.id === targetId);
+      if (!n) return false;
+      n.status = 'reported';
+    } else {
+      return false;
+    }
+
+    const repId = generateId('rep');
     this.state.reports.unshift({
       id: repId,
       targetType,
       targetId,
-      reason: reason.trim(),
+      reason: reason.trim().slice(0, 500),
       createdAt: new Date().toISOString(),
       status: 'pending'
     });
 
-    if (targetType === 'profile') {
-      const p = this.getRawProfile(targetId);
-      if (p) p.isReported = true;
-    } else {
-      const n = this.state.nominations.find(nom => nom.id === targetId);
-      if (n) n.status = 'reported';
+    if (this.state.reports.length > 200) {
+      this.state.reports = this.state.reports.slice(0, 200);
     }
 
     this.saveData();
@@ -1167,7 +1274,7 @@ export class LazyDatabase {
       this.state.contactMessages = [];
     }
     const msg: ContactMessage = {
-      id: 'cnt-' + Math.random().toString(36).substring(2, 9),
+      id: generateId('cnt'),
       name: params.name.trim().slice(0, 100),
       email: params.email.trim().slice(0, 150),
       subject: params.subject.trim().slice(0, 100),
@@ -1192,6 +1299,14 @@ export class LazyDatabase {
     notifyOnNomination?: boolean;
     ip?: string;
   }): { success: boolean; message: string; subscription: NotificationSubscription } {
+    if (!params || typeof params.email !== 'string' || !params.email.includes('@')) {
+      return {
+        success: false,
+        message: 'Valid email address is required',
+        subscription: {} as NotificationSubscription
+      };
+    }
+
     if (!this.state.notificationSubscriptions) {
       this.state.notificationSubscriptions = [];
     }
@@ -1216,13 +1331,13 @@ export class LazyDatabase {
       this.saveData();
       return {
         success: true,
-        message: 'Notification preferences updated! You will be alerted when outranked or nominated.',
+        message: 'Notification preference saved. Email delivery is not active yet.',
         subscription: existing
       };
     }
 
     const newSub: NotificationSubscription = {
-      id: 'sub-' + Math.random().toString(36).substring(2, 9),
+      id: generateId('sub'),
       email: cleanEmail,
       name: cleanName,
       notifyOnOutranked,
@@ -1236,7 +1351,7 @@ export class LazyDatabase {
     this.saveData();
     return {
       success: true,
-      message: 'Subscribed successfully! You will receive an email whenever you are outranked or nominated.',
+      message: 'Notification preference saved. Email delivery is not active yet.',
       subscription: newSub
     };
   }
@@ -1247,7 +1362,7 @@ export class LazyDatabase {
 
   public addActivity(type: ActivityEvent['type'], text: string, amount?: number, profileId?: string) {
     this.state.activities.unshift({
-      id: 'act-' + Math.random().toString(36).substring(2, 9),
+      id: generateId('act'),
       type,
       text,
       amount,
@@ -1263,10 +1378,18 @@ export class LazyDatabase {
     return this.state.activities.slice(0, 40);
   }
 
+  private analyticsSaveTimeout: NodeJS.Timeout | null = null;
+
   public trackEvent(event: keyof AnalyticsSummary) {
     if (typeof this.state.analytics[event] === 'number') {
       (this.state.analytics[event] as number) += 1;
-      this.saveData();
+      // Debounce saving analytics to disk (max once per 30s)
+      if (!this.analyticsSaveTimeout) {
+        this.analyticsSaveTimeout = setTimeout(() => {
+          this.analyticsSaveTimeout = null;
+          this.saveData();
+        }, 30000);
+      }
     }
   }
 
@@ -1287,6 +1410,14 @@ export class LazyDatabase {
         }
       }
 
+      // Cap activeSessions collection size to prevent unbounded memory growth
+      if (this.activeSessions.size > 2000) {
+        const oldestKeys = Array.from(this.activeSessions.keys()).slice(0, 500);
+        for (const k of oldestKeys) {
+          this.activeSessions.delete(k);
+        }
+      }
+
       // Track unique daily sessions based on UTC calendar day
       const todayKey = new Date().toISOString().slice(0, 10);
       let todaySet = this.dailyVisits.get(todayKey);
@@ -1295,6 +1426,16 @@ export class LazyDatabase {
         this.dailyVisits.set(todayKey, todaySet);
       }
       todaySet.add(cleanId);
+
+      // Prune daily visits older than 7 days
+      if (this.dailyVisits.size > 14) {
+        const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+        for (const dateKey of this.dailyVisits.keys()) {
+          if (dateKey < sevenDaysAgo) {
+            this.dailyVisits.delete(dateKey);
+          }
+        }
+      }
     }
 
     const todayKey = new Date().toISOString().slice(0, 10);
@@ -1325,7 +1466,7 @@ export class LazyDatabase {
     const visitsToday = todaySet ? todaySet.size : 0;
     const online = this.activeSessions.size;
 
-    const verifiedProfiles = this.state.profiles.filter(p => p.isVerified && p.amount > 0 && !p.isReported);
+    const verifiedProfiles = this.state.profiles.filter(p => p.isVerified && p.amount > 0 && p.moderationStatus !== 'removed' && p.reason !== '[Content Removed]');
     const totalVerifiedParticipants = verifiedProfiles.length;
     const totalVerifiedRevenue = verifiedProfiles.reduce((sum, p) => sum + p.amount, 0);
     const totalClaims = this.state.purchases.length || verifiedProfiles.length;
@@ -1350,6 +1491,7 @@ export class LazyDatabase {
 
   /**
    * Authoritative Global Activity aggregation for heat map and social proof
+   * Strictly truthful metrics derived from genuine database records.
    */
   public getGlobalActivity(): GlobalActivityData {
     const now = new Date();
@@ -1388,7 +1530,7 @@ export class LazyDatabase {
 
     // 2. From verified profile claim history
     for (const prof of this.state.profiles) {
-      if (prof.isVerified && prof.amount > 0) {
+      if (prof.isVerified && prof.amount > 0 && !prof.isReported && prof.reason !== '[Content Removed]') {
         if (prof.claimHistory && prof.claimHistory.length > 0) {
           for (const ch of prof.claimHistory) {
             if (!seenIds.has(ch.id)) {
@@ -1428,12 +1570,10 @@ export class LazyDatabase {
       return cMs >= startOfTodayMs || cMs >= twentyFourHoursAgoMs;
     });
 
-    const claimsToday = Math.max(todayClaims.length, 14);
-    const claimsTotal = Math.max(allClaims.length, claimsToday);
-    const totalAmountToday = Math.max(
-      todayClaims.reduce((acc, c) => acc + c.amount, 0),
-      14200
-    );
+    // Truthful counts without synthetic padding
+    const claimsToday = todayClaims.length;
+    const claimsTotal = allClaims.length;
+    const totalAmountToday = todayClaims.reduce((acc, c) => acc + c.amount, 0);
 
     // Build 24-hour activity buckets
     const currentHour = now.getHours();
@@ -1447,19 +1587,12 @@ export class LazyDatabase {
     };
 
     let peakClaims = 0;
-    let peakHourIndex = (currentHour - 2 + 24) % 24;
+    let peakHourIndex = currentHour;
 
     for (let h = 0; h < 24; h++) {
       const claimsInHour = todayClaims.filter(c => c.hour === h);
-      let count = claimsInHour.length;
-      let amt = claimsInHour.reduce((acc, c) => acc + c.amount, 0);
-
-      // Distribute a gentle baseline across daytime hours so the map is visibly alive and authentic
-      if (count === 0 && h >= 9 && h <= 23 && h <= currentHour) {
-        const seedCounts = [1, 2, 1, 3, 2, 1, 2, 3, 1, 2, 1, 2, 1, 1, 2];
-        count = seedCounts[(h * 3 + 1) % seedCounts.length];
-        amt = count * 450;
-      }
+      const count = claimsInHour.length;
+      const amt = claimsInHour.reduce((acc, c) => acc + c.amount, 0);
 
       let intensity = 0;
       if (count >= 5) intensity = 4;
@@ -1493,19 +1626,10 @@ export class LazyDatabase {
       const isToday = i === 0;
 
       const claimsInDay = allClaims.filter(c => c.dateStr === dayDateStr);
-      let count = claimsInDay.length;
-      let amt = claimsInDay.reduce((acc, c) => acc + c.amount, 0);
+      const count = isToday ? claimsToday : claimsInDay.length;
+      const amt = isToday ? totalAmountToday : claimsInDay.reduce((acc, c) => acc + c.amount, 0);
 
-      if (isToday) {
-        count = claimsToday;
-        amt = totalAmountToday;
-      } else if (count === 0) {
-        const pastWeekWeights = [8, 11, 9, 14, 12, 10];
-        count = pastWeekWeights[(dayDate.getDay() + 2) % pastWeekWeights.length];
-        amt = count * 720;
-      }
-
-      let intensity = 1;
+      let intensity = 0;
       if (count >= 12) intensity = 4;
       else if (count >= 8) intensity = 3;
       else if (count >= 5) intensity = 2;
@@ -1521,13 +1645,13 @@ export class LazyDatabase {
       });
     }
 
-    const peakHour = `${formatHourLabel(peakHourIndex)} – ${formatHourLabel((peakHourIndex + 1) % 24)}`;
+    const peakHour = peakClaims > 0 ? `${formatHourLabel(peakHourIndex)} – ${formatHourLabel((peakHourIndex + 1) % 24)}` : 'None recorded yet';
 
-    let latestClaimMinutesAgo = 6;
+    let latestClaimMinutesAgo: number | null = null;
     if (allClaims.length > 0) {
       const sorted = [...allClaims].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       const diffMin = Math.floor((nowMs - new Date(sorted[0].timestamp).getTime()) / 60000);
-      latestClaimMinutesAgo = Math.max(2, Math.min(diffMin, 45));
+      latestClaimMinutesAgo = Math.max(0, diffMin);
     }
 
     return {
@@ -1538,7 +1662,7 @@ export class LazyDatabase {
       recentDays,
       peakHour,
       latestClaimMinutesAgo,
-      activeParticipantsNow: Math.max(this.activeSessions.size, 4),
+      activeParticipantsNow: this.activeSessions.size,
       updatedAt: now.toISOString()
     };
   }
@@ -1555,34 +1679,55 @@ export class LazyDatabase {
     };
   }
 
-  public moderate(action: 'remove' | 'restore' | 'resolve_report', targetId: string) {
+  public moderate(action: 'remove' | 'restore' | 'resolve_report', targetId: string): boolean {
+    let affected = false;
     if (action === 'remove') {
       const p = this.getRawProfile(targetId);
       if (p) {
         p.reason = '[Content Removed]';
         p.isReported = true;
+        p.moderationStatus = 'removed';
+        p.updatedAt = new Date().toISOString();
+        affected = true;
       }
       const n = this.state.nominations.find(nom => nom.id === targetId);
       if (n) {
         n.reason = '[Content Removed]';
         n.status = 'removed';
+        affected = true;
       }
     } else if (action === 'restore') {
       const p = this.getRawProfile(targetId);
       if (p) {
         p.isReported = false;
+        p.moderationStatus = 'active';
+        if (p.reason === '[Content Removed]') {
+          p.reason = p.lazyReason || 'Verified Participant';
+        }
+        p.updatedAt = new Date().toISOString();
+        affected = true;
       }
       const n = this.state.nominations.find(nom => nom.id === targetId);
       if (n) {
         n.status = 'active';
+        if (n.reason === '[Content Removed]') {
+          n.reason = 'Nomination active';
+        }
+        affected = true;
       }
     } else if (action === 'resolve_report') {
       const r = this.state.reports.find(rep => rep.id === targetId);
-      if (r) r.status = 'resolved';
+      if (r) {
+        r.status = 'resolved';
+        affected = true;
+      }
     }
-    this.recalculateRanks();
-    this.saveData();
-    return true;
+    if (affected) {
+      this.recalculateRanks();
+      this.saveData();
+      return true;
+    }
+    return false;
   }
 
   // =========================================================================
@@ -1590,17 +1735,18 @@ export class LazyDatabase {
   // =========================================================================
   private ensureDefaultDilemma(): LazyDilemma {
     if (!this.state.dilemma) {
+      const isDemo = process.env.DEMO_MODE === 'true';
       this.state.dilemma = {
         id: 'dilemma-w37-food-delivery',
         title: 'Is ordering food lazy or smart?',
         description: 'You are lying on your couch. The kitchen is 15 steps away. A fresh Biryani is ₹249 on Swiggy. Are you an efficiency genius or unapologetically lazy?',
-        weekLabel: 'Week 37 Lazy Dilemma',
+        weekLabel: 'Weekly Lazy Dilemma',
         category: 'Food & Survival',
-        totalVotes: 842,
+        totalVotes: isDemo ? 842 : 0,
         options: [
-          { id: 'opt-smart', label: 'Smart — Time is money & cooking has dishes', votes: 488, percentage: 58, emoji: '🧠' },
-          { id: 'opt-lazy', label: 'Lazy — I literally could not walk 15 steps', votes: 312, percentage: 37, emoji: '🛋️' },
-          { id: 'opt-both', label: 'Both — Smartly lazy in true LAZY fashion', votes: 42, percentage: 5, emoji: '👑' }
+          { id: 'opt-smart', label: 'Smart — Time is money & cooking has dishes', votes: isDemo ? 488 : 0, percentage: isDemo ? 58 : 0, emoji: '🧠' },
+          { id: 'opt-lazy', label: 'Lazy — I literally could not walk 15 steps', votes: isDemo ? 312 : 0, percentage: isDemo ? 37 : 0, emoji: '🛋️' },
+          { id: 'opt-both', label: 'Both — Smartly lazy in true LAZY fashion', votes: isDemo ? 42 : 0, percentage: isDemo ? 5 : 0, emoji: '👑' }
         ]
       };
     }
@@ -1636,6 +1782,14 @@ export class LazyDatabase {
       this.state.dilemmaVotes = {};
     }
 
+    // Bound voter keys to avoid unbounded memory growth
+    const voterKeys = Object.keys(this.state.dilemmaVotes);
+    if (voterKeys.length > 5000) {
+      for (let i = 0; i < 500; i++) {
+        delete this.state.dilemmaVotes[voterKeys[i]];
+      }
+    }
+
     const previousVote = this.state.dilemmaVotes[voterKey];
     if (previousVote === optionId) {
       return { success: true, dilemma: this.getDilemma(voterKey), message: 'Vote already recorded' };
@@ -1663,6 +1817,17 @@ export class LazyDatabase {
       success: true,
       dilemma: this.getDilemma(voterKey)
     };
+  }
+
+  public addProfile(profile: UserProfile): void {
+    const existingIndex = this.state.profiles.findIndex(p => p.id === profile.id);
+    if (existingIndex >= 0) {
+      this.state.profiles[existingIndex] = profile;
+    } else {
+      this.state.profiles.push(profile);
+    }
+    this.recalculateRanks();
+    this.saveData();
   }
 }
 

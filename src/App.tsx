@@ -57,6 +57,7 @@ export default function App() {
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
   const [orderError, setOrderError] = useState<string | null>(null);
   const [isJustClaimed, setIsJustClaimed] = useState(false);
+  const [upgradingProfile, setUpgradingProfile] = useState<UserProfile | null>(null);
   const [globalActivityRefreshKey, setGlobalActivityRefreshKey] = useState<number>(0);
 
   // Challenge Banner state
@@ -149,7 +150,7 @@ export default function App() {
     try {
       let sessionId = sessionStorage.getItem('lazy_session_id');
       if (!sessionId) {
-        sessionId = 's_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now();
+        sessionId = 's_' + (typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : (Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9)));
         sessionStorage.setItem('lazy_session_id', sessionId);
       }
       const res = await fetch('/api/stats/live', {
@@ -310,10 +311,11 @@ export default function App() {
 
     try {
       let storedToken: string | undefined;
-      if (claimData.profileId) {
+      const targetProfileId = claimData.profileId || upgradingProfile?.id;
+      if (targetProfileId) {
         try {
           const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
-          storedToken = tokens[claimData.profileId];
+          storedToken = tokens[targetProfileId];
         } catch {}
       }
 
@@ -325,6 +327,7 @@ export default function App() {
         },
         body: JSON.stringify({
           ...claimData,
+          profileId: targetProfileId,
           ownerToken: storedToken
         })
       });
@@ -349,6 +352,7 @@ export default function App() {
     setOrderData(null);
     setIsJustClaimed(true);
     setSelectedProfile(profile);
+    setUpgradingProfile(null);
 
     if (ownerToken && profile.id) {
       try {
@@ -367,8 +371,9 @@ export default function App() {
     setGlobalActivityRefreshKey(k => k + 1);
   };
 
-  // Upgrading existing rank
+  // Upgrading existing rank (preserves profile ID and ownership credentials)
   const handleUpgradeRank = (profile: UserProfile) => {
+    setUpgradingProfile(profile);
     setSelectedProfile(null);
     setInitialClaimAmount(minAmountToBeatTop);
     const el = document.getElementById('action-panel-section');
@@ -564,6 +569,8 @@ export default function App() {
                       minAmountToBeatTop={minAmountToBeatTop}
                       initialAmount={initialClaimAmount}
                       profiles={profiles}
+                      upgradingProfile={upgradingProfile}
+                      onCancelUpgrade={() => setUpgradingProfile(null)}
                       onStartPayment={handleStartPayment}
                       isLoading={isCreatingOrder}
                       errorMessage={orderError}

@@ -105,7 +105,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
           8. Refund Processing Method & Timelines
         </h2>
         <p>
-          All approved refunds are initiated through our payment gateway (Cashfree Payments) and returned exclusively to the original payment source (the specific UPI ID, bank account, or debit/credit card used during payment).
+          All approved refunds are initiated through the originating payment processing provider and returned exclusively to the original payment source (the specific UPI ID, bank account, or debit/credit card used during payment).
         </p>
         <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
           <li><strong>Processing Window:</strong> Once initiated by us, the refund typically reflects in your bank account within <strong>5 to 7 business days</strong>, depending on the recipient bank's standard settlement speed.</li>
@@ -122,7 +122,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
         </p>
         <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs sm:text-sm">
           <div><strong>Payment Support Email:</strong> <a href="mailto:raja@xaivon.com" className="text-amber-800 font-bold hover:underline">raja@xaivon.com</a></div>
-          <div className="mt-1"><strong>Operating Entity:</strong> Associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME]</div>
+          <div className="mt-1"><strong>Operating Entity:</strong> LAZY Project (Legal entity details pending finalization)</div>
         </div>
       </section>
     </LegalPageLayout>

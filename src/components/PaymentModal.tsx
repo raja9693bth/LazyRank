@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, CheckCircle2, AlertCircle, Copy, Check, QrCode, Smartphone, Loader2, ArrowRight, ShieldCheck, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, AlertCircle, ShieldAlert, Loader2, ArrowRight } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { UserProfile } from '../types.ts';
 
@@ -17,7 +17,7 @@ interface PaymentModalProps {
     linkedin?: string;
     website?: string;
     reason?: string;
-    vpa: string;
+    paymentMode?: string;
   } | null;
   isOpen: boolean;
   onClose: () => void;
@@ -30,29 +30,33 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   onClose,
   onPaymentSuccess
 }) => {
-  const [copiedUpi, setCopiedUpi] = useState(false);
-  const [selectedApp, setSelectedApp] = useState<'gpay' | 'phonepe' | 'paytm' | 'qr'>('qr');
-  const [step, setStep] = useState<'checkout' | 'verifying' | 'success' | 'error'>('checkout');
+  const [step, setStep] = useState<'disabled' | 'verifying' | 'success' | 'error'>('disabled');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [manualTxnRef, setManualTxnRef] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setStep('disabled');
+      setErrorMessage(null);
+    }
+  }, [isOpen]);
+
+  // Escape key handler for accessible modal dismissal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && step !== 'verifying') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, step]);
 
   if (!isOpen || !orderData) return null;
 
-  const upiId = orderData.vpa || 'lazy@upi';
-  const upiPayUrl = `upi://pay?pa=${upiId}&pn=LAZY%20Rank&am=${orderData.amount}&cu=INR&tn=LAZY%20Rank%20for%20${encodeURIComponent(orderData.name)}`;
-
-  const handleCopyUpi = () => {
-    navigator.clipboard.writeText(upiId);
-    setCopiedUpi(true);
-    setTimeout(() => setCopiedUpi(false), 2000);
-  };
-
-  // Authoritative server-side verification
-  const handleVerifyPayment = async (customRef?: string) => {
+  // Sandbox-only verification attempt (strictly rejected by production backend)
+  const handleSandboxVerify = async () => {
     setStep('verifying');
     setErrorMessage(null);
-
-    const paymentRef = customRef || manualTxnRef.trim() || `UPI_${Date.now().toString(36).toUpperCase()}`;
 
     try {
       let storedOwnerToken: string | undefined;
@@ -71,7 +75,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         },
         body: JSON.stringify({
           orderId: orderData.orderId,
-          paymentReference: paymentRef,
+          paymentReference: `SANDBOX_${orderData.orderId}`,
           name: orderData.name,
           amount: orderData.amount,
           instagram: orderData.instagram,
@@ -86,10 +90,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       const data = await res.json();
 
       if (!res.ok || !data.success || !data.profile) {
-        throw new Error(data.error || 'Payment verification failed server-side.');
+        throw new Error(data.error || 'Payment verification is unavailable.');
       }
 
-      // Celebratory confetti burst & tactile screen-shake on verified achievement
       try {
         confetti({
           particleCount: 85,
@@ -98,9 +101,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           colors: ['#f59e0b', '#d97706', '#10b981', '#6366f1', '#ec4899', '#fbbf24'],
           disableForReducedMotion: true
         });
-      } catch {
-        // Confetti fallback
-      }
+      } catch {}
 
       setStep('success');
       setTimeout(() => {
@@ -108,20 +109,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       }, 950);
     } catch (err: any) {
       setStep('error');
-      setErrorMessage(err?.message || 'Could not verify payment. Please try again.');
+      setErrorMessage(err?.message || 'Payment processing is currently unavailable.');
     }
   };
 
-  // Escape key handler for accessible modal dismissal
-  React.useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && step !== 'verifying') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, step]);
+  const isSandbox = orderData.paymentMode === 'sandbox' || (import.meta as any).env?.VITE_PAYMENT_MODE === 'sandbox';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/70 backdrop-blur-xs p-4 overflow-y-auto" role="presentation">
@@ -129,16 +121,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="payment-modal-title"
-        className={`relative w-full max-w-md rounded-2xl bg-white border border-zinc-200 shadow-2xl overflow-hidden my-auto ${
-          step === 'success' ? 'animate-screen-shake' : 'animate-in fade-in zoom-in-95 duration-200'
-        }`}
+        className="relative w-full max-w-md rounded-2xl bg-white border border-zinc-200 shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-200"
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4 bg-zinc-50/50">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-zinc-900" />
+            <ShieldAlert className="w-5 h-5 text-amber-600" />
             <h3 id="payment-modal-title" className="text-sm font-extrabold text-zinc-900 uppercase tracking-wider">
-              Legitimacy Verification
+              Payment Status
             </h3>
           </div>
           <button
@@ -153,197 +143,60 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
         {/* Content Body */}
         <div className="p-5">
-          {step === 'checkout' && (
+          {step === 'disabled' && (
             <div className="space-y-4">
               {/* Order Summary Box */}
               <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-center">
                 <div className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">
-                  Amount to Verify Laziness
+                  Target Amount
                 </div>
                 <div className="text-3xl font-mono-numbers font-black text-zinc-950 mt-1">
                   ₹{orderData.amount.toLocaleString('en-IN')}
                 </div>
                 <div className="text-xs text-zinc-600 mt-1">
-                  For: <strong className="text-zinc-900">{orderData.name}</strong>
+                  Participant: <strong className="text-zinc-900">{orderData.name}</strong>
                   {orderData.isTop && (
-                    <span className="ml-1 text-amber-700 font-bold">(Will Take #1!)</span>
+                    <span className="ml-1 text-amber-700 font-bold">(Target: #1 Rank)</span>
                   )}
                 </div>
               </div>
 
-              {/* Payment Method Selector */}
-              <div>
-                <label className="block text-xs font-bold text-zinc-700 mb-2">
-                  Select Payment Method (India UPI)
-                </label>
-                <div role="tablist" aria-label="UPI payment options" className="grid grid-cols-4 gap-2">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedApp === 'qr'}
-                    aria-label="UPI QR Code"
-                    onClick={() => setSelectedApp('qr')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
-                      selectedApp === 'qr'
-                        ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
-                        : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
-                    }`}
-                  >
-                    <QrCode className="w-4 h-4 mb-1" />
-                    <span className="text-[10px]">UPI QR</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedApp === 'gpay'}
-                    aria-label="Google Pay UPI"
-                    onClick={() => setSelectedApp('gpay')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
-                      selectedApp === 'gpay'
-                        ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
-                        : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
-                    }`}
-                  >
-                    <Smartphone className="w-4 h-4 mb-1" />
-                    <span className="text-[10px]">GPay</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedApp === 'phonepe'}
-                    aria-label="PhonePe UPI"
-                    onClick={() => setSelectedApp('phonepe')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
-                      selectedApp === 'phonepe'
-                        ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
-                        : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
-                    }`}
-                  >
-                    <Smartphone className="w-4 h-4 mb-1" />
-                    <span className="text-[10px]">PhonePe</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={selectedApp === 'paytm'}
-                    aria-label="Paytm UPI"
-                    onClick={() => setSelectedApp('paytm')}
-                    className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 ${
-                      selectedApp === 'paytm'
-                        ? 'border-zinc-900 bg-zinc-900 text-white font-bold'
-                        : 'border-zinc-200 bg-zinc-50 text-zinc-700 hover:bg-zinc-100'
-                    }`}
-                  >
-                    <Smartphone className="w-4 h-4 mb-1" />
-                    <span className="text-[10px]">Paytm</span>
-                  </button>
+              {/* Truthful Payment Disabled State */}
+              <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-amber-900 font-bold text-sm">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Payments Currently Unavailable</span>
                 </div>
+                <p className="text-xs text-amber-800 leading-relaxed">
+                  Payments are currently unavailable until payment processing is enabled. Payment gateway onboarding and compliance approvals are in progress.
+                </p>
+                <p className="text-[11px] text-amber-700 leading-relaxed">
+                  No charges have been made and no fake transactions will be processed. You can participate as an unverified participant in the meantime.
+                </p>
               </div>
 
-              {/* Dynamic Payment Details Display */}
-              {selectedApp === 'qr' ? (
-                <div className="flex flex-col items-center justify-center p-4 rounded-xl border border-zinc-200 bg-white">
-                  {/* Generated SVG QR Code representation */}
-                  <div className="p-3 bg-white border border-zinc-200 rounded-xl shadow-xs">
-                    <svg className="w-36 h-36" viewBox="0 0 100 100" fill="none">
-                      {/* Corner squares */}
-                      <rect x="5" y="5" width="25" height="25" fill="#18181b" rx="3" />
-                      <rect x="10" y="10" width="15" height="15" fill="white" rx="1" />
-                      <rect x="13" y="13" width="9" height="9" fill="#18181b" />
-
-                      <rect x="70" y="5" width="25" height="25" fill="#18181b" rx="3" />
-                      <rect x="75" y="10" width="15" height="15" fill="white" rx="1" />
-                      <rect x="78" y="13" width="9" height="9" fill="#18181b" />
-
-                      <rect x="5" y="70" width="25" height="25" fill="#18181b" rx="3" />
-                      <rect x="10" y="75" width="15" height="15" fill="white" rx="1" />
-                      <rect x="13" y="78" width="9" height="9" fill="#18181b" />
-
-                      {/* Data dots pattern */}
-                      <rect x="35" y="8" width="6" height="6" fill="#18181b" />
-                      <rect x="45" y="12" width="6" height="6" fill="#18181b" />
-                      <rect x="55" y="8" width="6" height="6" fill="#18181b" />
-                      <rect x="35" y="22" width="6" height="6" fill="#18181b" />
-                      <rect x="50" y="24" width="6" height="6" fill="#18181b" />
-
-                      <rect x="8" y="38" width="6" height="6" fill="#18181b" />
-                      <rect x="18" y="48" width="6" height="6" fill="#18181b" />
-                      <rect x="28" y="38" width="6" height="6" fill="#18181b" />
-                      <rect x="38" y="44" width="8" height="8" fill="#d97706" rx="2" />
-                      <rect x="52" y="38" width="6" height="6" fill="#18181b" />
-                      <rect x="68" y="46" width="6" height="6" fill="#18181b" />
-                      <rect x="82" y="38" width="6" height="6" fill="#18181b" />
-
-                      <rect x="36" y="65" width="6" height="6" fill="#18181b" />
-                      <rect x="48" y="75" width="6" height="6" fill="#18181b" />
-                      <rect x="60" y="65" width="6" height="6" fill="#18181b" />
-                      <rect x="75" y="75" width="6" height="6" fill="#18181b" />
-                      <rect x="85" y="85" width="6" height="6" fill="#18181b" />
-                    </svg>
-                  </div>
-                  <span className="text-[11px] text-zinc-500 font-medium mt-2">
-                    Scan with any UPI app (GPay, PhonePe, Paytm, BHIM)
-                  </span>
-                </div>
-              ) : (
-                <div className="p-4 rounded-xl border border-zinc-200 bg-zinc-50 text-center">
-                  <p className="text-xs text-zinc-600 font-medium mb-3">
-                    Open {selectedApp.toUpperCase()} directly on mobile:
-                  </p>
-                  <a
-                    href={upiPayUrl}
-                    aria-label={`Launch ${selectedApp.toUpperCase()} app`}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-zinc-950 text-white text-xs font-bold shadow-xs hover:bg-zinc-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
+              {isSandbox && (
+                <div className="pt-2 border-t border-zinc-100">
+                  <button
+                    type="button"
+                    onClick={handleSandboxVerify}
+                    className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
                   >
-                    <span>Launch {selectedApp.toUpperCase()} App</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                    <span>Test Sandbox Verification (Dev Only)</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               )}
 
-              {/* UPI ID copy field */}
-              <div className="flex items-center justify-between p-2.5 rounded-xl border border-zinc-200 bg-zinc-50">
-                <div className="text-xs text-zinc-600 font-mono-numbers">
-                  UPI ID: <strong className="text-zinc-900">{upiId}</strong>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCopyUpi}
-                  aria-label="Copy UPI ID"
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-bold text-zinc-700 bg-white border border-zinc-200 hover:bg-zinc-100 transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
-                >
-                  {copiedUpi ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-600" />
-                      <span>Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {/* Server Verification Action */}
+              {/* Dismiss Action */}
               <div className="pt-2 border-t border-zinc-100">
                 <button
-                  id="confirm-verified-payment-btn"
                   type="button"
-                  onClick={() => handleVerifyPayment()}
-                  aria-label={`Confirm payment of ₹${orderData.amount.toLocaleString('en-IN')}`}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-xs transition-all active:scale-98 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
+                  onClick={onClose}
+                  className="w-full py-3 px-4 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-white font-extrabold text-sm shadow-xs transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                 >
-                  <span>I HAVE PAID ₹{orderData.amount.toLocaleString('en-IN')}</span>
-                  <ArrowRight className="w-4 h-4" />
+                  Understood
                 </button>
-                <p className="text-[11px] text-zinc-400 text-center mt-2">
-                  Server verifies receipt before granting official public rank.
-                </p>
               </div>
             </div>
           )}
@@ -352,23 +205,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <div className="py-12 text-center space-y-3">
               <Loader2 className="w-8 h-8 animate-spin text-zinc-950 mx-auto" />
               <h4 className="text-sm font-extrabold text-zinc-900">
-                Verifying Legitimacy on Server...
+                Testing Sandbox Verification...
               </h4>
-              <p className="text-xs text-zinc-500 max-w-xs mx-auto">
-                Validating transaction reference and calculating your authoritative public rank.
-              </p>
-            </div>
-          )}
-
-          {step === 'success' && (
-            <div className="py-12 text-center space-y-3 animate-celebration-pop">
-              <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto animate-bounce" />
-              <h4 className="text-base font-extrabold text-zinc-900">
-                Legitimacy Verified!
-              </h4>
-              <p className="text-xs text-zinc-500">
-                Preparing your official share card...
-              </p>
             </div>
           )}
 
@@ -376,7 +214,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             <div className="py-8 text-center space-y-3">
               <AlertCircle className="w-8 h-8 text-rose-600 mx-auto" />
               <h4 className="text-sm font-extrabold text-zinc-900">
-                Verification Failed
+                Payment Unavailable
               </h4>
               <p className="text-xs text-rose-600 max-w-xs mx-auto">
                 {errorMessage}
@@ -384,10 +222,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <div className="pt-3">
                 <button
                   type="button"
-                  onClick={() => setStep('checkout')}
+                  onClick={() => setStep('disabled')}
                   className="px-4 py-2 rounded-xl bg-zinc-950 text-white text-xs font-bold hover:bg-zinc-800 transition-colors cursor-pointer"
                 >
-                  Try Again
+                  Back
                 </button>
               </div>
             </div>

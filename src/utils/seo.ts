@@ -41,7 +41,7 @@ export const PAGE_SEO: Record<string, PageSeoConfig> = {
   },
   '/privacy': {
     title: "Privacy Policy — How LAZY Handles Your Data",
-    description: "LAZY Privacy Policy: understanding public display of names and handles, secure payment gateway processing via Razorpay, and user data rights.",
+    description: "LAZY Privacy Policy: understanding public display of names and handles, user data security, and participant data rights.",
     canonicalPath: '/privacy',
     ogType: 'website',
     breadcrumbName: 'Privacy Policy'
@@ -83,8 +83,8 @@ export function generateClientRouteJsonLd(route: string): object[] {
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
-      name: 'XAIVON',
-      email: 'raja@xaivon.com'
+      name: 'LAZY Project',
+      url: BASE_URL
     }
   };
 
@@ -98,13 +98,7 @@ export function generateClientRouteJsonLd(route: string): object[] {
         url: `${BASE_URL}/`,
         description: config.description,
         applicationCategory: 'EntertainmentApplication',
-        operatingSystem: 'All',
-        offers: {
-          '@type': 'Offer',
-          priceCurrency: 'INR',
-          price: '1',
-          availability: 'https://schema.org/InStock'
-        }
+        operatingSystem: 'All'
       }
     ];
   }
@@ -138,11 +132,11 @@ export function generateClientRouteJsonLd(route: string): object[] {
     extraProps = {
       mainEntity: {
         '@type': 'Organization',
-        name: 'XAIVON',
-        email: 'raja@xaivon.com',
+        name: 'LAZY Project',
+        url: BASE_URL,
         contactPoint: {
           '@type': 'ContactPoint',
-          email: 'raja@xaivon.com',
+          email: 'contact@lazyproof.online',
           contactType: 'customer service',
           availableLanguage: ['English', 'Hindi']
         }
@@ -297,31 +291,22 @@ export function updateProfileSeo(profile: UserProfile) {
           interactionType: 'https://schema.org/LikeAction',
           userInteractionCount: profile.votesCount || 0
         }
+        }
       },
-      hasPart: {
-        '@type': 'Offer',
-        name: 'Verified Public Rank Proof',
-        price: profile.amount,
-        priceCurrency: 'INR',
-        availability: 'https://schema.org/InStock',
-        category: 'EntertainmentRanking',
-        validFrom: profile.verifiedAt || profile.createdAt
+      {
+        '@type': 'WebSite',
+        '@id': `${BASE_URL}/#website`,
+        name: 'LAZY',
+        url: `${BASE_URL}/`,
+        description: 'Public legitimacy leaderboard where higher verified payment equals higher rank.',
+        inLanguage: 'en-IN',
+        publisher: {
+          '@type': 'Organization',
+          name: 'LAZY Project',
+          url: BASE_URL
+        }
       }
-    },
-    {
-      '@type': 'WebSite',
-      '@id': `${BASE_URL}/#website`,
-      name: 'LAZY',
-      url: `${BASE_URL}/`,
-      description: 'Public legitimacy leaderboard where higher verified payment equals higher rank.',
-      inLanguage: 'en-IN',
-      publisher: {
-        '@type': 'Organization',
-        name: 'XAIVON',
-        email: 'raja@xaivon.com'
-      }
-    }
-  ];
+    ];
 
   updateJsonLd(profileGraph);
 }

@@ -32,10 +32,11 @@ export interface UserProfile {
   isNomination?: boolean;
   nominatorName?: string;
   isReported?: boolean;
+  moderationStatus?: 'active' | 'reported' | 'removed' | 'resolved';
   challengeTargetRank?: number;
   roast?: string; // Optional AI Lazy Roast
   claimHistory?: ClaimHistoryRecord[]; // Chronological claim progression records
-  rankExpiresAt?: string; // ISO string when rank protection expires and scheduled drop triggers
+  rankExpiresAt?: string; // Daily period cycle indicator
   lazyReason?: string; // Predefined selected Lazy Reason (e.g. 'Procrastination Master', 'Bed Connoisseur')
   lazyStreakDays?: number; // Consecutive days maintaining a Top 10 position to encourage retention
 }

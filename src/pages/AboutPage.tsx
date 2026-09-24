@@ -93,7 +93,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
           Operator & Compliance
         </h2>
         <p>
-          LAZY is operated by and associated with XAIVON / [INSERT VERIFIED LEGAL BUSINESS NAME]. Payments are securely processed through recognized Indian payment aggregators compliant with RBI payment regulations.
+          LAZY is operated by the LAZY Project team (operating entity details pending final legal registration). Payment gateway integration and compliance verification are currently in progress; live payment processing will be enabled following formal onboarding approval.
         </p>
         <p>
           For complete rules, please review our <button type="button" onClick={() => onNavigate('/rules')} className="text-amber-800 font-bold hover:underline cursor-pointer">Official Rules & Ranking Guide</button>, or view our <button type="button" onClick={() => onNavigate('/terms')} className="text-amber-800 font-bold hover:underline cursor-pointer">Terms & Conditions</button>.

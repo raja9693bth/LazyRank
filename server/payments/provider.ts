@@ -8,6 +8,7 @@ export interface CreateOrderParams {
   returnUrl?: string;
   notifyUrl?: string;
   note?: string;
+  idempotencyKey?: string;
 }
 
 export interface ProviderOrderResult {
@@ -15,6 +16,7 @@ export interface ProviderOrderResult {
   providerOrderId?: string;
   paymentSessionId?: string;
   checkoutUrl?: string;
+  idempotencyKey?: string;
   currency: string;
   amount: number;
   status: 'ACTIVE' | 'PAID' | 'FAILED' | 'PENDING';
@@ -37,6 +39,7 @@ export interface WebhookVerificationResult {
   providerPaymentId?: string;
   amount?: number;
   currency?: string;
+  paymentMethod?: string;
   status?: 'SUCCESS' | 'FAILED' | 'USER_DROPPED' | 'REFUNDED';
   rawPayload?: any;
   error?: string;

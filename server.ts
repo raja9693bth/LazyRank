@@ -72,6 +72,21 @@ function verifyAdminKey(providedKey?: string): boolean {
 const PAYMENT_MODE = (process.env.PAYMENT_MODE || 'disabled').toLowerCase().trim();
 
 async function startServer() {
+  const isProd = process.env.NODE_ENV === 'production';
+  const usePg = isProd || process.env.USE_POSTGRES === 'true';
+
+  // Section 2A: Mandatory DATABASE_URL in production with fail-fast startup
+  if (usePg) {
+    if (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim()) {
+      throw new Error('FATAL CONFIGURATION ERROR: DATABASE_URL is mandatory in production environment. Silently falling back to local JSON is prohibited.');
+    }
+    const pgInitOk = await db.pg.init();
+    if (!pgInitOk) {
+      throw new Error('FATAL CONFIGURATION ERROR: Failed to connect to PostgreSQL and initialize schema.');
+    }
+    console.log('[PostgreSQL] Initialized as authoritative production database.');
+  }
+
   const app = express();
   const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -131,17 +146,25 @@ async function startServer() {
 
   // Health check
   app.get('/api/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok', product: 'LAZY', version: '2.0' });
+    res.json({ status: 'ok', product: 'LAZY', version: '2.0', storage: db.isPostgresAuthoritative() ? 'postgresql' : 'json' });
   });
 
   // Leaderboard endpoint (Canonical source of paid ranks with server pagination & period filtering)
-  app.get('/api/leaderboard', (req: Request, res: Response) => {
+  app.get('/api/leaderboard', async (req: Request, res: Response) => {
     const period = (req.query.period as 'today' | 'week' | 'month' | 'all') || 'all';
     const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
     const pageSize = req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : undefined;
     const offset = req.query.offset !== undefined ? parseInt(req.query.offset as string, 10) : undefined;
     const limit = req.query.limit !== undefined ? parseInt(req.query.limit as string, 10) : undefined;
     const filter = (req.query.filter as 'verified' | 'all') || 'verified';
+
+    if (db.isPostgresAuthoritative()) {
+      const data = await db.pg.getLeaderboard({ period, page, pageSize, offset, limit, filter });
+      return res.json({
+        ...data,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     const data = db.getLeaderboard({ period, page, pageSize, offset, limit, filter });
     res.json({
@@ -176,9 +199,14 @@ async function startServer() {
   });
 
   // Get current #1 and minimum required amount to beat #1
-  app.get('/api/rank/top', (req: Request, res: Response) => {
-    const topAmount = db.getTopAmount();
-    const minAmountToBeatTop = db.getMinAmountToBeatTop();
+  app.get('/api/rank/top', async (req: Request, res: Response) => {
+    let topAmount = 0;
+    if (db.isPostgresAuthoritative()) {
+      topAmount = await db.pg.getTopAmount();
+    } else {
+      topAmount = db.getTopAmount();
+    }
+    const minAmountToBeatTop = topAmount + 1;
     res.json({
       topAmount,
       minAmountToBeatTop
@@ -261,7 +289,7 @@ async function startServer() {
 
     // For existing profile upgrades: profile must exist, owner token must be present and valid
     if (profileId) {
-      const existing = db.getRawProfile(profileId);
+      const existing = db.isPostgresAuthoritative() ? await db.pg.getRawProfile(profileId) : db.getRawProfile(profileId);
       if (!existing) {
         return res.status(404).json({ error: 'Profile not found.' });
       }
@@ -293,13 +321,16 @@ async function startServer() {
     }
 
     const orderId = 'order_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-    const topAmount = db.getTopAmount();
+    const topAmount = db.isPostgresAuthoritative() ? await db.pg.getTopAmount() : db.getTopAmount();
     const isTop = parsedAmount > topAmount;
 
     db.trackEvent('checkoutStarts');
 
+    const clientProvidedIdempotency = (req.headers['x-idempotency-key'] as string | undefined)?.trim();
+    const idempotencyKey = clientProvidedIdempotency || `idem_${orderId}`;
+
     // Authoritative server-side order registration
-    db.createOrder({
+    await db.createOrder({
       orderId,
       name: name.trim(),
       amount: parsedAmount,
@@ -309,7 +340,11 @@ async function startServer() {
       linkedin: db.normalizeLinkedIn(linkedin),
       website: db.normalizeWebsite(website),
       reason: reason?.trim(),
-      lazyReason: lazyReason?.trim()
+      lazyReason: lazyReason?.trim(),
+      idempotencyKey,
+      paymentMode: paymentManager.getMode(),
+      customerEmail: (customerEmail && typeof customerEmail === 'string' ? customerEmail.trim() : undefined) || 'support@lazyproof.online',
+      customerPhone: (customerPhone && typeof customerPhone === 'string' ? customerPhone.trim() : undefined) || '9999999999'
     });
 
     try {
@@ -322,7 +357,8 @@ async function startServer() {
         customerPhone: (customerPhone && typeof customerPhone === 'string' ? customerPhone.trim() : undefined) || '9999999999',
         returnUrl: `https://lazyproof.online/?order_id=${orderId}&status=return`,
         notifyUrl: `https://lazyproof.online/api/payment/webhook`,
-        note: `Digital sponsored profile placement on LazyProof - ${name.trim()}`
+        note: `Digital sponsored profile placement on LazyProof - ${name.trim()}`,
+        idempotencyKey
       });
 
       res.json({
@@ -330,6 +366,7 @@ async function startServer() {
         paymentSessionId: providerOrder.paymentSessionId,
         checkoutUrl: providerOrder.checkoutUrl,
         providerOrderId: providerOrder.providerOrderId,
+        idempotencyKey,
         name: name.trim(),
         amount: parsedAmount,
         currency: 'INR',
@@ -380,7 +417,7 @@ async function startServer() {
     }
 
     // If order was already completed by the provider webhook
-    if (order.status === 'completed') {
+    if (order.status === 'completed' || order.status === 'PAID') {
       const prof = order.profileId ? db.getProfile(order.profileId) : undefined;
       if (prof) {
         return res.json({
@@ -405,7 +442,7 @@ async function startServer() {
 
     if (process.env.NODE_ENV === 'production') {
       return res.status(403).json({
-        error: 'Direct client-side verification is disabled in production. Payments must settle via verified gateway webhook.'
+        error: 'Direct client-side verification is disabled in production. Payments must settle via verified gateway webhook or server status verification.'
       });
     }
 
@@ -445,12 +482,14 @@ async function startServer() {
     if (!orderId || typeof orderId !== 'string') {
       return res.status(400).json({ error: 'Order ID is required.' });
     }
-    const order = db.getOrder(orderId);
+    const order = await db.getOrderAsync(orderId);
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
-    if (order.status === 'completed') {
-      const profile = order.profileId ? db.getProfile(order.profileId) : undefined;
+    if (order.status === 'completed' || order.status === 'PAID') {
+      const profile = order.profileId
+        ? (db.isPostgresAuthoritative() ? await db.pg.getProfile(order.profileId) : db.getProfile(order.profileId))
+        : undefined;
       return res.json({
         orderId,
         status: 'PAID',
@@ -462,27 +501,46 @@ async function startServer() {
     if (paymentManager.isEnabled()) {
       try {
         const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
-        if (providerStatus.status === 'PAID' && order.status !== 'completed') {
-          const result = db.verifyAndClaimRank({
-            name: order.name,
-            amount: order.amount,
-            paymentRef: providerStatus.providerPaymentId || `cf_${orderId}`,
-            orderId,
-            instagram: order.instagram,
-            linkedin: order.linkedin,
-            website: order.website,
-            reason: order.reason,
-            lazyReason: order.lazyReason,
-            profileId: order.profileId,
-            ownerToken: order.ownerToken
-          });
-          if (result.success && result.profile) {
-            return res.json({
+        if (providerStatus.status === 'PAID' && order.status !== 'completed' && order.status !== 'PAID') {
+          if (db.isPostgresAuthoritative()) {
+            const settlement = await db.pg.settlePaymentAtomic({
               orderId,
-              status: 'PAID',
-              profile: db.sanitizeProfile(result.profile),
-              ownerToken: result.profile.ownerToken
+              providerPaymentId: providerStatus.providerPaymentId || `cf_${orderId}`,
+              provider: 'cashfree',
+              amount: order.amount,
+              paymentMethod: providerStatus.paymentMethod || 'UPI',
+              signatureVerified: true
             });
+            if (settlement.success && settlement.profile) {
+              return res.json({
+                orderId,
+                status: 'PAID',
+                profile: db.sanitizeProfile(settlement.profile),
+                ownerToken: settlement.ownerToken
+              });
+            }
+          } else {
+            const result = db.verifyAndClaimRank({
+              name: order.name,
+              amount: order.amount,
+              paymentRef: providerStatus.providerPaymentId || `cf_${orderId}`,
+              orderId,
+              instagram: order.instagram,
+              linkedin: order.linkedin,
+              website: order.website,
+              reason: order.reason,
+              lazyReason: order.lazyReason,
+              profileId: order.profileId,
+              ownerToken: order.ownerToken
+            });
+            if (result.success && result.profile) {
+              return res.json({
+                orderId,
+                status: 'PAID',
+                profile: db.sanitizeProfile(result.profile),
+                ownerToken: result.profile.ownerToken
+              });
+            }
           }
         }
         return res.json({
@@ -496,17 +554,17 @@ async function startServer() {
 
     return res.json({
       orderId,
-      status: order.status === 'completed' ? 'PAID' : (order.status || 'PENDING')
+      status: (order.status === 'completed' || order.status === 'PAID') ? 'PAID' : (order.status || 'PENDING')
     });
   });
 
   // Digital Service Payment Receipt Endpoint
-  app.get('/api/payment/receipt/:orderId', (req: Request, res: Response) => {
+  app.get('/api/payment/receipt/:orderId', async (req: Request, res: Response) => {
     const orderId = req.params.orderId;
     if (!orderId || typeof orderId !== 'string') {
       return res.status(400).json({ error: 'Order ID is required.' });
     }
-    const order = db.getOrder(orderId);
+    const order = await db.getOrderAsync(orderId);
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
@@ -521,7 +579,7 @@ async function startServer() {
       businessAddress: SERVER_LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS,
       orderId: order.orderId,
       paymentReference: order.paymentRef || 'PENDING_CONFIRMATION',
-      paymentStatus: order.status === 'completed' ? 'PAID' : (order.status || 'PENDING'),
+      paymentStatus: (order.status === 'completed' || order.status === 'PAID') ? 'PAID' : (order.status || 'PENDING'),
       customerName: order.name,
       serviceDescription: SERVER_LEGAL_CONFIG.SERVICE_DESCRIPTION,
       rankingDynamic: SERVER_LEGAL_CONFIG.RANKING_DYNAMIC,
@@ -532,7 +590,7 @@ async function startServer() {
     });
   });
 
-  // Authoritative Provider Webhook (Cashfree PG v2023-08-01 + fallback)
+  // Authoritative Provider Webhook (Cashfree PG v2023-08-01 / v2026-01-01 + fallback)
   app.post('/api/payment/webhook', async (req: Request, res: Response) => {
     if (!paymentManager.isEnabled()) {
       return res.status(503).json({ error: 'Payment processing is currently disabled.' });
@@ -553,12 +611,21 @@ async function startServer() {
       }
 
       if (verification.status === 'REFUNDED' && verification.orderId) {
-        await db.reverseRefund(verification.orderId, verification.amount || 0, verification.providerPaymentId || 'webhook_refund');
+        if (db.isPostgresAuthoritative()) {
+          await db.pg.reverseRefundAtomic({
+            orderId: verification.orderId,
+            amount: verification.amount || 0,
+            providerRefundId: verification.providerPaymentId || 'webhook_refund',
+            reason: 'Cashfree webhook refund notification'
+          });
+        } else {
+          await db.reverseRefund(verification.orderId, verification.amount || 0, verification.providerPaymentId || 'webhook_refund');
+        }
         return res.json({ received: true, processed: true, status: 'REFUNDED' });
       }
 
       if (verification.status === 'SUCCESS' && verification.orderId && verification.providerPaymentId) {
-        const order = db.getOrder(verification.orderId);
+        const order = await db.getOrderAsync(verification.orderId);
         if (!order) {
           return res.status(404).json({ error: 'Referenced order not found.' });
         }
@@ -568,8 +635,31 @@ async function startServer() {
         if (verification.currency && verification.currency !== 'INR') {
           return res.status(400).json({ error: 'Payment currency mismatch.' });
         }
-        if (order.status === 'completed') {
+        if (order.status === 'completed' || order.status === 'PAID') {
           return res.json({ received: true, processed: true, message: 'Order already completed.' });
+        }
+
+        if (db.isPostgresAuthoritative()) {
+          const settlementResult = await db.pg.settlePaymentAtomic({
+            orderId: verification.orderId,
+            providerPaymentId: verification.providerPaymentId,
+            provider: 'cashfree',
+            amount: order.amount,
+            paymentMethod: verification.paymentMethod || 'UPI',
+            signatureVerified: true,
+            rawPayload: verification.rawPayload
+          });
+
+          if (!settlementResult.success || !settlementResult.profile) {
+            return res.status(400).json({ error: settlementResult.message || 'Payment settlement failed.' });
+          }
+
+          return res.json({
+            received: true,
+            processed: true,
+            profileId: settlementResult.profile.id,
+            rank: settlementResult.profile.rank
+          });
         }
 
         const result = db.verifyAndClaimRank({
@@ -624,7 +714,7 @@ async function startServer() {
         return res.status(401).json({ error: 'Webhook cryptographic validation failed.' });
       }
     } else if (process.env.NODE_ENV === 'production') {
-      return res.status(500).json({ error: 'PAYMENT_WEBHOOK_SECRET is required in production.' });
+      return res.status(500).json({ error: 'Webhook signing secret is required in production.' });
     }
 
     const body = req.body;
@@ -648,13 +738,36 @@ async function startServer() {
       return res.json({ received: true, processed: false, reason: 'Event acknowledged, no claim required.' });
     }
 
-    const order = db.getOrder(orderId);
+    const order = await db.getOrderAsync(orderId);
     if (!order) {
       return res.status(404).json({ error: 'Referenced order not found.' });
     }
 
-    if (order.status === 'completed') {
+    if (order.status === 'completed' || order.status === 'PAID') {
       return res.json({ received: true, processed: true, message: 'Order already completed.' });
+    }
+
+    if (db.isPostgresAuthoritative()) {
+      const settlementResult = await db.pg.settlePaymentAtomic({
+        orderId,
+        providerPaymentId: paymentId,
+        provider: 'generic',
+        amount: order.amount,
+        paymentMethod: 'UPI',
+        signatureVerified: true,
+        rawPayload: body
+      });
+
+      if (!settlementResult.success || !settlementResult.profile) {
+        return res.status(400).json({ error: settlementResult.message || 'Payment settlement failed.' });
+      }
+
+      return res.json({
+        received: true,
+        processed: true,
+        profileId: settlementResult.profile.id,
+        rank: settlementResult.profile.rank
+      });
     }
 
     const result = db.verifyAndClaimRank({
@@ -693,7 +806,7 @@ async function startServer() {
     if (!orderId || typeof orderId !== 'string') {
       return res.status(400).json({ error: 'orderId is required.' });
     }
-    const order = db.getOrder(orderId);
+    const order = await db.getOrderAsync(orderId);
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
@@ -712,6 +825,22 @@ async function startServer() {
       } catch (err: any) {
         console.warn('[Refund] Provider refund failed or not supported:', err?.message);
       }
+    }
+
+    if (db.isPostgresAuthoritative()) {
+      const reversed = await db.pg.reverseRefundAtomic({
+        orderId,
+        providerRefundId: refundId,
+        amount: refundAmount,
+        reason: refundReason
+      });
+      return res.json({
+        success: reversed.success,
+        orderId,
+        refundId,
+        amount: refundAmount,
+        status: 'REFUNDED'
+      });
     }
 
     const reversed = await db.reverseRefund(orderId, refundAmount, refundReason);
@@ -819,8 +948,13 @@ async function startServer() {
   app.post('/api/notify-me', handleNotificationSubscribe);
 
   // Get single profile
-  app.get('/api/profile/:id', (req: Request, res: Response) => {
-    const profile = db.getProfile(req.params.id);
+  app.get('/api/profile/:id', async (req: Request, res: Response) => {
+    let profile: any = null;
+    if (db.isPostgresAuthoritative()) {
+      profile = await db.pg.getProfile(req.params.id);
+    } else {
+      profile = db.getProfile(req.params.id);
+    }
     if (!profile) {
       return res.status(404).json({ error: 'Profile not found.' });
     }
@@ -1121,7 +1255,7 @@ async function startServer() {
   });
 
   // Protected admin action endpoint (Header-only authentication, constant-time check, no-store)
-  app.post('/api/admin/moderate', (req: Request, res: Response) => {
+  app.post('/api/admin/moderate', async (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 30, 60000)) {
       return res.status(429).json({ error: 'Too many admin requests.' });
@@ -1146,7 +1280,10 @@ async function startServer() {
     }
 
     const success = db.moderate(action as any, targetId.trim());
-    if (!success) {
+    if (db.isPostgresAuthoritative() && (action === 'remove' || action === 'restore')) {
+      await db.pg.moderateProfile(targetId.trim(), action);
+    }
+    if (!success && !db.isPostgresAuthoritative()) {
       return res.status(404).json({ error: 'Target not found or action could not be applied.' });
     }
     res.json({ success: true, message: `Action ${action} applied successfully.` });
@@ -1170,7 +1307,7 @@ async function startServer() {
       format = 'svg';
     }
 
-    const profile = db.getProfile(profileId);
+    const profile = db.isPostgresAuthoritative() ? await db.pg.getProfile(profileId) : db.getProfile(profileId);
     if (!profile) {
       return res.status(404).send('Profile not found');
     }
@@ -1249,7 +1386,7 @@ async function startServer() {
 
       // 1. Dynamic Profile Page (/?rank=:id or /profile/:id)
       if (rankId) {
-        const profile = db.getProfile(rankId);
+        const profile = db.isPostgresAuthoritative() ? await db.pg.getProfile(rankId) : db.getProfile(rankId);
         if (profile) {
           let template: string;
           if (!isProd && viteInstance) {

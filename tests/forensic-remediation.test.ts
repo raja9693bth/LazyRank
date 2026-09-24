@@ -407,7 +407,7 @@ async function runTests() {
 
   console.log('\n--- 16. Moderation State Machine & DoS Resistance ---');
   // Reporting a profile must NOT de-rank it from active leaderboard
-  const leaderBefore = db.getLeaderboard().profiles;
+  const leaderBefore = db.getLeaderboard({ limit: 100 }).profiles;
   const targetInLeader = leaderBefore.find(p => p.id === testProfileId);
   assert(!!targetInLeader, 'Reported profile is NOT de-ranked by unverified user report alone (DoS protection)');
 
@@ -427,7 +427,7 @@ async function runTests() {
   assert(resAdminRemove.status === 200, 'Admin remove action succeeds with 200');
 
   // Verify removed profile is no longer in public leaderboard or public profile view
-  const leaderAfterRemove = db.getLeaderboard().profiles;
+  const leaderAfterRemove = db.getLeaderboard({ limit: 100 }).profiles;
   assert(!leaderAfterRemove.some(p => p.id === testProfileId), 'Removed profile is completely excluded from public leaderboard');
   const resRemovedProfile = await fetchJson(`${BASE}/api/profile/${testProfileId}`);
   assert(resRemovedProfile.status === 404, 'Removed profile returns 404 on public profile lookup');
@@ -446,7 +446,7 @@ async function runTests() {
     }
   });
   assert(resAdminRestore.status === 200, 'Admin restore action succeeds with 200');
-  const leaderAfterRestore = db.getLeaderboard().profiles;
+  const leaderAfterRestore = db.getLeaderboard({ limit: 100 }).profiles;
   assert(leaderAfterRestore.some(p => p.id === testProfileId), 'Restored profile reappears in public leaderboard');
 
   console.log('\n--- 17. Webhook Payment Disablement & Gate Enforcement ---');

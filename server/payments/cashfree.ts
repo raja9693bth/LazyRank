@@ -1,24 +1,24 @@
 import crypto from 'crypto';
 import { PaymentProvider, CreateOrderParams, ProviderOrderResult, ProviderPaymentStatus, WebhookVerificationResult, RefundRequestParams, RefundResult } from './provider.ts';
-import { constantTimeMatch } from '../db.ts';
 
 export class CashfreeProvider implements PaymentProvider {
   public name = 'cashfree';
   private appId: string;
   private secretKey: string;
-  private webhookSecret: string;
+  private apiVersion: string;
   private isSandbox: boolean;
   private baseUrl: string;
 
   constructor(options?: {
     appId?: string;
     secretKey?: string;
-    webhookSecret?: string;
+    apiVersion?: string;
     isSandbox?: boolean;
   }) {
     this.appId = (options?.appId || process.env.CASHFREE_APP_ID || '').trim();
+    // Cashfree official webhook verification uses the Cashfree PG secret key
     this.secretKey = (options?.secretKey || process.env.CASHFREE_SECRET_KEY || '').trim();
-    this.webhookSecret = (options?.webhookSecret || process.env.PAYMENT_WEBHOOK_SECRET || this.secretKey).trim();
+    this.apiVersion = (options?.apiVersion || process.env.CASHFREE_API_VERSION || '2023-08-01').trim();
     this.isSandbox = options?.isSandbox ?? (process.env.PAYMENT_MODE === 'sandbox');
     this.baseUrl = this.isSandbox
       ? 'https://sandbox.cashfree.com/pg'
@@ -29,8 +29,14 @@ export class CashfreeProvider implements PaymentProvider {
     return this.appId.length > 0 && this.secretKey.length > 0;
   }
 
+  public getApiVersion(): string {
+    return this.apiVersion;
+  }
+
   /**
-   * Cashfree PG Order Creation (API Version 2023-08-01)
+   * Cashfree PG Order Creation with Idempotency Support
+   * Endpoint: POST /pg/orders
+   * Headers: x-client-id, x-client-secret, x-api-version, x-idempotency-key
    */
   public async createOrder(params: CreateOrderParams): Promise<ProviderOrderResult> {
     if (!this.isConfigured()) {
@@ -40,6 +46,7 @@ export class CashfreeProvider implements PaymentProvider {
     const customerId = 'cust_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
     const returnUrl = params.returnUrl || `https://lazyproof.online/?order_id=${params.orderId}&status=return`;
     const notifyUrl = params.notifyUrl || `https://lazyproof.online/api/payment/webhook`;
+    const idempotencyKey = params.idempotencyKey || crypto.randomUUID();
 
     const payload = {
       order_id: params.orderId,
@@ -63,7 +70,8 @@ export class CashfreeProvider implements PaymentProvider {
       headers: {
         'x-client-id': this.appId,
         'x-client-secret': this.secretKey,
-        'x-api-version': '2023-08-01',
+        'x-api-version': this.apiVersion,
+        'x-idempotency-key': idempotencyKey,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload)
@@ -81,6 +89,7 @@ export class CashfreeProvider implements PaymentProvider {
       providerOrderId: data.cf_order_id ? String(data.cf_order_id) : undefined,
       paymentSessionId: data.payment_session_id,
       checkoutUrl: data.payments?.url || undefined,
+      idempotencyKey,
       amount: data.order_amount,
       currency: data.order_currency,
       status: data.order_status === 'PAID' ? 'PAID' : 'ACTIVE'
@@ -88,7 +97,7 @@ export class CashfreeProvider implements PaymentProvider {
   }
 
   /**
-   * Cashfree PG Payment Status (API Version 2023-08-01)
+   * Cashfree PG Payment Status
    * Queries /orders/{orderId}/payments to inspect all settlement attempts.
    */
   public async getPaymentStatus(orderId: string): Promise<ProviderPaymentStatus> {
@@ -101,7 +110,7 @@ export class CashfreeProvider implements PaymentProvider {
       headers: {
         'x-client-id': this.appId,
         'x-client-secret': this.secretKey,
-        'x-api-version': '2023-08-01'
+        'x-api-version': this.apiVersion
       }
     });
 
@@ -133,13 +142,23 @@ export class CashfreeProvider implements PaymentProvider {
       return { orderId, status: 'FAILED', raw: failed };
     }
 
+    const userDropped = payments.find((p: any) => p.payment_status === 'USER_DROPPED');
+    if (userDropped) {
+      return { orderId, status: 'USER_DROPPED', raw: userDropped };
+    }
+
+    const cancelled = payments.find((p: any) => p.payment_status === 'CANCELLED');
+    if (cancelled) {
+      return { orderId, status: 'CANCELLED', raw: cancelled };
+    }
+
     return { orderId, status: 'PENDING' };
   }
 
   /**
-   * Cashfree PG Webhook Verification (API Version 2023-08-01)
-   * Verifies HMAC-SHA256 signature using raw body and timestamp:
-   * Algorithm: Base64(HMAC-SHA256(timestamp + rawBody, secretKey))
+   * Cashfree PG Webhook Verification
+   * Official Cashfree Verification Algorithm:
+   * Algorithm: Base64(HMAC-SHA256(timestamp + rawBody, CASHFREE_SECRET_KEY))
    */
   public async verifyWebhook(
     rawBody: string,
@@ -165,15 +184,14 @@ export class CashfreeProvider implements PaymentProvider {
       }
     }
 
-    const secret = this.webhookSecret || this.secretKey;
-    if (!secret) {
-      return { isValid: false, error: 'Server webhook secret key is not configured.' };
+    if (!this.secretKey) {
+      return { isValid: false, error: 'Cashfree secret key is not configured on server.' };
     }
 
     try {
       const signedPayload = timestamp + rawBody;
       const expectedSignature = crypto
-        .createHmac('sha256', secret)
+        .createHmac('sha256', this.secretKey)
         .update(signedPayload)
         .digest('base64');
 
@@ -181,7 +199,7 @@ export class CashfreeProvider implements PaymentProvider {
       const expectedBuf = Buffer.from(expectedSignature.trim());
 
       if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
-        return { isValid: false, error: 'Cryptographic HMAC signature mismatch.' };
+        return { isValid: false, error: 'Cryptographic HMAC signature mismatch against CASHFREE_SECRET_KEY.' };
       }
 
       // Parse verified body
@@ -193,9 +211,9 @@ export class CashfreeProvider implements PaymentProvider {
       let status: 'SUCCESS' | 'FAILED' | 'USER_DROPPED' | 'REFUNDED' | undefined;
       if (eventType === 'PAYMENT_SUCCESS_WEBHOOK' || payment.payment_status === 'SUCCESS') {
         status = 'SUCCESS';
-      } else if (eventType === 'PAYMENT_FAILED_WEBHOOK') {
+      } else if (eventType === 'PAYMENT_FAILED_WEBHOOK' || payment.payment_status === 'FAILED') {
         status = 'FAILED';
-      } else if (eventType === 'PAYMENT_USER_DROPPED_WEBHOOK') {
+      } else if (eventType === 'PAYMENT_USER_DROPPED_WEBHOOK' || payment.payment_status === 'USER_DROPPED') {
         status = 'USER_DROPPED';
       } else if (eventType === 'REFUND_SUCCESS_WEBHOOK') {
         status = 'REFUNDED';
@@ -217,7 +235,8 @@ export class CashfreeProvider implements PaymentProvider {
   }
 
   /**
-   * Cashfree PG Refund Request (API Version 2023-08-01)
+   * Cashfree PG Refund Request
+   * Endpoint: POST /pg/orders/{orderId}/refunds
    */
   public async createRefund(params: RefundRequestParams): Promise<RefundResult> {
     if (!this.isConfigured()) {
@@ -235,7 +254,7 @@ export class CashfreeProvider implements PaymentProvider {
       headers: {
         'x-client-id': this.appId,
         'x-client-secret': this.secretKey,
-        'x-api-version': '2023-08-01',
+        'x-api-version': this.apiVersion,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload)

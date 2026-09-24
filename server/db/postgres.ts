@@ -2,7 +2,7 @@ import pg from 'pg';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { UserProfile, PurchaseRecord, ClaimHistoryRecord } from '../../src/types.ts';
+import { UserProfile, PurchaseRecord, ClaimHistoryRecord, LiveStats } from '../../src/types.ts';
 
 const { Pool } = pg;
 
@@ -23,6 +23,25 @@ export interface RefundParams {
   reason: string;
 }
 
+export interface CreateOrderParams {
+  orderId: string;
+  name: string;
+  amount: number;
+  currency?: string;
+  profileId?: string;
+  ownerToken?: string;
+  instagram?: string;
+  linkedin?: string;
+  website?: string;
+  reason?: string;
+  lazyReason?: string;
+  paymentMode?: string;
+  provider?: string;
+  idempotencyKey?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+}
+
 export class PostgresDatabase {
   private pool: pg.Pool | null = null;
   private isInitialized = false;
@@ -30,7 +49,7 @@ export class PostgresDatabase {
   constructor(connectionString?: string) {
     const connStr = connectionString || process.env.DATABASE_URL;
     if (connStr) {
-      const isSsl = process.env.NODE_ENV === 'production' || connStr.includes('supabase') || connStr.includes('neon.tech');
+      const isSsl = process.env.NODE_ENV === 'production' && !connStr.includes('127.0.0.1') && !connStr.includes('localhost');
       this.pool = new Pool({
         connectionString: connStr,
         ssl: isSsl ? { rejectUnauthorized: false } : undefined,
@@ -73,8 +92,99 @@ export class PostgresDatabase {
   }
 
   /**
+   * Create or update a payment order in PostgreSQL (Authoritative)
+   */
+  public async createOrder(order: CreateOrderParams): Promise<void> {
+    if (!this.pool) throw new Error('Database unavailable.');
+    const query = `
+      INSERT INTO payment_orders (
+        order_id, profile_id, owner_token, name, amount, currency, status,
+        payment_mode, provider, idempotency_key, customer_email, customer_phone,
+        instagram, linkedin, website, reason, lazy_reason, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
+      ON CONFLICT (order_id) DO UPDATE SET
+        name = EXCLUDED.name,
+        amount = EXCLUDED.amount,
+        customer_email = COALESCE(EXCLUDED.customer_email, payment_orders.customer_email),
+        customer_phone = COALESCE(EXCLUDED.customer_phone, payment_orders.customer_phone),
+        instagram = COALESCE(EXCLUDED.instagram, payment_orders.instagram),
+        linkedin = COALESCE(EXCLUDED.linkedin, payment_orders.linkedin),
+        website = COALESCE(EXCLUDED.website, payment_orders.website),
+        reason = COALESCE(EXCLUDED.reason, payment_orders.reason),
+        lazy_reason = COALESCE(EXCLUDED.lazy_reason, payment_orders.lazy_reason),
+        idempotency_key = COALESCE(EXCLUDED.idempotency_key, payment_orders.idempotency_key),
+        updated_at = NOW()
+    `;
+    await this.pool.query(query, [
+      order.orderId,
+      order.profileId || null,
+      order.ownerToken || null,
+      order.name,
+      order.amount,
+      order.currency || 'INR',
+      'PENDING',
+      order.paymentMode || 'disabled',
+      order.provider || 'cashfree',
+      order.idempotencyKey || null,
+      order.customerEmail || null,
+      order.customerPhone || null,
+      order.instagram || null,
+      order.linkedin || null,
+      order.website || null,
+      order.reason || null,
+      order.lazyReason || null,
+    ]);
+  }
+
+  /**
+   * Fetch an authoritative payment order from PostgreSQL
+   */
+  public async getOrder(orderId: string): Promise<any | null> {
+    if (!this.pool) return null;
+    const res = await this.pool.query('SELECT * FROM payment_orders WHERE order_id = $1', [orderId]);
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+    return {
+      orderId: r.order_id,
+      profileId: r.profile_id || undefined,
+      ownerToken: r.owner_token || undefined,
+      name: r.name,
+      amount: Number(r.amount),
+      currency: r.currency,
+      status: r.status === 'completed' ? 'PAID' : r.status,
+      paymentMode: r.payment_mode,
+      provider: r.provider,
+      providerOrderId: r.provider_order_id || undefined,
+      paymentSessionId: r.payment_session_id || undefined,
+      idempotencyKey: r.idempotency_key || undefined,
+      paymentRef: r.cf_payment_id || undefined,
+      customerEmail: r.customer_email || undefined,
+      customerPhone: r.customer_phone || undefined,
+      instagram: r.instagram || undefined,
+      linkedin: r.linkedin || undefined,
+      website: r.website || undefined,
+      reason: r.reason || undefined,
+      lazyReason: r.lazy_reason || undefined,
+      createdAt: new Date(r.created_at).toISOString(),
+      updatedAt: new Date(r.updated_at).toISOString()
+    };
+  }
+
+  /**
+   * Check if a provider payment reference has already settled
+   */
+  public async isPaymentRefProcessed(providerPaymentId: string): Promise<boolean> {
+    if (!this.pool) return false;
+    const res = await this.pool.query(
+      'SELECT 1 FROM payment_transactions WHERE provider_payment_id = $1 LIMIT 1',
+      [providerPaymentId]
+    );
+    return res.rows.length > 0;
+  }
+
+  /**
    * Atomic Settlement Transaction
-   * Commits payment settlement, ledger entry, profile update/creation, and rank recalculation in ONE ACID transaction.
+   * Commits payment settlement, ledger entry, profile update/creation, and deterministic rank recalculation in ONE ACID transaction.
    */
   public async settlePaymentAtomic(params: SettlePaymentParams): Promise<{
     success: boolean;
@@ -88,6 +198,8 @@ export class PostgresDatabase {
 
     try {
       await client.query('BEGIN');
+      // Serialize financial settlement and leaderboard ranking across concurrent transactions
+      await client.query('SELECT pg_advisory_xact_lock(987654321)');
 
       // 1. Lock payment order row FOR UPDATE
       const orderRes = await client.query(
@@ -102,7 +214,7 @@ export class PostgresDatabase {
 
       const order = orderRes.rows[0];
 
-      // Idempotency: If already paid with this exact provider payment ID, acknowledge
+      // Idempotency: If already paid, acknowledge
       if (order.status === 'PAID') {
         const profRes = await client.query('SELECT * FROM profiles WHERE id = $1', [order.profile_id]);
         await client.query('COMMIT');
@@ -147,7 +259,7 @@ export class PostgresDatabase {
 
       // Check current #1 top profile for displacement detection
       const prevTopRes = await client.query(
-        "SELECT * FROM profiles WHERE status = 'active' ORDER BY amount DESC, updated_at ASC LIMIT 1"
+        "SELECT * FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, updated_at ASC, id ASC LIMIT 1"
       );
       const previousTop = prevTopRes.rows.length > 0 ? this.mapProfile(prevTopRes.rows[0]) : undefined;
 
@@ -156,7 +268,7 @@ export class PostgresDatabase {
       let ownerToken = order.owner_token || crypto.randomUUID();
 
       if (targetProfileId) {
-        // Existing profile upgrade
+        // Existing profile upgrade: accumulate verified sponsorship amount
         await client.query(
           `UPDATE profiles SET
             amount = amount + $1,
@@ -185,7 +297,7 @@ export class PostgresDatabase {
         await client.query(
           `INSERT INTO profiles (
             id, user_id, name, amount, rank, instagram, linkedin, website, reason, lazy_reason,
-            is_verified, owner_token, status, created_at, updated_at
+            is_verified, owner_token, moderation_status, created_at, updated_at
           ) VALUES ($1, $2, $3, $4, 999999, $5, $6, $7, $8, $9, TRUE, $10, 'active', NOW(), NOW())`,
           [
             targetProfileId,
@@ -214,7 +326,7 @@ export class PostgresDatabase {
         [params.providerPaymentId, targetProfileId, ownerToken, params.orderId]
       );
 
-      // 5. Insert Rank Ledger Entry
+      // 5. Insert Rank Ledger Entry (Double-entry balance)
       const ledgerId = 'led_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
       await client.query(
         `INSERT INTO rank_ledger (id, profile_id, order_id, type, amount, currency, status, note, created_at)
@@ -222,12 +334,13 @@ export class PostgresDatabase {
         [ledgerId, targetProfileId, params.orderId, params.amount]
       );
 
-      // 6. Atomically Recalculate All Active Ranks
+      // 6. Atomically & Deterministically Recalculate All Active Ranks
+      // Tie-breaking: higher cumulative amount > earlier update timestamp > deterministic id
       await client.query(`
         WITH ranked AS (
-          SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, updated_at ASC) as new_rank
+          SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, updated_at ASC, id ASC) as new_rank
           FROM profiles
-          WHERE status = 'active'
+          WHERE moderation_status = 'active' AND is_verified = TRUE
         )
         UPDATE profiles
         SET rank = ranked.new_rank
@@ -286,6 +399,7 @@ export class PostgresDatabase {
 
     try {
       await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(987654321)');
 
       const orderRes = await client.query(
         'SELECT * FROM payment_orders WHERE order_id = $1 FOR UPDATE',
@@ -308,7 +422,7 @@ export class PostgresDatabase {
         [refId, params.orderId, params.providerRefundId || null, params.amount, params.reason]
       );
 
-      // Update order status
+      // Update order status to REFUNDED
       await client.query(
         "UPDATE payment_orders SET status = 'REFUNDED', updated_at = NOW() WHERE order_id = $1",
         [params.orderId]
@@ -336,12 +450,12 @@ export class PostgresDatabase {
           [profileId]
         );
 
-        // Recalculate all active ranks
+        // Deterministically recalculate all active ranks
         await client.query(`
           WITH ranked AS (
-            SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, updated_at ASC) as new_rank
+            SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, updated_at ASC, id ASC) as new_rank
             FROM profiles
-            WHERE status = 'active'
+            WHERE moderation_status = 'active' AND is_verified = TRUE
           )
           UPDATE profiles
           SET rank = ranked.new_rank
@@ -361,7 +475,151 @@ export class PostgresDatabase {
     }
   }
 
-  private mapProfile(row: any): UserProfile {
+  /**
+   * Moderation action: hide, ban, remove, or restore profile
+   */
+  public async moderateProfile(id: string, action: 'hide' | 'ban' | 'remove' | 'restore'): Promise<boolean> {
+    if (!this.pool) return false;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const targetStatus = action === 'restore' ? 'active' : action === 'hide' ? 'hidden' : action === 'ban' ? 'banned' : 'removed';
+      await client.query('UPDATE profiles SET moderation_status = $1, updated_at = NOW() WHERE id = $2', [targetStatus, id]);
+
+      if (targetStatus !== 'active') {
+        await client.query('UPDATE profiles SET rank = 999999 WHERE id = $1', [id]);
+      }
+
+      await client.query(`
+        WITH ranked AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, updated_at ASC, id ASC) as new_rank
+          FROM profiles
+          WHERE moderation_status = 'active' AND is_verified = TRUE
+        )
+        UPDATE profiles
+        SET rank = ranked.new_rank
+        FROM ranked
+        WHERE profiles.id = ranked.id
+      `);
+
+      await client.query('COMMIT');
+      return true;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('[PostgreSQL] Moderate profile error:', err);
+      return false;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Authoritative Leaderboard query from PostgreSQL
+   */
+  public async getLeaderboard(options?: {
+    period?: string;
+    offset?: number;
+    limit?: number;
+    page?: number;
+    pageSize?: number;
+    filter?: string;
+  }): Promise<{
+    profiles: UserProfile[];
+    totalCount: number;
+    hasMore: boolean;
+    page: number;
+    pageSize: number;
+    topAmount: number;
+    minAmountToBeatTop: number;
+  }> {
+    if (!this.pool) {
+      return { profiles: [], totalCount: 0, hasMore: false, page: 1, pageSize: 20, topAmount: 0, minAmountToBeatTop: 1 };
+    }
+
+    const limit = Math.min(Math.max(1, options?.limit || options?.pageSize || 20), 100);
+    const offset = Math.max(0, options?.offset ?? (options?.page ? (options.page - 1) * limit : 0));
+    const isVerifiedOnly = options?.filter !== 'all';
+
+    const whereClause = isVerifiedOnly
+      ? "WHERE moderation_status = 'active' AND is_verified = TRUE"
+      : "WHERE moderation_status = 'active'";
+
+    const countRes = await this.pool.query(`SELECT COUNT(*) as cnt FROM profiles ${whereClause}`);
+    const totalCount = parseInt(countRes.rows[0].cnt, 10);
+
+    const query = `
+      SELECT *, ROW_NUMBER() OVER (ORDER BY amount DESC, updated_at ASC, id ASC) as dynamic_rank
+      FROM profiles
+      ${whereClause}
+      ORDER BY amount DESC, updated_at ASC, id ASC
+      LIMIT $1 OFFSET $2
+    `;
+    const res = await this.pool.query(query, [limit, offset]);
+    const profiles = res.rows.map(r => ({
+      ...this.mapProfile(r),
+      rank: Number(r.dynamic_rank || r.rank)
+    }));
+
+    const topRes = await this.pool.query(
+      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, updated_at ASC, id ASC LIMIT 1"
+    );
+    const topAmount = topRes.rows.length > 0 ? Number(topRes.rows[0].amount) : 0;
+
+    return {
+      profiles,
+      totalCount,
+      hasMore: offset + profiles.length < totalCount,
+      page: Math.floor(offset / limit) + 1,
+      pageSize: limit,
+      topAmount,
+      minAmountToBeatTop: topAmount + 1
+    };
+  }
+
+  /**
+   * Look up profile by ID or public rank number
+   */
+  public async getProfile(idOrRank: string): Promise<UserProfile | null> {
+    if (!this.pool) return null;
+    const rankNum = parseInt(idOrRank, 10);
+    let query: string;
+    let params: any[];
+
+    if (!isNaN(rankNum) && rankNum > 0 && String(rankNum) === idOrRank) {
+      query = "SELECT * FROM profiles WHERE rank = $1 AND moderation_status = 'active' AND is_verified = TRUE LIMIT 1";
+      params = [rankNum];
+    } else {
+      query = "SELECT * FROM profiles WHERE id = $1 AND moderation_status = 'active' LIMIT 1";
+      params = [idOrRank];
+    }
+
+    const res = await this.pool.query(query, params);
+    if (res.rows.length === 0) return null;
+    return this.mapProfile(res.rows[0]);
+  }
+
+  /**
+   * Look up raw profile including owner token (internal / admin only)
+   */
+  public async getRawProfile(id: string): Promise<UserProfile | null> {
+    if (!this.pool) return null;
+    const res = await this.pool.query('SELECT * FROM profiles WHERE id = $1 LIMIT 1', [id]);
+    if (res.rows.length === 0) return null;
+    return this.mapProfile(res.rows[0]);
+  }
+
+  /**
+   * Get maximum current verified top amount
+   */
+  public async getTopAmount(): Promise<number> {
+    if (!this.pool) return 0;
+    const res = await this.pool.query(
+      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, updated_at ASC, id ASC LIMIT 1"
+    );
+    return res.rows.length > 0 ? Number(res.rows[0].amount) : 0;
+  }
+
+  public mapProfile(row: any): UserProfile {
     return {
       id: row.id,
       userId: row.user_id,

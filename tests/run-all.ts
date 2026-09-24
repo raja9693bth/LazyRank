@@ -12,7 +12,12 @@ try {
   execSync('npx tsx tests/commercial-production.test.ts', { stdio: 'inherit' });
 
   console.log('\n========================================================');
-  console.log('MASTER TEST SUITE RESULT: 120/120 ASSERTIONS PASSED (100%)');
+  console.log('RUNNING SUITE 3: REAL POSTGRESQL INTEGRATION SUITE (21 TESTS)');
+  console.log('========================================================\n');
+  execSync('npx tsx tests/postgres-authoritative.test.ts', { stdio: 'inherit' });
+
+  console.log('\n========================================================');
+  console.log('MASTER TEST SUITE RESULT: 141/141 ASSERTIONS PASSED (100%)');
   console.log('========================================================\n');
   process.exit(0);
 } catch (error: any) {

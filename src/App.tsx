@@ -200,6 +200,33 @@ export default function App() {
         .catch(() => {});
     }
 
+    const returnOrderId = params.get('order_id');
+    if (returnOrderId) {
+      fetch(`/api/payment/status/${encodeURIComponent(returnOrderId)}`)
+        .then(res => res.json())
+        .then(data => {
+          if (data.status === 'PAID') {
+            loadLeaderboard(currentPeriod);
+            loadActivities();
+            loadLiveStats();
+            if (data.profile) {
+              setOrderData({
+                orderId: returnOrderId,
+                name: data.profile.name,
+                amount: data.profile.amount,
+                currency: 'INR',
+                isTop: data.profile.rank === 1,
+                topAmount: data.profile.amount,
+                minAmountToBeatTop: data.profile.amount + 1,
+                paymentMode: 'live'
+              });
+              setIsPaymentModalOpen(true);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+
     const challengeName = params.get('challenge');
     const challengeTarget = params.get('target');
     if (challengeName) {

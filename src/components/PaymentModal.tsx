@@ -126,8 +126,39 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const handleLaunchCashfreeCheckout = () => {
+    setStep('polling');
+    setErrorMessage(null);
+
+    // If Cashfree Web SDK is loaded and paymentSessionId is available, launch official checkout modal
+    const w = typeof window !== 'undefined' ? (window as any) : undefined;
+    if (orderData.paymentSessionId && w && typeof w.Cashfree === 'function') {
+      try {
+        const cashfree = w.Cashfree({
+          mode: orderData.paymentMode === 'sandbox' ? 'sandbox' : 'production'
+        });
+        cashfree.checkout({
+          paymentSessionId: orderData.paymentSessionId,
+          redirectTarget: '_modal'
+        }).then((result: any) => {
+          if (result?.error) {
+            console.warn('[Cashfree SDK] Checkout warning or dismissed:', result.error);
+          }
+          startStatusPolling(orderData.orderId);
+        }).catch((err: any) => {
+          console.warn('[Cashfree SDK] Modal checkout invocation error, falling back:', err);
+          if (orderData.checkoutUrl) {
+            window.location.href = orderData.checkoutUrl;
+          }
+          startStatusPolling(orderData.orderId);
+        });
+        return;
+      } catch (err) {
+        console.warn('[Cashfree SDK] Initialization error, falling back to direct URL:', err);
+      }
+    }
+
     if (orderData.checkoutUrl) {
-      window.open(orderData.checkoutUrl, '_blank');
+      window.location.href = orderData.checkoutUrl;
       startStatusPolling(orderData.orderId);
     } else {
       startStatusPolling(orderData.orderId);

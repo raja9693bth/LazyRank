@@ -12,7 +12,7 @@ export const LEGAL_CONFIG = {
   ORGANISATION_TYPE: 'Sole Proprietorship / Proprietary enterprise',
   REGISTRATION_COUNTRY: 'India',
   REGISTRATION_STATE: 'Bihar',
-  PUBLIC_BUSINESS_ADDRESS: 'Bettiah, West Champaran, Bihar, India - 845438',
+  PUBLIC_BUSINESS_ADDRESS: 'Bettiah, West Champaran, Bihar, India - 845454',
   BUSINESS_HOURS: 'Monday to Saturday, 10:00 AM – 6:00 PM IST',
   UDYAM_REGISTRATION_NUMBER: '', // Optional public display when configured
 
@@ -22,7 +22,7 @@ export const LEGAL_CONFIG = {
   APP_URL: 'https://lazyproof.online',
   DOMAIN: 'lazyproof.online',
 
-  // Monitored Support Channels
+  // Customer Support Channels (Operational during business hours)
   SUPPORT_EMAIL: 'support@lazyproof.online',
   SUPPORT_PHONE: '+91 96938 41189',
 

@@ -93,13 +93,14 @@ async function runCommercialTests() {
   assert(
     LEGAL_CONFIG.SUPPORT_EMAIL === 'support@lazyproof.online' &&
     SERVER_LEGAL_CONFIG.SUPPORT_EMAIL === 'support@lazyproof.online',
-    'Monitored support email is support@lazyproof.online'
+    'Customer support email is support@lazyproof.online'
   );
 
   assert(
     LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('Bettiah') &&
-    LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('Bihar'),
-    'Public business address is registered in Bettiah, Bihar'
+    LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('Bihar') &&
+    LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('845454'),
+    'Public business address is registered in Bettiah, Bihar with PIN 845454'
   );
 
   // ----------------------------------------------------

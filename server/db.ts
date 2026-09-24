@@ -337,6 +337,10 @@ export class LazyDatabase {
   private dailyVisits: Map<string, Set<string>> = new Map();
   public pg = new PostgresDatabase();
 
+  public isPostgresAuthoritative(): boolean {
+    return this.pg.isAvailable() && (process.env.NODE_ENV === 'production' || process.env.USE_POSTGRES === 'true');
+  }
+
   constructor() {
     this.state = this.loadData();
     this.recalculateRanks();
@@ -352,6 +356,11 @@ export class LazyDatabase {
     // Section 8: Production with DEMO_MODE=true must fail fast with a fatal error
     if (isProd && isDemo) {
       throw new Error('FATAL CONFIGURATION ERROR: DEMO_MODE cannot be enabled in production environment.');
+    }
+
+    // Section 2A: DATABASE_URL must be mandatory when NODE_ENV=production
+    if (isProd && (!process.env.DATABASE_URL || !process.env.DATABASE_URL.trim())) {
+      throw new Error('FATAL CONFIGURATION ERROR: DATABASE_URL is mandatory in production environment. Silently falling back to local JSON is prohibited.');
     }
 
     const parseState = (raw: string): DatabaseState | null => {
@@ -496,6 +505,11 @@ export class LazyDatabase {
   }
 
   public saveData() {
+    if (process.env.NODE_ENV === 'production') {
+      // Section 2C: In production, PostgreSQL is the exclusive single source of truth.
+      // Do not write financial state to server-data.json.
+      return;
+    }
     try {
       const tempFile = `${DATA_FILE}.tmp.${Date.now()}.${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`;
       const payload = JSON.stringify(this.state, null, 2);
@@ -770,7 +784,7 @@ export class LazyDatabase {
     return safe as UserProfile;
   }
 
-  public createOrder(order: {
+  public async createOrder(order: {
     orderId: string;
     name: string;
     amount: number;
@@ -781,7 +795,21 @@ export class LazyDatabase {
     website?: string;
     reason?: string;
     lazyReason?: string;
+    idempotencyKey?: string;
+    customerEmail?: string;
+    customerPhone?: string;
+    paymentMode?: string;
   }) {
+    if (this.isPostgresAuthoritative()) {
+      await this.pg.createOrder({
+        ...order,
+        currency: 'INR',
+        paymentMode: order.paymentMode || process.env.PAYMENT_MODE || 'disabled',
+        provider: 'cashfree'
+      });
+      return await this.pg.getOrder(order.orderId);
+    }
+
     if (!this.state.orders) this.state.orders = {};
 
     // IDOR / BOLA Prevention: Verify ownership if attempting to update an existing profile
@@ -798,7 +826,7 @@ export class LazyDatabase {
     this.state.orders[order.orderId] = {
       ...order,
       createdAt: new Date().toISOString(),
-      status: 'pending'
+      status: 'PENDING'
     };
     this.saveData();
     return this.state.orders[order.orderId];
@@ -806,6 +834,13 @@ export class LazyDatabase {
 
   public getOrder(orderId: string) {
     return this.state.orders ? this.state.orders[orderId] : undefined;
+  }
+
+  public async getOrderAsync(orderId: string) {
+    if (this.isPostgresAuthoritative()) {
+      return await this.pg.getOrder(orderId);
+    }
+    return this.getOrder(orderId);
   }
 
   public constantTimeMatch(a?: string, b?: string): boolean {
@@ -958,14 +993,17 @@ export class LazyDatabase {
   }): { success: boolean; profile?: UserProfile; previousTop?: UserProfile; message?: string } {
     const { name, amount, paymentRef, orderId, instagram, linkedin, website, reason, lazyReason, profileId, ownerToken } = params;
 
-    // Defense-in-depth: Reject any settlement mutation when live payment is disabled or in production
+    // Defense-in-depth: Reject any settlement mutation when payment is disabled
     const paymentMode = (process.env.PAYMENT_MODE || 'disabled').toLowerCase().trim();
     const isProduction = process.env.NODE_ENV === 'production';
-    if (paymentMode === 'disabled' || isProduction) {
+    if (paymentMode === 'disabled') {
       return {
         success: false,
         message: 'Settlement disabled: Live payment processing is currently disabled.'
       };
+    }
+    if (paymentMode === 'sandbox' && isProduction) {
+      throw new Error('FATAL CONFIGURATION ERROR: PAYMENT_MODE=sandbox cannot be used in production environment.');
     }
 
     // Validate amount
@@ -1145,11 +1183,13 @@ export class LazyDatabase {
   }
 
   public async reverseRefund(orderId: string, amount: number, reason: string): Promise<boolean> {
-    if (this.pg.isAvailable()) {
+    if (this.isPostgresAuthoritative()) {
       try {
-        await this.pg.reverseRefundAtomic({ orderId, amount, reason });
+        const res = await this.pg.reverseRefundAtomic({ orderId, amount, reason });
+        return res.success;
       } catch (pgErr) {
         console.error('[PostgreSQL] Reverse refund error:', pgErr);
+        return false;
       }
     }
     if (this.state.orders && this.state.orders[orderId]) {

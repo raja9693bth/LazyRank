@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, ActivityEvent, RankPeriod, LeaderboardResponse, LiveStats } from './types.ts';
 import { Header } from './components/Header.tsx';
 import { Hero } from './components/Hero.tsx';
+import { QuickClaimBar } from './components/QuickClaimBar.tsx';
+import { StatsRibbon } from './components/StatsRibbon.tsx';
+import { MiniRanking } from './components/MiniRanking.tsx';
+import { CheckoutDrawer } from './components/CheckoutDrawer.tsx';
 import { ActionPanel } from './components/ActionPanel.tsx';
 import { Leaderboard } from './components/Leaderboard.tsx';
 import { ActivityFeed } from './components/ActivityFeed.tsx';
@@ -86,6 +90,19 @@ export default function App() {
   const [pendingOwnerToken, setPendingOwnerToken] = useState<string | null>(null);
   const [orderAccessToken, setOrderAccessToken] = useState<string | null>(null);
 
+  // Currency Mode: INR (Authoritative minor unit calculation) vs USD (Illustrative display INR / 85)
+  const [currencyMode, setCurrencyMode] = useState<'INR' | 'USD'>('INR');
+
+  // Drawer & Quick Claim Prefill State
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [drawerPrefill, setDrawerPrefill] = useState<{ name: string; category?: string }>({
+    name: '',
+    category: undefined
+  });
+
+  // Global Claims Today counter
+  const [claimsToday, setClaimsToday] = useState<number>(0);
+
   // Challenge Banner state
   const [incomingChallenge, setIncomingChallenge] = useState<{
     friendName: string;
@@ -118,51 +135,64 @@ export default function App() {
 
   // Load Leaderboard from Server with full server-side pagination & filter support
   const loadLeaderboard = async (
-    offset: number = 0,
-    limit: number = 20,
-    filter: 'verified' | 'all' = filterMode,
-    isAppend: boolean = false
+    pageOffset = 0,
+    pageSize = 20,
+    filter = filterMode,
+    isAppend = false
   ) => {
-    if (isAppend) {
-      setIsLoadingMore(true);
-    } else {
-      setIsLoadingLeaderboard(true);
-    }
-
+    if (!isAppend) setIsLoadingLeaderboard(true);
     try {
-      const res = await fetch(`/api/leaderboard?period=all&offset=${offset}&limit=${limit}&filter=${filter}`);
+      const res = await fetch(
+        `/api/leaderboard?period=${currentPeriod}&offset=${pageOffset}&limit=${pageSize}&filter=${filter}`
+      );
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
         if (isAppend) {
-          setProfiles(prev => [...prev, ...(data.profiles || [])]);
+          setProfiles(prev => {
+            const existingIds = new Set(prev.map(p => p.id));
+            const newProfiles = (data.profiles || []).filter(p => !existingIds.has(p.id));
+            return [...prev, ...newProfiles];
+          });
         } else {
           setProfiles(data.profiles || []);
+          // Set dynamic minimum amount to beat #1
+          if (data.topAmount !== undefined) {
+            setTopAmount(data.topAmount);
+            setMinAmountToBeatTop(data.topAmount + 1);
+          }
         }
         setTotalCount(data.totalCount || 0);
         setHasMore(data.hasMore || false);
-        setCurrentPage(data.page || 1);
-        if (typeof data.topAmount === 'number') {
-          setTopAmount(data.topAmount);
-        }
-        if (typeof data.minAmountToBeatTop === 'number') {
-          setMinAmountToBeatTop(data.minAmountToBeatTop);
-        }
       }
     } catch {
-      // Handled gracefully
+      // Graceful error state
     } finally {
       setIsLoadingLeaderboard(false);
       setIsLoadingMore(false);
     }
   };
 
-  // Load Persistent All-Time Top 3 (Global Benchmark Layer)
+  const handleFilterChange = (newFilter: 'verified' | 'all') => {
+    setFilterMode(newFilter);
+    setCurrentPage(1);
+    loadLeaderboard(0, 20, newFilter, false);
+  };
+
+  const handleLoadMore = () => {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+    const nextPage = currentPage + 1;
+    setCurrentPage(nextPage);
+    loadLeaderboard((nextPage - 1) * 20, 20, filterMode, true);
+  };
+
+  // Load Permanent All-Time Top 3
   const loadAllTimeTop3 = async () => {
     try {
-      const res = await fetch('/api/leaderboard?period=all&offset=0&limit=3&filter=verified');
+      const res = await fetch('/api/leaderboard?period=all&limit=3&filter=verified');
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
-        setAllTimeTop3(data.profiles?.slice(0, 3) || []);
+        setAllTimeTop3(data.profiles || []);
       }
     } catch {
       // Handled gracefully
@@ -180,6 +210,19 @@ export default function App() {
     } catch {
       // Handled
     }
+  };
+
+  // Load Global Activity Claims
+  const loadGlobalActivity = async () => {
+    try {
+      const res = await fetch('/api/activity/global');
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.claimsToday === 'number') {
+          setClaimsToday(data.claimsToday);
+        }
+      }
+    } catch {}
   };
 
   // Load Live Real-time Stats
@@ -207,10 +250,14 @@ export default function App() {
     loadLeaderboard();
     loadAllTimeTop3();
     loadActivities();
+    loadGlobalActivity();
     loadLiveStats();
 
     // Periodic live stats polling (every 25s)
-    const statsInterval = setInterval(loadLiveStats, 25000);
+    const statsInterval = setInterval(() => {
+      loadLiveStats();
+      loadGlobalActivity();
+    }, 25000);
 
     // Track homepage view
     fetch('/api/analytics/track', {
@@ -259,107 +306,71 @@ export default function App() {
         for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
           if (cancelled) break;
           try {
-            const response = await fetch(`/api/payment/status/${encodeURIComponent(returnOrderId)}`, {
+            const statusRes = await fetch(`/api/payment/status/${returnOrderId}`, {
               headers: { 'x-order-access-token': recovered.orderAccessToken }
             });
-            if (cancelled) break;
-            if (response.ok) {
-              const data = await response.json();
-              if (data.status === 'PAID') {
-                loadLeaderboard();
-                loadActivities();
-                loadLiveStats();
-                if (data.profile) {
-                  setOrderData({
-                    orderId: returnOrderId,
-                    name: data.profile.name,
-                    amount: data.profile.amount,
-                    currency: 'INR',
-                    isTop: data.profile.rank === 1,
-                    topAmount: data.profile.amount,
-                    minAmountToBeatTop: data.profile.amount + 1,
-                    paymentMode: 'live'
-                  });
-                  setIsPaymentModalOpen(true);
-                  if (recovered.ownerToken && data.profile.id) {
-                    try {
-                      const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
-                      tokens[data.profile.id] = recovered.ownerToken;
-                      localStorage.setItem('lazy_tokens', JSON.stringify(tokens));
-                    } catch {}
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData.orderStatus === 'PAID') {
+                const receiptRes = await fetch(`/api/payment/receipt/${returnOrderId}`, {
+                  headers: { 'x-order-access-token': recovered.orderAccessToken }
+                });
+                if (receiptRes.ok) {
+                  const receiptData = await receiptRes.json();
+                  if (receiptData.profile) {
+                    handlePaymentSuccess(receiptData.profile, undefined, recovered.ownerToken);
+                    return;
                   }
-                  try {
-                    sessionStorage.removeItem(pendingCheckoutKey);
-                    sessionStorage.removeItem(orderCheckoutKey(returnOrderId));
-                  } catch {}
                 }
-                break;
-              } else if (data.status === 'FAILED' || data.status === 'EXPIRED') {
-                setOrderError(`Payment ${data.status.toLowerCase()}. Please try again.`);
-                break;
+              } else if (['FAILED', 'USER_DROPPED', 'CANCELLED'].includes(statusData.orderStatus)) {
+                setOrderError(`Payment ${statusData.orderStatus.toLowerCase().replace('_', ' ')}. Please try again.`);
+                return;
               }
             }
-          } catch {
-            // retry until bounded limit
-          }
-          if (attempt < maxPollAttempts - 1) {
-            await new Promise(r => setTimeout(r, pollInterval));
-          }
+          } catch {}
+          await new Promise(r => setTimeout(r, pollInterval));
         }
       };
       pollReturnOrder();
-      return () => { cancelled = true; };
+      return () => {
+        cancelled = true;
+      };
     }
 
-    const challengeName = params.get('challenge');
+    const challengeFriend = params.get('challenge');
     const challengeTarget = params.get('target');
-    if (challengeName) {
-      const parsedTarget = challengeTarget ? parseInt(challengeTarget, 10) : undefined;
+    if (challengeFriend) {
       setIncomingChallenge({
-        friendName: decodeURIComponent(challengeName),
-        targetAmount: parsedTarget
+        friendName: challengeFriend,
+        targetAmount: challengeTarget ? parseInt(challengeTarget, 10) : undefined
       });
-      if (parsedTarget) {
-        setInitialClaimAmount(parsedTarget);
-      }
     }
 
-    // Initialize page SEO metadata
-    updatePageSeo(currentPath);
-
-    // Browser back/forward navigation support
-    const handlePopState = () => {
-      const path = window.location.pathname.replace(/\/+$/, '') || '/';
-      setCurrentPath(path);
-      const params = new URLSearchParams(window.location.search);
-      let rankParam = params.get('rank') || params.get('profile');
-      if (!rankParam && path.startsWith('/profile/')) {
-        rankParam = path.replace('/profile/', '').trim();
-      }
-
-      if (!rankParam) {
-        setSelectedProfile(null);
-        updatePageSeo(path);
-      } else {
-        fetch(`/api/profile/${rankParam}`)
+    const onPopState = () => {
+      const p = window.location.pathname.replace(/\/+$/, '') || '/';
+      setCurrentPath(p);
+      const urlParams = new URLSearchParams(window.location.search);
+      const popRank = urlParams.get('rank') || urlParams.get('profile');
+      if (popRank) {
+        fetch(`/api/profile/${popRank}`)
           .then(res => res.json())
           .then(data => {
-            if (data.profile) {
-              setSelectedProfile(data.profile);
-            }
+            if (data.profile) setSelectedProfile(data.profile);
           })
           .catch(() => {});
+      } else {
+        setSelectedProfile(null);
       }
     };
-    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', onPopState);
 
     return () => {
       clearInterval(statsInterval);
-      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('popstate', onPopState);
     };
   }, []);
 
-  // Synchronize document title, meta tags, and ProfilePage JSON-LD when profile is viewed/closed
+  // Update Dynamic SEO Meta Tags on Page Changes
   useEffect(() => {
     if (selectedProfile) {
       updateProfileSeo(selectedProfile);
@@ -369,134 +380,114 @@ export default function App() {
   }, [selectedProfile, currentPath]);
 
   const navigate = (path: string) => {
-    const cleanPath = path.replace(/\/+$/, '') || '/';
-    window.history.pushState({}, '', cleanPath);
-    setCurrentPath(cleanPath);
-    updatePageSeo(cleanPath);
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
     setSelectedProfile(null);
     setIsJustClaimed(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleFilterChange = (filter: 'verified' | 'all') => {
-    setFilterMode(filter);
-    setCurrentPage(1);
-    loadLeaderboard(0, 20, filter, false);
+  // Open Checkout Drawer with pre-filled parameters
+  const handleOpenDrawerWithClaim = (amount?: number, name = '', category?: string) => {
+    setInitialClaimAmount(amount ?? minAmountToBeatTop);
+    setDrawerPrefill({ name, category });
+    setIsDrawerOpen(true);
   };
 
-  const handleLoadMore = () => {
-    if (hasMore && !isLoadingMore && !isLoadingLeaderboard) {
-      const remaining = totalCount - profiles.length;
-      const nextBatch = Math.min(100, Math.max(1, remaining));
-      loadLeaderboard(profiles.length, nextBatch, filterMode, true);
-    }
-  };
-
-  // Initiates Checkout Order with Server
+  // Start Payment / Claim Order Creation
   const handleStartPayment = async (claimData: {
     name: string;
     amount: number;
-    customerPhone?: string;
+    customerPhone: string;
     customerEmail?: string;
     instagram?: string;
     linkedin?: string;
     website?: string;
     reason?: string;
+    lazyReason?: string;
     profileId?: string;
-    consentAccepted?: boolean;
-    consentTimestamp?: string;
-    consentVersion?: string;
+    ownerToken?: string;
+    consentAccepted: boolean;
+    consentTimestamp: string;
+    consentVersion: string;
   }) => {
     setIsCreatingOrder(true);
     setOrderError(null);
 
-    fetch('/api/analytics/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'claimStarts' })
-    }).catch(() => {});
+    const generatedOwnerToken =
+      claimData.ownerToken ||
+      (typeof window !== 'undefined' && window.crypto?.randomUUID
+        ? window.crypto.randomUUID()
+        : 'tok_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
 
-    try {
-      sessionStorage.setItem('__storage_test__', '1');
-      sessionStorage.removeItem('__storage_test__');
-    } catch {
-      setOrderError('Browser storage (sessionStorage) is disabled or blocked. Please enable cookies/storage to proceed with checkout.');
-      return;
+    const clientGeneratedOrderAccessToken =
+      'ord_' +
+      Array.from(window.crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+
+    const targetProfileId = claimData.profileId || (upgradingProfile ? upgradingProfile.id : undefined);
+
+    let activeIdempotencyKey = currentIdempotencyKey;
+    if (!activeIdempotencyKey) {
+      activeIdempotencyKey =
+        'idemp_' +
+        Date.now() +
+        '_' +
+        Array.from(window.crypto.getRandomValues(new Uint8Array(16)))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+      setCurrentIdempotencyKey(activeIdempotencyKey);
     }
 
+    const checkoutRecord: PendingCheckout = {
+      ownerToken: generatedOwnerToken,
+      orderAccessToken: clientGeneratedOrderAccessToken,
+      idempotencyKey: activeIdempotencyKey,
+      createdAt: Date.now()
+    };
+    storePendingCheckout(checkoutRecord);
+
+    setPendingOwnerToken(generatedOwnerToken);
+    setOrderAccessToken(clientGeneratedOrderAccessToken);
+
     try {
-      let storedToken: string | undefined;
-      const targetProfileId = claimData.profileId || upgradingProfile?.id;
-      if (targetProfileId) {
-        try {
-          const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
-          storedToken = tokens[targetProfileId];
-        } catch {}
-      }
-
-      let pendingRecord: PendingCheckout | null = null;
-      try {
-        const raw = sessionStorage.getItem(pendingCheckoutKey);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed.ownerToken === 'string' && typeof parsed.orderAccessToken === 'string' && typeof parsed.idempotencyKey === 'string') {
-            pendingRecord = parsed;
-          }
-        }
-      } catch {}
-
-      const makeSecret = (prefix: 'lazy' | 'ord'): string => {
-        const bytes = crypto.getRandomValues(new Uint8Array(32));
-        return `${prefix}_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
-      };
-
-      const pendingToken = targetProfileId
-        ? (storedToken || makeSecret('lazy'))
-        : (pendingRecord?.ownerToken || pendingOwnerToken || makeSecret('lazy'));
-      if (!targetProfileId) {
-        setPendingOwnerToken(pendingToken);
-      }
-
-      const orderToken = pendingRecord?.orderAccessToken || orderAccessToken || makeSecret('ord');
-      setOrderAccessToken(orderToken);
-
-      // Generate or reuse stable idempotency key for this checkout attempt
-      const idempotencyKey = currentIdempotencyKey || pendingRecord?.idempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-      setCurrentIdempotencyKey(idempotencyKey);
-
-      const checkoutRecord: PendingCheckout = {
-        ownerToken: pendingToken,
-        orderAccessToken: orderToken,
-        idempotencyKey,
-        createdAt: pendingRecord?.createdAt || Date.now()
-      };
-      storePendingCheckout(checkoutRecord);
-
       const res = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-idempotency-key': idempotencyKey,
-          'x-order-access-token': orderToken,
-          ...(storedToken ? { 'x-profile-token': storedToken } : {})
+          'x-idempotency-key': activeIdempotencyKey,
+          'x-order-access-token': clientGeneratedOrderAccessToken
         },
         body: JSON.stringify({
-          ...claimData,
+          amount: claimData.amount,
+          customerName: claimData.name,
+          customerPhone: claimData.customerPhone,
+          customerEmail: claimData.customerEmail,
+          instagram: claimData.instagram,
+          linkedin: claimData.linkedin,
+          website: claimData.website,
+          reason: claimData.reason,
+          lazyReason: claimData.lazyReason,
           profileId: targetProfileId,
-          ownerToken: targetProfileId ? storedToken : undefined,
-          pendingOwnerToken: targetProfileId ? undefined : pendingToken,
-          orderAccessToken: orderToken,
-          idempotencyKey
+          ownerToken: generatedOwnerToken,
+          consentAccepted: claimData.consentAccepted,
+          consentTimestamp: claimData.consentTimestamp,
+          consentVersion: claimData.consentVersion
         })
       });
 
       const data = await res.json();
+
       if (!res.ok) {
         if (res.status === 503) {
+          // Close drawer before payment modal opens
+          setIsDrawerOpen(false);
           setOrderData({
-            orderId: 'PENDING_ONBOARDING',
-            name: claimData.name,
-            amount: claimData.amount,
+            orderId: 'preview-disabled-mode',
+            orderAmount: claimData.amount,
+            customerName: claimData.name,
+            customerPhone: claimData.customerPhone,
             currency: 'INR',
             isTop: false,
             topAmount: 0,
@@ -518,6 +509,8 @@ export default function App() {
         storeOrderCheckout(data.orderId, checkoutRecord);
       }
 
+      // Close drawer before payment modal opens
+      setIsDrawerOpen(false);
       setOrderData(data);
       setIsPaymentModalOpen(true);
     } catch (err: any) {
@@ -561,6 +554,7 @@ export default function App() {
     loadLeaderboard(0, 20, filterMode, false);
     loadAllTimeTop3();
     loadActivities();
+    loadGlobalActivity();
     setGlobalActivityRefreshKey(k => k + 1);
   };
 
@@ -569,10 +563,8 @@ export default function App() {
     setUpgradingProfile(profile);
     setSelectedProfile(null);
     setInitialClaimAmount(minAmountToBeatTop);
-    const el = document.getElementById('action-panel-section');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    setDrawerPrefill({ name: profile.name, category: profile.lazyReason });
+    setIsDrawerOpen(true);
   };
 
   const handleVoteProfile = async (profileId: string) => {
@@ -594,15 +586,10 @@ export default function App() {
   };
 
   const handleHeroClaim = (amount: number) => {
-    setInitialClaimAmount(amount);
-    const el = document.getElementById('action-panel-section');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    handleOpenDrawerWithClaim(amount);
   };
 
   const handleMobileNavSelect = (section: MobileNavSection) => {
-    // If viewing a result card or a subpage (e.g. legal pages), return to home first
     if (selectedProfile) {
       setSelectedProfile(null);
       setIsJustClaimed(false);
@@ -611,10 +598,13 @@ export default function App() {
       navigate('/');
     }
 
-    // Smoothly scroll to the target section
+    if (section === 'claim') {
+      setIsDrawerOpen(true);
+      return;
+    }
+
     setTimeout(() => {
       let targetId = 'leaderboard-section';
-      if (section === 'claim') targetId = 'action-panel-section';
       if (section === 'activity') targetId = 'activity-section';
 
       const el = document.getElementById(targetId);
@@ -627,23 +617,17 @@ export default function App() {
           top: offsetPosition,
           behavior: 'smooth'
         });
-
-        if (section === 'claim') {
-          const nameInput = document.getElementById('claim-name-input') || el.querySelector('input');
-          if (nameInput) {
-            (nameInput as HTMLInputElement).focus({ preventScroll: true });
-          }
-        }
       }
     }, 60);
   };
 
   const verifiedTop1 = profiles.find(p => p.rank === 1 && p.isVerified);
   const topProfile = verifiedTop1 || (topAmount > 0 ? { name: 'Current #1', amount: topAmount } : undefined);
+  const verifiedProfilesCount = profiles.filter(p => p.isVerified).length;
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#fbf9f5] text-stone-900">
-      {/* Header with Live Stats (Section 4 & 5) */}
+    <div className="min-h-screen flex flex-col bg-[#faf7f2] text-stone-900">
+      {/* Header with Currency Switcher & Navigation */}
       <Header
         onOpenAbout={() => navigate('/about')}
         onOpenRules={() => navigate('/rules')}
@@ -656,9 +640,12 @@ export default function App() {
         liveStats={liveStats}
         onOpenLiveStats={() => setIsLiveStatsOpen(true)}
         onOpenSettings={() => setIsUserSettingsOpen(true)}
+        currencyMode={currencyMode}
+        onToggleCurrency={() => setCurrencyMode(prev => (prev === 'INR' ? 'USD' : 'INR'))}
+        onOpenClaim={() => handleOpenDrawerWithClaim()}
       />
 
-      <main className="flex-1 w-full max-w-[1140px] mx-auto px-4 sm:px-6 lg:px-8 py-2 pb-20 sm:pb-8">
+      <main className="flex-1 w-full max-w-[1140px] mx-auto px-3 sm:px-6 lg:px-8 py-2 pb-20 sm:pb-8">
         {currentPath === '/terms' ? (
           <TermsPage onNavigate={navigate} />
         ) : currentPath === '/privacy' ? (
@@ -723,8 +710,9 @@ export default function App() {
                 }}
               />
             ) : (
-              /* HOMEPAGE VIEW (Hero -> Claim Action Panel -> Leaderboard -> Live Feed) */
+              /* HOMEPAGE VIEW: Centered Showcase Layout */
               <>
+                {/* 1. Light Hero with Accurate Price & Mascot */}
                 <Hero
                   topAmount={topProfile ? topProfile.amount : topAmount}
                   topProfileName={topProfile?.name}
@@ -734,56 +722,74 @@ export default function App() {
                     const el = document.getElementById('leaderboard-section');
                     if (el) el.scrollIntoView({ behavior: 'smooth' });
                   }}
+                  currencyMode={currencyMode}
                 />
 
-                <Leaderboard
-                  profiles={profiles}
-                  allTimeTop3={allTimeTop3}
-                  onSelectProfile={(p) => {
-                    setIsJustClaimed(false);
-                    setSelectedProfile(p);
-                    window.history.pushState({}, '', `/?rank=${p.id}`);
+                {/* 2. Accessible Quick Claim Bar */}
+                <QuickClaimBar
+                  onQuickClaim={({ name, category }) => {
+                    handleOpenDrawerWithClaim(minAmountToBeatTop, name, category);
                   }}
-                  onVoteProfile={handleVoteProfile}
-                  onReportProfile={(id) => setReportingTargetId(id)}
-                  onClaimSpecificRank={(target) => handleHeroClaim(target)}
-                  isLoading={isLoadingLeaderboard}
-                  totalCount={totalCount}
-                  hasMore={hasMore}
-                  onLoadMore={handleLoadMore}
-                  isLoadingMore={isLoadingMore}
-                  currentFilter={filterMode}
-                  onSelectFilter={handleFilterChange}
-                  actionPanelSlot={
-                    <ActionPanel
-                      topAmount={topProfile ? topProfile.amount : topAmount}
-                      minAmountToBeatTop={minAmountToBeatTop}
-                      initialAmount={initialClaimAmount}
-                      profiles={profiles}
-                      upgradingProfile={upgradingProfile}
-                      onCancelUpgrade={() => setUpgradingProfile(null)}
-                      onStartPayment={handleStartPayment}
-                      isLoading={isCreatingOrder}
-                      errorMessage={orderError}
-                      taxReady={paymentConfig.enabled && paymentConfig.taxReady}
-                      taxDisclosure={paymentConfig.taxDisclosure}
-                    />
-                  }
+                  isLoading={isCreatingOrder}
                 />
 
-                {/* Small Interactive Poll Widget: Weekly Lazy Dilemma with real-time percentage results */}
-                <LazyDilemmaWidget />
+                {/* 3. Honest Platform Statistics Ribbon */}
+                <StatsRibbon
+                  verifiedCount={verifiedProfilesCount || totalCount}
+                  claimsToday={claimsToday}
+                />
 
-                {/* Small, non-intrusive Global Activity heat map & claims today counter (Social Proof) */}
+                {/* 4. Showcase Two-Column Grid: Leaderboard + Sidebar MiniRanking */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start my-4">
+                  {/* Left (Main Content): Ranked Cards & Browse */}
+                  <div className="lg:col-span-2">
+                    <Leaderboard
+                      profiles={profiles}
+                      allTimeTop3={allTimeTop3}
+                      onSelectProfile={(p) => {
+                        setIsJustClaimed(false);
+                        setSelectedProfile(p);
+                        window.history.pushState({}, '', `/?rank=${p.id}`);
+                      }}
+                      onVoteProfile={handleVoteProfile}
+                      onReportProfile={(id) => setReportingTargetId(id)}
+                      onClaimSpecificRank={(target) => handleOpenDrawerWithClaim(target)}
+                      isLoading={isLoadingLeaderboard}
+                      totalCount={totalCount}
+                      hasMore={hasMore}
+                      onLoadMore={handleLoadMore}
+                      isLoadingMore={isLoadingMore}
+                      currentFilter={filterMode}
+                      onSelectFilter={handleFilterChange}
+                      currencyMode={currencyMode}
+                    />
+                  </div>
+
+                  {/* Right (Sidebar): Top Spots MiniRanking */}
+                  <div className="lg:col-span-1 space-y-4">
+                    <MiniRanking
+                      topProfiles={allTimeTop3.length > 0 ? allTimeTop3 : profiles.filter(p => p.isVerified)}
+                      claimsToday={claimsToday}
+                      onSelectProfile={(p) => {
+                        setIsJustClaimed(false);
+                        setSelectedProfile(p);
+                        window.history.pushState({}, '', `/?rank=${p.id}`);
+                      }}
+                      currencyMode={currencyMode}
+                    />
+
+                    {/* Small Interactive Poll Widget: Weekly Lazy Dilemma */}
+                    <LazyDilemmaWidget />
+                  </div>
+                </div>
+
+                {/* 5. Global Activity Heatmap (Social Proof) */}
                 <GlobalActivityHeatmap
                   refreshTrigger={globalActivityRefreshKey}
-                  onClaimClick={() => {
-                    handleHeroClaim(minAmountToBeatTop);
-                    const el = document.getElementById('hero-claim-amount-input') || document.getElementById('action-panel-section');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }}
+                  onClaimClick={() => handleOpenDrawerWithClaim(minAmountToBeatTop)}
                 />
 
+                {/* 6. Live Activity Feed */}
                 <ActivityFeed
                   activities={activities}
                   onOpenChallenge={() => {
@@ -794,6 +800,7 @@ export default function App() {
                   }}
                 />
 
+                {/* 7. Explanatory Overview */}
                 <HowItWorks />
               </>
             )}
@@ -801,13 +808,42 @@ export default function App() {
         )}
       </main>
 
+      {/* Slide-over Accessible Checkout Drawer */}
+      <CheckoutDrawer
+        isOpen={isDrawerOpen}
+        onClose={() => {
+          setIsDrawerOpen(false);
+          setUpgradingProfile(null);
+        }}
+        title={upgradingProfile ? `Upgrade Rank #${upgradingProfile.rank}` : "Claim Your Rank"}
+      >
+        <ActionPanel
+          topAmount={topProfile ? topProfile.amount : topAmount}
+          minAmountToBeatTop={minAmountToBeatTop}
+          initialAmount={initialClaimAmount}
+          initialName={drawerPrefill.name}
+          initialCategory={drawerPrefill.category}
+          profiles={profiles}
+          upgradingProfile={upgradingProfile}
+          onCancelUpgrade={() => {
+            setUpgradingProfile(null);
+            setIsDrawerOpen(false);
+          }}
+          onStartPayment={handleStartPayment}
+          isLoading={isCreatingOrder}
+          errorMessage={orderError}
+          taxReady={paymentConfig.enabled && paymentConfig.taxReady}
+          taxDisclosure={paymentConfig.taxDisclosure}
+        />
+      </CheckoutDrawer>
+
       <Footer
         onNavigate={navigate}
         onOpenAdmin={() => setIsAdminOpen(true)}
         onOpenSettings={() => setIsUserSettingsOpen(true)}
       />
 
-      {/* Sticky Bottom Navigation for Mobile (Quick Access to Leaderboard, Claim, Activity) */}
+      {/* Sticky Bottom Navigation for Mobile */}
       <MobileBottomNav onSelectSection={handleMobileNavSelect} />
 
       {/* User Settings Modal */}
@@ -823,14 +859,12 @@ export default function App() {
           loadLeaderboard();
           loadAllTimeTop3();
           loadActivities();
+          loadGlobalActivity();
         }}
         onNavigateToClaim={() => {
           setSelectedProfile(null);
           navigate('/');
-          setTimeout(() => {
-            const el = document.getElementById('action-panel-section');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
-          }, 100);
+          setIsDrawerOpen(true);
         }}
       />
 
@@ -848,21 +882,24 @@ export default function App() {
       <NominationModal
         isOpen={isChallengeModalOpen}
         onClose={() => setIsChallengeModalOpen(false)}
+        defaultTab={nominationModalTab}
+        defaultNomineeName={nominationDefaultName}
         targetRank={challengeTargetRank}
-        minAmountToBeatTop={minAmountToBeatTop}
-        initialTab={nominationModalTab}
-        defaultName={nominationDefaultName || selectedProfile?.name || ''}
-        currentProfile={selectedProfile || undefined}
-        onProfileUpdated={(updatedProfile) => {
-          setSelectedProfile(updatedProfile);
+        profiles={profiles}
+        onNominationSuccess={() => {
           loadLeaderboard();
         }}
+        onOpenClaim={(targetAmount) => handleOpenDrawerWithClaim(targetAmount)}
       />
 
       {/* About Modal */}
       <AboutModal
         isOpen={isAboutOpen}
         onClose={() => setIsAboutOpen(false)}
+        onOpenRules={() => {
+          setIsAboutOpen(false);
+          setIsRulesOpen(true);
+        }}
       />
 
       {/* Rules Modal */}
@@ -872,31 +909,29 @@ export default function App() {
       />
 
       {/* Report Modal */}
-      {reportingTargetId && (
-        <ReportModal
-          isOpen={!!reportingTargetId}
-          onClose={() => setReportingTargetId(null)}
-          targetId={reportingTargetId}
-          targetType="profile"
-          onReportSubmitted={() => {
-            loadLeaderboard();
-          }}
-        />
-      )}
+      <ReportModal
+        isOpen={!!reportingTargetId}
+        onClose={() => setReportingTargetId(null)}
+        targetId={reportingTargetId || ''}
+      />
 
-      {/* Admin Modal */}
+      {/* Operator Admin Modal */}
       <AdminModal
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
-        onRefreshLeaderboard={() => loadLeaderboard()}
+        onDataChanged={() => {
+          loadLeaderboard();
+          loadAllTimeTop3();
+          loadActivities();
+          loadGlobalActivity();
+        }}
       />
 
-      {/* Real-time Live Stats Modal */}
+      {/* Live Stats Modal */}
       <LiveStatsModal
         isOpen={isLiveStatsOpen}
         onClose={() => setIsLiveStatsOpen(false)}
         stats={liveStats}
-        onRefresh={loadLiveStats}
       />
     </div>
   );

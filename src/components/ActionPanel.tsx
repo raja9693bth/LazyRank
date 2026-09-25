@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, ArrowRight, Loader2, Globe, Instagram, Linkedin, MessageSquareQuote, ShieldCheck, Minus, Plus } from 'lucide-react';
+import { ArrowRight, Loader2, Globe, Instagram, Linkedin, MessageSquareQuote, ShieldCheck, Minus, Plus, Tag } from 'lucide-react';
 import { UserProfile } from '../types.ts';
+import { BROWSE_CATEGORIES } from '../utils/showcase.ts';
 
 interface ActionPanelProps {
   topAmount: number;
   minAmountToBeatTop: number;
   initialAmount?: number;
+  initialName?: string;
+  initialCategory?: string;
   profiles: UserProfile[];
   upgradingProfile?: UserProfile | null;
   onCancelUpgrade?: () => void;
@@ -18,6 +21,7 @@ interface ActionPanelProps {
     linkedin?: string;
     website?: string;
     reason?: string;
+    lazyReason?: string;
     profileId?: string;
     ownerToken?: string;
     consentAccepted: boolean;
@@ -34,6 +38,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   topAmount,
   minAmountToBeatTop,
   initialAmount,
+  initialName = '',
+  initialCategory = '',
   profiles,
   upgradingProfile,
   onCancelUpgrade,
@@ -45,7 +51,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
 }) => {
   const [amount, setAmount] = useState<number>(initialAmount ?? minAmountToBeatTop);
   const [amountTouched, setAmountTouched] = useState<boolean>(false);
-  const [name, setName] = useState('');
+  const [name, setName] = useState(initialName);
+  const [category, setCategory] = useState<string>(initialCategory);
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [instagram, setInstagram] = useState('');
@@ -62,6 +69,19 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
     }
   }, [initialAmount, minAmountToBeatTop, amountTouched]);
 
+  // Update name / category when prefilled from outside
+  useEffect(() => {
+    if (initialName && !name) {
+      setName(initialName);
+    }
+  }, [initialName]);
+
+  useEffect(() => {
+    if (initialCategory && !category) {
+      setCategory(initialCategory);
+    }
+  }, [initialCategory]);
+
   useEffect(() => {
     if (upgradingProfile) {
       setAmountTouched(false);
@@ -70,6 +90,9 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       setLinkedin(upgradingProfile.linkedin || '');
       setWebsite(upgradingProfile.website || '');
       setReason(upgradingProfile.reason || '');
+      if (upgradingProfile.lazyReason) {
+        setCategory(upgradingProfile.lazyReason);
+      }
       if (upgradingProfile.instagram || upgradingProfile.linkedin || upgradingProfile.website || upgradingProfile.reason) {
         setShowOptionalLinks(true);
       }
@@ -151,7 +174,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       instagram: instagram.trim() || undefined,
       linkedin: linkedin.trim() || undefined,
       website: website.trim() || undefined,
-      reason: reason.trim() || undefined,
+      reason: reason.trim() || (category ? `${category}` : undefined),
+      lazyReason: category || undefined,
       profileId: upgradingProfile?.id,
       ownerToken: storedOwnerToken,
       consentAccepted: true,
@@ -199,255 +223,225 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Row 1: Name and Amount */}
-          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 sm:gap-3">
-            {/* Display Name Input */}
-            <div className="sm:col-span-7">
-              <label htmlFor="claim-name-input" className="block text-[11px] font-bold text-stone-700 mb-1">
-                Display Name <span className="text-rose-500">*</span>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Display Name Input */}
+          <div>
+            <label htmlFor="claim-name-input" className="block text-xs font-bold text-stone-700 mb-1">
+              Your Display Name or Alias <span className="text-[#b44b1c]">*</span>
+            </label>
+            <input
+              id="claim-name-input"
+              type="text"
+              required
+              maxLength={30}
+              placeholder="e.g. Master of Snooze, Alex G."
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] px-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
+            />
+          </div>
+
+          {/* Lazy Category Select */}
+          <div>
+            <label htmlFor="claim-category-select" className="block text-xs font-bold text-stone-700 mb-1 flex items-center gap-1">
+              <Tag className="w-3.5 h-3.5 text-stone-500" />
+              <span>Laziness Category (Optional)</span>
+            </label>
+            <select
+              id="claim-category-select"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] px-3 py-2 text-xs sm:text-sm font-semibold text-stone-800 focus:bg-white focus:border-stone-800 focus:outline-none transition-colors cursor-pointer"
+            >
+              <option value="">Select a category...</option>
+              {BROWSE_CATEGORIES.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Amount Input & Stepper */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="claim-amount-input" className="text-xs font-bold text-stone-700">
+                Payment Amount (INR) <span className="text-[#b44b1c]">*</span>
               </label>
-              <input
-                id="claim-name-input"
-                type="text"
-                placeholder="e.g. Rahul S."
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  if (localError) setLocalError(null);
-                }}
-                maxLength={30}
-                required
-                className="w-full rounded-xl border border-[#ede5da] bg-[#faf8f4]/80 px-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-all"
-              />
+              <span className="text-[11px] font-semibold text-stone-500 font-mono-numbers">
+                Min to beat #1: <strong className="text-stone-900">₹{minAmountToBeatTop.toLocaleString('en-IN')}</strong>
+              </span>
             </div>
 
-            {/* Payment Amount Input with Controls */}
-            <div className="sm:col-span-5">
-              <label htmlFor="claim-amount-input" className="block text-[11px] font-bold text-stone-700 mb-1">
-                Amount to pay (INR) <span className="text-rose-500">*</span>
-              </label>
-              <div className="flex items-center rounded-xl border border-[#ede5da] bg-[#faf8f4]/80 overflow-hidden focus-within:border-stone-800 focus-within:bg-white transition-all">
-                <button
-                  type="button"
-                  onClick={() => handleAdjustAmount(-10)}
-                  className="px-2.5 py-2 text-stone-500 hover:text-stone-900 hover:bg-[#f0eae1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
-                  title="Decrease amount by ₹10"
-                  aria-label="Decrease payment amount by ₹10"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleAdjustAmount(-10)}
+                aria-label="Decrease amount by 10 rupees"
+                className="w-10 h-10 rounded-xl border border-[#ede5db] bg-[#faf8f4] hover:bg-stone-100 flex items-center justify-center text-stone-700 font-bold active:scale-95 transition-all cursor-pointer shrink-0"
+              >
+                <Minus className="w-4 h-4" />
+              </button>
 
-                <div className="relative flex-1 flex items-center">
-                  <span className="pl-2 font-bold text-xs sm:text-sm text-stone-400 font-mono-numbers">₹</span>
-                  <input
-                    id="claim-amount-input"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={amount || ''}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      setAmountTouched(true);
-                      setAmount(isNaN(val) ? 0 : val);
-                      if (localError) setLocalError(null);
-                    }}
-                    required
-                    className="w-full py-2 px-1 text-xs sm:text-sm font-black font-mono-numbers text-stone-900 bg-transparent focus:outline-none text-left focus-visible:ring-1 focus-visible:ring-stone-800"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleAdjustAmount(10)}
-                  className="px-2.5 py-2 text-stone-500 hover:text-stone-900 hover:bg-[#f0eae1] transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
-                  title="Increase amount by ₹10"
-                  aria-label="Increase payment amount by ₹10"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
+              <div className="relative flex-1">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-500 font-bold text-sm">
+                  ₹
+                </span>
+                <input
+                  id="claim-amount-input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  required
+                  value={amount || ''}
+                  onChange={(e) => {
+                    setAmountTouched(true);
+                    setAmount(Math.max(1, parseInt(e.target.value || '1', 10)));
+                  }}
+                  className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] pl-8 pr-3 py-2 text-sm sm:text-base font-extrabold text-stone-900 font-mono-numbers focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
+                />
               </div>
+
+              <button
+                type="button"
+                onClick={() => handleAdjustAmount(10)}
+                aria-label="Increase amount by 10 rupees"
+                className="w-10 h-10 rounded-xl border border-[#ede5db] bg-[#faf8f4] hover:bg-stone-100 flex items-center justify-center text-stone-700 font-bold active:scale-95 transition-all cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Quick Chips */}
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              {[minAmountToBeatTop, minAmountToBeatTop + 50, minAmountToBeatTop + 100, 500, 1000].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => {
+                    setAmountTouched(true);
+                    setAmount(chip);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono-numbers transition-all cursor-pointer ${
+                    amount === chip
+                      ? 'bg-stone-900 text-white shadow-2xs'
+                      : 'bg-[#faf8f4] border border-[#ede5db] text-stone-700 hover:bg-stone-100'
+                  }`}
+                >
+                  ₹{chip.toLocaleString('en-IN')}
+                </button>
+              ))}
+            </div>
+
+            {/* Expected Rank Callout */}
+            <div className={`mt-2.5 p-2 rounded-xl text-xs font-semibold flex items-center justify-between ${
+              willTakeTop ? 'bg-amber-50 border border-amber-200 text-amber-950' : 'bg-stone-50 border border-stone-200 text-stone-700'
+            }`}>
+              <span>Estimated Rank with ₹{amount.toLocaleString('en-IN')}:</span>
+              <span className="font-extrabold font-mono-numbers text-stone-900">
+                {willTakeTop ? '🔥 #1 Rank (New Leader!)' : `#${expectedRank}`}
+              </span>
             </div>
           </div>
 
-          {/* Row 2: Customer Mobile (Required) and Email (Optional) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+          {/* Mandatory Phone & Optional Email for Payment & Receipt */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-[#f0eae1]">
             <div>
-              <label htmlFor="claim-phone-input" className="block text-[11px] font-bold text-stone-700 mb-1">
-                Mobile Number (for Payment Gateway) <span className="text-rose-500">*</span>
+              <label htmlFor="claim-phone-input" className="block text-xs font-bold text-stone-700 mb-1">
+                Indian Mobile Number <span className="text-[#b44b1c]">*</span>
               </label>
-              <div className="flex items-center rounded-xl border border-[#ede5da] bg-[#faf8f4]/80 overflow-hidden focus-within:border-stone-800 focus-within:bg-white transition-all">
-                <span className="pl-3 pr-1 text-xs font-bold text-stone-500 select-none">+91</span>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-bold text-xs pointer-events-none">
+                  +91
+                </span>
                 <input
                   id="claim-phone-input"
                   type="tel"
+                  required
+                  maxLength={10}
                   placeholder="9876543210"
                   value={customerPhone}
-                  onChange={(e) => {
-                    setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
-                    if (localError) setLocalError(null);
-                  }}
-                  maxLength={10}
-                  required
-                  className="w-full py-2 pr-3 text-xs sm:text-sm font-semibold text-stone-900 bg-transparent focus:outline-none"
+                  onChange={(e) => setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] pl-11 pr-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 font-mono-numbers placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
                 />
               </div>
+              <p className="text-[10px] text-stone-400 mt-0.5">Required for Cashfree payment receipt</p>
             </div>
 
             <div>
-              <label htmlFor="claim-email-input" className="block text-[11px] font-bold text-stone-700 mb-1">
-                Email Address <span className="text-stone-400 font-normal">(optional, for digital receipt)</span>
+              <label htmlFor="claim-email-input" className="block text-xs font-bold text-stone-700 mb-1">
+                Email Address <span className="text-stone-400 font-normal">(Optional)</span>
               </label>
               <input
                 id="claim-email-input"
                 type="email"
-                placeholder="name@example.com"
+                placeholder="you@example.com"
                 value={customerEmail}
-                onChange={(e) => {
-                  setCustomerEmail(e.target.value);
-                  if (localError) setLocalError(null);
-                }}
-                maxLength={80}
-                className="w-full rounded-xl border border-[#ede5da] bg-[#faf8f4]/80 px-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-all"
+                onChange={(e) => setCustomerEmail(e.target.value)}
+                className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] px-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
               />
+              <p className="text-[10px] text-stone-400 mt-0.5">For digital invoice delivery</p>
             </div>
           </div>
 
-          {/* Quick Amount Chips */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-            <span className="text-[11px] font-bold text-stone-400 mr-0.5">Quick:</span>
-
+          {/* Collapsible Optional Public Links */}
+          <div className="pt-1 border-t border-[#f0eae1]">
             <button
               type="button"
-              aria-pressed={amount === minAmountToBeatTop}
-              onClick={() => {
-                setAmountTouched(true);
-                setAmount(minAmountToBeatTop);
-              }}
-              className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono-numbers transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-1 ${
-                amount === minAmountToBeatTop
-                  ? 'bg-[#e86638] text-white shadow-2xs'
-                  : 'bg-[#faeee5] hover:bg-[#f5ded0] text-[#9c3a16] border border-[#f2ded0]'
-              }`}
+              onClick={() => setShowOptionalLinks(!showOptionalLinks)}
+              className="text-xs font-bold text-stone-600 hover:text-stone-900 flex items-center gap-1 cursor-pointer"
             >
-              Take #1 (₹{minAmountToBeatTop.toLocaleString('en-IN')})
+              <span>{showOptionalLinks ? '− Hide Social & Website Links' : '+ Add Optional Social / Bio Links'}</span>
             </button>
 
-            {[100, 250, 500, 1000].map(chipVal => (
-              <button
-                key={chipVal}
-                type="button"
-                aria-pressed={amount === chipVal}
-                onClick={() => {
-                  setAmountTouched(true);
-                  setAmount(chipVal);
-                }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono-numbers transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
-                  amount === chipVal
-                    ? 'bg-stone-800 text-white'
-                    : 'bg-[#f3ede5] hover:bg-[#eae2d6] text-stone-700'
-                }`}
-              >
-                ₹{chipVal}
-              </button>
-            ))}
-          </div>
+            {showOptionalLinks && (
+              <div className="mt-2.5 space-y-2.5 p-3 rounded-xl bg-[#faf8f4] border border-[#ede5db]">
+                <div>
+                  <label htmlFor="claim-website-input" className="block text-[11px] font-bold text-stone-600 mb-0.5 flex items-center gap-1">
+                    <Globe className="w-3 h-3 text-stone-500 shrink-0" />
+                    <span>Website URL</span>
+                  </label>
+                  <input
+                    id="claim-website-input"
+                    type="url"
+                    placeholder="https://example.com"
+                    value={website}
+                    onChange={(e) => setWebsite(e.target.value)}
+                    maxLength={100}
+                    className="w-full rounded-lg border border-[#ede5da] bg-white px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:border-stone-800 focus:outline-none"
+                  />
+                </div>
 
-          {/* Dynamic Rank Estimate Banner */}
-          <div className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-xs transition-colors ${
-            willTakeTop
-              ? 'bg-[#faeee5]/80 border-[#f2ded0] text-[#843212]'
-              : 'bg-[#faf8f4] border-[#ede5da] text-stone-800'
-          }`}>
-            <div className="flex items-center gap-2 min-w-0">
-              <Trophy className={`w-3.5 h-3.5 shrink-0 ${willTakeTop ? 'text-[#b44b1c]' : 'text-stone-400'}`} />
-              <div className="font-medium truncate">
-                {willTakeTop ? (
-                  <span>
-                    <strong className="font-extrabold text-[#9c3a16]">₹{amount.toLocaleString('en-IN')} takes #1</strong> on the leaderboard!
-                  </span>
-                ) : (
-                  <span>
-                    ₹{amount.toLocaleString('en-IN')} puts you at approximately{' '}
-                    <strong className="font-extrabold text-stone-900">Rank #{expectedRank}</strong>.
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {!willTakeTop && (
-              <button
-                type="button"
-                onClick={() => setAmount(minAmountToBeatTop)}
-                className="text-[11px] font-bold text-[#b44b1c] hover:underline shrink-0 self-start sm:self-auto cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#b44b1c] rounded"
-              >
-                Need ₹{minAmountToBeatTop.toLocaleString('en-IN')} for #1 →
-              </button>
-            )}
-          </div>
-
-          {/* Toggle Optional Links & Confession */}
-          <div>
-            {!showOptionalLinks ? (
-              <button
-                type="button"
-                aria-expanded={false}
-                onClick={() => setShowOptionalLinks(true)}
-                className="text-[11px] sm:text-xs text-stone-500 hover:text-stone-900 font-semibold underline underline-offset-2 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 rounded"
-              >
-                + Add Instagram, LinkedIn, Website, or confession (optional)
-              </button>
-            ) : (
-              <div className="space-y-2.5 pt-2 border-t border-[#f0eae1] animate-in fade-in duration-150">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {/* Instagram handle (First) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div>
                     <label htmlFor="claim-instagram-input" className="block text-[11px] font-bold text-stone-600 mb-0.5 flex items-center gap-1">
                       <Instagram className="w-3 h-3 text-stone-500 shrink-0" />
-                      <span>Instagram</span>
+                      <span>Instagram Handle</span>
                     </label>
                     <input
                       id="claim-instagram-input"
                       type="text"
-                      placeholder="@handle"
+                      placeholder="@yourhandle"
                       value={instagram}
                       onChange={(e) => setInstagram(e.target.value)}
-                      maxLength={60}
-                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
+                      maxLength={30}
+                      className="w-full rounded-lg border border-[#ede5da] bg-white px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:border-stone-800 focus:outline-none"
                     />
                   </div>
 
-                  {/* LinkedIn Profile (Second) */}
                   <div>
                     <label htmlFor="claim-linkedin-input" className="block text-[11px] font-bold text-stone-600 mb-0.5 flex items-center gap-1">
                       <Linkedin className="w-3 h-3 text-stone-500 shrink-0" />
-                      <span>LinkedIn</span>
+                      <span>LinkedIn Profile</span>
                     </label>
                     <input
                       id="claim-linkedin-input"
                       type="text"
-                      placeholder="in/profile"
+                      placeholder="linkedin.com/in/username"
                       value={linkedin}
                       onChange={(e) => setLinkedin(e.target.value)}
                       maxLength={100}
-                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
-                    />
-                  </div>
-
-                  {/* Website URL (Third) */}
-                  <div>
-                    <label htmlFor="claim-website-input" className="block text-[11px] font-bold text-stone-600 mb-0.5 flex items-center gap-1">
-                      <Globe className="w-3 h-3 text-stone-500 shrink-0" />
-                      <span>Website</span>
-                    </label>
-                    <input
-                      id="claim-website-input"
-                      type="text"
-                      placeholder="mywebsite.com"
-                      value={website}
-                      onChange={(e) => setWebsite(e.target.value)}
-                      maxLength={100}
-                      className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
+                      className="w-full rounded-lg border border-[#ede5da] bg-white px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:border-stone-800 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -465,7 +459,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     maxLength={140}
-                    className="w-full rounded-lg border border-[#ede5da] bg-[#faf8f4]/80 px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:bg-white focus:border-stone-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
+                    className="w-full rounded-lg border border-[#ede5da] bg-white px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:border-stone-800 focus:outline-none"
                   />
                   <div className="text-[10px] text-stone-400 text-right mt-0.5 font-mono-numbers">
                     {reason.length}/140

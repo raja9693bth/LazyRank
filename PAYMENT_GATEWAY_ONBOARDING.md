@@ -16,7 +16,7 @@
 | **Official Website URL** | [https://lazyproof.online](https://lazyproof.online) |
 | **Public Business Address** | Bettiah, West Champaran, Bihar, India - 845454 |
 | **Customer Support Email** | [support@lazyproof.online](mailto:support@lazyproof.online) |
-| **Support Phone** | +91 96938 41189 |
+| **Support Phone** | +91 95211 90205 |
 | **Operational Support Hours** | Monday to Saturday, 10:00 AM – 6:00 PM IST |
 | **Industry / Merchant Category** | **Advertising / Digital Visibility / Web Portal** |
 

@@ -24,7 +24,7 @@ export const LEGAL_CONFIG = {
 
   // Customer Support Channels (Operational during business hours)
   SUPPORT_EMAIL: 'support@lazyproof.online',
-  SUPPORT_PHONE: '+91 96938 41189',
+  SUPPORT_PHONE: '+91 95211 90205',
 
   // Official Legal Statement
   OPERATING_STATEMENT:

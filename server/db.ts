@@ -691,9 +691,9 @@ export class LazyDatabase {
     let limit = 20;
     let page = 1;
 
-    if (options?.offset !== undefined) {
-      offset = Math.max(0, options.offset);
-      limit = Math.max(1, Math.min(100, options.limit !== undefined ? options.limit : 20));
+    if (options?.offset !== undefined || options?.limit !== undefined) {
+      offset = Math.max(0, options?.offset || 0);
+      limit = Math.max(1, Math.min(100, options?.limit !== undefined ? options.limit : 20));
       page = Math.floor(offset / limit) + 1;
     } else {
       page = Math.max(1, options?.page || 1);

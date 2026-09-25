@@ -97,6 +97,12 @@ async function runCommercialTests() {
   );
 
   assert(
+    LEGAL_CONFIG.SUPPORT_PHONE === '+91 95211 90205' &&
+    SERVER_LEGAL_CONFIG.SUPPORT_PHONE === '+91 95211 90205',
+    'Customer support phone is +91 95211 90205'
+  );
+
+  assert(
     LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('Bettiah') &&
     LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('Bihar') &&
     LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('845454'),

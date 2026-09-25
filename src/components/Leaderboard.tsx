@@ -3,48 +3,52 @@ import { UserProfile } from '../types.ts';
 import {
   Trophy,
   Loader2,
-  Sparkles,
   ArrowRight,
   ShieldCheck,
-  Filter
+  AlertCircle,
+  RefreshCw,
+  Sparkles,
+  UserCheck
 } from 'lucide-react';
 import { ProfileCard } from './ProfileCard.tsx';
 import { SHOWCASE_CATEGORIES, ShowcaseCategory, matchesCategory, formatDisplayCurrency } from '../utils/showcase.ts';
 
 interface LeaderboardProps {
   profiles: UserProfile[];
-  allTimeTop3?: UserProfile[];
   onSelectProfile: (profile: UserProfile) => void;
   onVoteProfile?: (id: string) => void;
   onReportProfile?: (id: string) => void;
   onClaimSpecificRank?: (targetAmount: number) => void;
   isLoading?: boolean;
+  hasError?: boolean;
+  onRetry?: () => void;
   totalCount?: number;
   hasMore?: boolean;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
   currentFilter?: 'verified' | 'all';
   onSelectFilter?: (filter: 'verified' | 'all') => void;
-  actionPanelSlot?: React.ReactNode;
   currencyMode?: 'INR' | 'USD';
+  minAmountToBeatTop?: number;
 }
 
 export const Leaderboard: React.FC<LeaderboardProps> = ({
   profiles,
-  allTimeTop3,
   onSelectProfile,
   onVoteProfile,
   onReportProfile,
   onClaimSpecificRank,
   isLoading = false,
+  hasError = false,
+  onRetry,
   totalCount = profiles.length,
   hasMore = false,
   onLoadMore,
   isLoadingMore = false,
   currentFilter = 'verified',
   onSelectFilter,
-  actionPanelSlot,
-  currencyMode = 'INR'
+  currencyMode = 'INR',
+  minAmountToBeatTop = 1
 }) => {
   const [activeCategory, setActiveCategory] = useState<ShowcaseCategory>('All');
 
@@ -53,232 +57,285 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
     ? profiles
     : profiles.filter(p => matchesCategory(p, activeCategory));
 
-  // Persistent All-Time Top 3 (Global Benchmark Layer)
-  const persistentPodium = (allTimeTop3 && allTimeTop3.length > 0)
-    ? allTimeTop3
-    : profiles.filter(p => p.isVerified && p.amount > 0).slice(0, 3);
+  const formattedMinPrice = formatDisplayCurrency(minAmountToBeatTop, currencyMode);
 
   return (
-    <section id="leaderboard-section" className="w-full max-w-3xl mx-auto my-4 sm:my-6 px-3">
-      {/* Optional action panel slot if passed and drawer is not exclusive */}
-      {actionPanelSlot}
+    <section id="leaderboard-section" className="w-full">
+      {/* Leaderboard Header: Scope Switcher + Title */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+        <div>
+          <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-stone-900 flex items-center gap-2">
+            <Trophy className="w-4 h-4 text-[#b44b1c]" />
+            <span>Leaderboard Showcase</span>
+          </h2>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Ranked deterministically by cumulative verified sponsorship.
+          </p>
+        </div>
 
-      {/* 1. PERSISTENT ALL-TIME TOP 3 (Permanent Benchmark Layer) */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between pb-3">
-          <div>
-            <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
-              <Trophy className="w-4 h-4 text-[#b44b1c] shrink-0" />
-              <span>World's Top 3 (All-Time)</span>
-            </h2>
-            <p className="text-[11px] text-stone-500 mt-0.5">
-              The highest verified payments in LAZY history.
-            </p>
+        {/* Scope Filter: Verified vs All */}
+        {onSelectFilter && (
+          <div className="flex items-center bg-[#ede5db] p-0.5 rounded-xl text-xs font-bold shrink-0 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => onSelectFilter('verified')}
+              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                currentFilter === 'verified'
+                  ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              Verified Only
+            </button>
+            <button
+              type="button"
+              onClick={() => onSelectFilter('all')}
+              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                currentFilter === 'all'
+                  ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              All Claims
+            </button>
           </div>
-          <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#faeee5] border border-[#f2ded0] text-[#7c2d12] text-[10px] font-extrabold shadow-2xs">
-            Permanent Hall of Fame
-          </span>
-        </div>
-
-        {/* Top 3 Cards */}
-        <div className="grid grid-cols-1 gap-2.5">
-          {[0, 1, 2].map((idx) => {
-            const prof = persistentPodium[idx];
-            const rankNum = idx + 1;
-
-            if (!prof) {
-              return (
-                <div
-                  key={`open-slot-${rankNum}`}
-                  className="rounded-2xl border border-dashed border-[#e6ded3] bg-[#faf8f4]/70 p-3 sm:px-4 sm:py-3 flex items-center justify-between gap-2.5"
-                >
-                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                    <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-xl bg-[#f0eae1] text-stone-500 text-xs font-bold font-mono-numbers shrink-0">
-                      #{rankNum} Open
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-bold text-xs sm:text-sm text-stone-500 truncate">
-                        Unclaimed Spot
-                      </div>
-                      <div className="text-[10px] text-stone-400">
-                        Pay {formatDisplayCurrency(1, currencyMode)}+ to claim #{rankNum}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
-                    <div className="font-mono-numbers font-black text-sm sm:text-base text-stone-300">
-                      {formatDisplayCurrency(0, currencyMode)}
-                    </div>
-                    {onClaimSpecificRank && (
-                      <button
-                        type="button"
-                        onClick={() => onClaimSpecificRank(1)}
-                        aria-label={`Claim open spot rank #${rankNum} for 1 rupee`}
-                        className="py-1.5 px-3 rounded-xl bg-white hover:bg-stone-50 text-stone-700 text-xs font-extrabold border border-[#ede5db] transition-all cursor-pointer shadow-2xs active:scale-95 whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
-                      >
-                        Claim Spot →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            }
-
-            return (
-              <ProfileCard
-                key={prof.id || `podium-${prof.rank}`}
-                profile={prof}
-                currencyMode={currencyMode}
-                onSelect={onSelectProfile}
-                onVote={onVoteProfile}
-                onReport={onReportProfile}
-                onBeatRank={onClaimSpecificRank}
-                isTop1={rankNum === 1}
-              />
-            );
-          })}
-        </div>
+        )}
       </div>
 
-      {/* 2. FULL LEADERBOARD BROWSE & CATEGORIES */}
-      <div className="border-t border-[#ede5db] pt-6 mb-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-3">
-          <div>
-            <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-600" />
-              <span>Full Ranked Showcase</span>
-            </h3>
-            <p className="text-[11px] text-stone-500 mt-0.5">
-              Explore participants ranked by cumulative verified payment.
-            </p>
+      {/* Category Pill Tabs */}
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 mb-3">
+        {SHOWCASE_CATEGORIES.map((category) => (
+          <button
+            key={category}
+            type="button"
+            onClick={() => setActiveCategory(category)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+              activeCategory === category
+                ? 'bg-stone-900 text-white shadow-2xs'
+                : 'bg-white hover:bg-stone-100 text-stone-700 border border-[#ede5db]'
+            }`}
+          >
+            {category}
+          </button>
+        ))}
+      </div>
+
+      {/* Honest Count Description */}
+      {!isLoading && !hasError && profiles.length > 0 && (
+        <div className="text-[11px] text-stone-500 mb-3 flex items-center justify-between">
+          <span>
+            {activeCategory === 'All'
+              ? `Showing all ${profiles.length} currently loaded profile${profiles.length === 1 ? '' : 's'}.`
+              : `Showing ${categoryFilteredProfiles.length} of ${profiles.length} loaded profile${profiles.length === 1 ? '' : 's'} in "${activeCategory}".`}
+          </span>
+          <span className="font-mono-numbers font-semibold">
+            Total records: {totalCount}
+          </span>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* 4 EXPLICIT STATES                                            */}
+      {/* ============================================================ */}
+
+      {/* STATE 1: LOADING SKELETON */}
+      {isLoading && profiles.length === 0 && (
+        <div className="space-y-3">
+          {[1, 2, 3].map((n) => (
+            <div
+              key={`skeleton-${n}`}
+              className="rounded-2xl border border-[#ede5db] bg-white p-5 animate-pulse flex items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-3.5 flex-1">
+                <div className="w-8 h-8 rounded-xl bg-stone-200 shrink-0" />
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-stone-200 shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <div className="h-4 bg-stone-200 rounded w-1/3" />
+                  <div className="h-3 bg-stone-100 rounded w-2/3" />
+                </div>
+              </div>
+              <div className="w-20 h-6 bg-stone-200 rounded" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* STATE 2: API ERROR */}
+      {!isLoading && hasError && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50/70 p-6 sm:p-8 text-center">
+          <AlertCircle className="w-8 h-8 text-rose-600 mx-auto mb-2" />
+          <h3 className="text-sm sm:text-base font-bold text-rose-950">
+            Unable to load rankings
+          </h3>
+          <p className="text-xs text-rose-700 mt-1 max-w-sm mx-auto">
+            We could not fetch the verified leaderboard. Please check your network connection.
+          </p>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-xs"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* STATE 3: ZERO VERIFIED PROFILES (EMPTY-STATE PREVIEW ROWS) */}
+      {!isLoading && !hasError && profiles.length === 0 && (
+        <div className="space-y-3">
+          {/* Row #1: #FFF4EE background, dashed border, empty avatar placeholder, clear CTA */}
+          <div className="rounded-2xl border-2 border-dashed border-[#f2ded0] bg-[#fff4ee] p-5 sm:p-6 transition-all shadow-2xs">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <span className="w-9 h-9 rounded-xl bg-[#e86638] text-white flex items-center justify-center font-black text-sm font-mono-numbers shrink-0 shadow-2xs">
+                  #1
+                </span>
+                {/* Tasteful Empty Avatar Placeholder */}
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border-2 border-dashed border-amber-300 bg-white/80 flex items-center justify-center text-amber-500 shrink-0">
+                  <Trophy className="w-6 h-6 stroke-[1.5]" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm sm:text-base font-black text-stone-900">
+                      Spot #1 is Unclaimed
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full bg-white text-[#9c3a16] text-[10px] font-extrabold border border-amber-200">
+                      Open for Claim
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-600 mt-1 max-w-md leading-relaxed">
+                    Be the first verified participant to establish the permanent #1 position in LAZY history.
+                  </p>
+                </div>
+              </div>
+
+              {onClaimSpecificRank && (
+                <button
+                  type="button"
+                  onClick={() => onClaimSpecificRank(minAmountToBeatTop)}
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Claim #1 for {formattedMinPrice}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Scope Filter: Verified vs All */}
-          {onSelectFilter && (
-            <div className="flex items-center bg-[#ede5db] p-0.5 rounded-xl text-xs font-bold shrink-0 shadow-2xs">
+          {/* Row #2: Clearly marked as future/open position */}
+          <div className="rounded-2xl border border-dashed border-[#ede5db] bg-white/70 p-4 sm:p-5 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <span className="w-8 h-8 rounded-xl bg-stone-200 text-stone-700 flex items-center justify-center font-bold text-xs font-mono-numbers shrink-0">
+                #2
+              </span>
+              <div className="w-12 h-12 rounded-2xl border border-dashed border-stone-300 bg-[#faf8f4] flex items-center justify-center text-stone-400 shrink-0">
+                <span className="text-xs font-bold">#2</span>
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-stone-700">
+                  Future Spot #2
+                </h4>
+                <p className="text-[11px] text-stone-500 mt-0.5">
+                  Assigned automatically to the second highest cumulative verified sponsorship.
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider shrink-0">
+              Open Position
+            </span>
+          </div>
+
+          {/* Row #3: Clearly marked as future/open position */}
+          <div className="rounded-2xl border border-dashed border-[#ede5db] bg-white/70 p-4 sm:p-5 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold text-xs font-mono-numbers shrink-0">
+                #3
+              </span>
+              <div className="w-12 h-12 rounded-2xl border border-dashed border-stone-300 bg-[#faf8f4] flex items-center justify-center text-stone-400 shrink-0">
+                <span className="text-xs font-bold">#3</span>
+              </div>
+              <div>
+                <h4 className="text-xs sm:text-sm font-bold text-stone-700">
+                  Future Spot #3
+                </h4>
+                <p className="text-[11px] text-stone-500 mt-0.5">
+                  Assigned automatically to the third highest cumulative verified sponsorship.
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider shrink-0">
+              Open Position
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* STATE 4: POPULATED WITH REAL PROFILES (NO DUPLICATE PODIUM) */}
+      {!isLoading && !hasError && profiles.length > 0 && (
+        <>
+          {categoryFilteredProfiles.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-[#ede5db] bg-white p-8 text-center text-stone-500">
+              <ShieldCheck className="w-8 h-8 mx-auto text-stone-300 mb-2" />
+              <h4 className="text-sm font-bold text-stone-800">
+                No loaded profiles found in "{activeCategory}"
+              </h4>
+              <p className="text-xs text-stone-400 mt-1 max-w-sm mx-auto">
+                Category filtering applies to currently loaded profiles. Switch back to "All" or load more profiles below.
+              </p>
               <button
                 type="button"
-                onClick={() => onSelectFilter('verified')}
-                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                  currentFilter === 'verified'
-                    ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
+                onClick={() => setActiveCategory('All')}
+                className="mt-3 px-3 py-1.5 rounded-xl bg-stone-900 text-white text-xs font-bold cursor-pointer"
               >
-                Verified Only
+                View All Loaded
               </button>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {categoryFilteredProfiles.map((p) => (
+                <ProfileCard
+                  key={p.id || `profile-${p.rank}`}
+                  profile={p}
+                  currencyMode={currencyMode}
+                  onSelect={onSelectProfile}
+                  onVote={onVoteProfile}
+                  onReport={onReportProfile}
+                  onBeatRank={onClaimSpecificRank}
+                  isTop1={p.rank === 1}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Pagination / Load More Button */}
+          {hasMore && (
+            <div className="mt-5 text-center">
               <button
                 type="button"
-                onClick={() => onSelectFilter('all')}
-                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                  currentFilter === 'all'
-                    ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
+                onClick={onLoadMore}
+                disabled={isLoadingMore}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-stone-50 border border-[#ede5db] text-xs font-extrabold text-stone-800 shadow-2xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
               >
-                All Claims
+                {isLoadingMore ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-stone-600" />
+                    <span>Loading More...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Load More Profiles ({profiles.length} of {totalCount})</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </>
+                )}
               </button>
             </div>
           )}
-        </div>
-
-        {/* Category Pill Tabs (Filtered locally over loaded profiles with honest subtext) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 mb-2">
-          {SHOWCASE_CATEGORIES.map((category) => (
-            <button
-              key={category}
-              type="button"
-              onClick={() => setActiveCategory(category)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
-                activeCategory === category
-                  ? 'bg-stone-900 text-white shadow-2xs'
-                  : 'bg-white hover:bg-stone-100 text-stone-700 border border-[#ede5db]'
-              }`}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-
-        {/* Honest Category Filtering Note */}
-        <div className="text-[10px] text-stone-500 mb-3 flex items-center justify-between">
-          <span>
-            {activeCategory === 'All' ? (
-              `Showing all ${profiles.length} currently loaded profile${profiles.length === 1 ? '' : 's'}.`
-            ) : (
-              `Showing ${categoryFilteredProfiles.length} of ${profiles.length} currently loaded profile${profiles.length === 1 ? '' : 's'} matching "${activeCategory}".`
-            )}
-          </span>
-          <span className="font-mono-numbers">
-            Total recorded: {totalCount}
-          </span>
-        </div>
-
-        {/* Profiles List */}
-        {isLoading ? (
-          <div className="py-12 text-center text-stone-400">
-            <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#e86638] mb-2" />
-            <p className="text-xs font-semibold">Loading verified leaderboard...</p>
-          </div>
-        ) : categoryFilteredProfiles.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-[#ede5db] bg-white p-8 text-center text-stone-500">
-            <Filter className="w-8 h-8 mx-auto text-stone-300 mb-2" />
-            <h4 className="text-sm font-bold text-stone-800">
-              No loaded profiles found in "{activeCategory}"
-            </h4>
-            <p className="text-xs text-stone-400 mt-1 max-w-sm mx-auto">
-              Category filter applies to currently loaded profiles. Switch back to "All" or load more profiles below.
-            </p>
-            <button
-              type="button"
-              onClick={() => setActiveCategory('All')}
-              className="mt-3 px-3 py-1.5 rounded-xl bg-stone-900 text-white text-xs font-bold cursor-pointer"
-            >
-              View All Loaded
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-2.5">
-            {categoryFilteredProfiles.map((p) => (
-              <ProfileCard
-                key={p.id || `profile-${p.rank}`}
-                profile={p}
-                currencyMode={currencyMode}
-                onSelect={onSelectProfile}
-                onVote={onVoteProfile}
-                onReport={onReportProfile}
-                onBeatRank={onClaimSpecificRank}
-                isTop1={p.rank === 1}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Pagination / Load More Button */}
-        {hasMore && (
-          <div className="mt-5 text-center">
-            <button
-              type="button"
-              onClick={onLoadMore}
-              disabled={isLoadingMore}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-stone-50 border border-[#ede5db] text-xs font-extrabold text-stone-800 shadow-2xs transition-all active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              {isLoadingMore ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-stone-600" />
-                  <span>Loading More...</span>
-                </>
-              ) : (
-                <>
-                  <span>Load More Profiles ({profiles.length} of {totalCount})</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </>
-              )}
-            </button>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </section>
   );
 };

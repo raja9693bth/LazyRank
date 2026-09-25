@@ -164,6 +164,10 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
         const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
         storedOwnerToken = tokens[upgradingProfile.id];
       } catch {}
+      if (!storedOwnerToken) {
+        setLocalError('Cannot upgrade: Owner token for this profile is missing from this browser. You cannot upgrade without your original credentials.');
+        return;
+      }
     }
 
     onStartPayment({
@@ -174,7 +178,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       instagram: instagram.trim() || undefined,
       linkedin: linkedin.trim() || undefined,
       website: website.trim() || undefined,
-      reason: reason.trim() || (category ? `${category}` : undefined),
+      reason: reason.trim() || undefined,
       lazyReason: category || undefined,
       profileId: upgradingProfile?.id,
       ownerToken: storedOwnerToken,

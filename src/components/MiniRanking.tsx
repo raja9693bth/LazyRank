@@ -1,11 +1,11 @@
 import React from 'react';
-import { Trophy, Flame, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Trophy, Flame, CheckCircle2 } from 'lucide-react';
 import { UserProfile } from '../types.ts';
-import { formatDisplayCurrency, getWittyTag } from '../utils/showcase.ts';
+import { formatDisplayCurrency } from '../utils/showcase.ts';
 
 interface MiniRankingProps {
   topProfiles: UserProfile[];
-  claimsToday: number;
+  claimsToday: number | null;
   onSelectProfile: (profile: UserProfile) => void;
   currencyMode?: 'INR' | 'USD';
 }
@@ -22,16 +22,16 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
   onSelectProfile,
   currencyMode = 'INR'
 }) => {
-  const displayProfiles = topProfiles.slice(0, 5);
+  const displayProfiles = topProfiles.filter(p => p.isVerified && p.amount > 0).slice(0, 5);
 
   return (
-    <aside aria-label="Top spots summary" className="w-full rounded-2xl border border-[#ede5db] bg-white p-4 shadow-2xs">
-      {/* Header */}
+    <aside aria-label="Top spots all-time summary" className="w-full rounded-2xl border border-[#ede5db] bg-white p-4 shadow-2xs">
+      {/* Header: Strictly Truthful All-Time Label */}
       <div className="border-b border-[#f0eae1] pb-3 mb-3">
         <div className="flex items-center justify-between gap-1">
           <h3 className="text-xs font-black uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
             <Trophy className="w-4 h-4 text-[#b44b1c]" />
-            <span>All-Time Top Spots</span>
+            <span>Top spots · All time</span>
           </h3>
           <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[#9c3a16] text-[10px] font-extrabold">
             Hall of Fame
@@ -42,14 +42,14 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
         </p>
       </div>
 
-      {/* Claims Today Banner */}
+      {/* Claims Today Banner: Truthfully Shows Count or Unavailable */}
       <div className="mb-3 px-3 py-2 rounded-xl bg-[#faf8f4] border border-[#ede5db] flex items-center justify-between text-xs">
         <span className="flex items-center gap-1.5 text-stone-600 font-semibold text-[11px]">
           <Flame className="w-3.5 h-3.5 text-[#e86638]" />
           <span>Claims Today:</span>
         </span>
         <span className="font-extrabold text-stone-900 font-mono-numbers">
-          {claimsToday} verified
+          {claimsToday !== null ? `${claimsToday} verified` : '—'}
         </span>
       </div>
 
@@ -57,7 +57,7 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
       <div className="space-y-2">
         {displayProfiles.length === 0 ? (
           <div className="p-4 text-center text-xs text-stone-400">
-            No verified profiles yet.
+            No verified profiles recorded yet.
           </div>
         ) : (
           displayProfiles.map((p, idx) => {
@@ -101,9 +101,11 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
                         <CheckCircle2 className="w-3 h-3 text-emerald-600 fill-emerald-100 shrink-0" />
                       )}
                     </div>
-                    <div className="text-[10px] text-stone-500 truncate">
-                      {getWittyTag(p)}
-                    </div>
+                    {p.lazyReason && (
+                      <div className="text-[10px] text-stone-500 truncate">
+                        {p.lazyReason}
+                      </div>
+                    )}
                   </div>
                 </div>
 

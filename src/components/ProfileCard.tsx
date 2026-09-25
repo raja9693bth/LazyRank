@@ -4,16 +4,11 @@ import {
   Globe,
   Instagram,
   Linkedin,
-  Flame,
-  Share2,
-  ShieldAlert,
-  MessageSquareQuote,
-  Sparkles,
   ArrowRight,
   ThumbsUp
 } from 'lucide-react';
 import { UserProfile } from '../types.ts';
-import { formatDisplayCurrency, getWittyTag } from '../utils/showcase.ts';
+import { formatDisplayCurrency } from '../utils/showcase.ts';
 
 // Twitter / X Icon SVG
 const XIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
@@ -38,7 +33,33 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// Deterministic pastel avatar background
+// URL Scheme Validators
+function safeWebsiteUrl(url?: string): string | null {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/.*)?$/i.test(trimmed)) return `https://${trimmed}`;
+  return null;
+}
+
+function safeLinkedInUrl(input?: string): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (/^https?:\/\/(www\.)?linkedin\.com/i.test(trimmed)) return trimmed;
+  const clean = trimmed.replace(/^@/, '');
+  if (/^[a-zA-Z0-9._-]+$/i.test(clean)) return `https://linkedin.com/in/${clean}`;
+  return null;
+}
+
+function safeInstagramUrl(input?: string): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (/^https?:\/\/(www\.)?instagram\.com/i.test(trimmed)) return trimmed;
+  const clean = trimmed.replace(/^@/, '');
+  if (/^[a-zA-Z0-9._]+$/i.test(clean)) return `https://instagram.com/${clean}`;
+  return null;
+}
+
 const AVATAR_COLORS = [
   'bg-amber-100 text-amber-900 border-amber-200',
   'bg-orange-100 text-orange-900 border-orange-200',
@@ -59,14 +80,16 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
   currencyMode = 'INR',
   onSelect,
   onVote,
-  onReport,
   onBeatRank,
   isTop1 = false
 }) => {
-  const wittyTag = getWittyTag(profile);
   const formattedAmount = formatDisplayCurrency(profile.amount, currencyMode);
   const initials = getInitials(profile.name);
   const avatarStyle = getAvatarColor(profile.name);
+
+  const websiteLink = safeWebsiteUrl(profile.website);
+  const linkedinLink = safeLinkedInUrl(profile.linkedin);
+  const instagramLink = safeInstagramUrl(profile.instagram);
 
   return (
     <article
@@ -116,7 +139,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 {profile.name}
               </button>
 
-              {/* Verified Badge: ONLY rendered on verified profiles */}
+              {/* Verified Badge: ONLY rendered when profile is genuinely verified */}
               {profile.isVerified && (
                 <span
                   title="Verified by payment"
@@ -127,68 +150,70 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 </span>
               )}
 
-              {/* Witty Tag */}
-              <span className="px-2 py-0.5 rounded-full bg-[#faeee5] text-[#9c3a16] text-[10px] font-extrabold border border-[#f2ded0]">
-                {wittyTag}
-              </span>
+              {/* User-selected Lazy Category: Only rendered when user explicitly chose one */}
+              {profile.lazyReason && (
+                <span className="px-2 py-0.5 rounded-full bg-[#faeee5] text-[#9c3a16] text-[10px] font-extrabold border border-[#f2ded0]">
+                  {profile.lazyReason}
+                </span>
+              )}
             </div>
 
-            {/* Authentic Bio: reason or lazyReason */}
-            {(profile.reason || profile.lazyReason) && (
+            {/* Authentic Bio: reason */}
+            {profile.reason && (
               <p className="text-xs text-stone-600 mt-1 line-clamp-2 leading-relaxed">
-                "{profile.reason || profile.lazyReason}"
+                "{profile.reason}"
               </p>
             )}
 
-            {/* 4 Social Badge Icons: Website, LinkedIn, Instagram, X */}
-            <div className="flex items-center gap-2.5 mt-2 text-stone-400">
+            {/* Social Links: Focusable, accessible icon badges with URL validation */}
+            <div className="flex items-center gap-2 mt-2 text-stone-500">
               {/* Website */}
-              {profile.website ? (
+              {websiteLink ? (
                 <a
-                  href={profile.website.startsWith('http') ? profile.website : `https://${profile.website}`}
+                  href={websiteLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={`${profile.name}'s website`}
-                  className="text-stone-600 hover:text-stone-900 transition-colors"
+                  className="p-1 rounded-md hover:bg-stone-100 text-stone-700 hover:text-stone-900 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
                 >
                   <Globe className="w-3.5 h-3.5" />
                 </a>
               ) : (
-                <span title="No website provided" className="opacity-30 cursor-not-allowed">
+                <span title="No website provided" className="p-1 opacity-25 cursor-not-allowed">
                   <Globe className="w-3.5 h-3.5" />
                 </span>
               )}
 
               {/* LinkedIn */}
-              {profile.linkedin ? (
+              {linkedinLink ? (
                 <a
-                  href={profile.linkedin.startsWith('http') ? profile.linkedin : `https://linkedin.com/in/${profile.linkedin.replace(/^@/, '')}`}
+                  href={linkedinLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={`${profile.name}'s LinkedIn`}
-                  className="text-[#0a66c2] hover:opacity-80 transition-opacity"
+                  className="p-1 rounded-md hover:bg-blue-50 text-[#0a66c2] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0a66c2]"
                 >
                   <Linkedin className="w-3.5 h-3.5" />
                 </a>
               ) : (
-                <span title="No LinkedIn provided" className="opacity-30 cursor-not-allowed">
+                <span title="No LinkedIn provided" className="p-1 opacity-25 cursor-not-allowed">
                   <Linkedin className="w-3.5 h-3.5" />
                 </span>
               )}
 
               {/* Instagram */}
-              {profile.instagram ? (
+              {instagramLink ? (
                 <a
-                  href={profile.instagram.startsWith('http') ? profile.instagram : `https://instagram.com/${profile.instagram.replace(/^@/, '')}`}
+                  href={instagramLink}
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={`${profile.name}'s Instagram`}
-                  className="text-[#e1306c] hover:opacity-80 transition-opacity"
+                  className="p-1 rounded-md hover:bg-rose-50 text-[#e1306c] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#e1306c]"
                 >
                   <Instagram className="w-3.5 h-3.5" />
                 </a>
               ) : (
-                <span title="No Instagram provided" className="opacity-30 cursor-not-allowed">
+                <span title="No Instagram provided" className="p-1 opacity-25 cursor-not-allowed">
                   <Instagram className="w-3.5 h-3.5" />
                 </span>
               )}
@@ -196,7 +221,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
               {/* X (Twitter) - Always rendered inactive as backend model has no X field */}
               <span
                 title="X profile not connected"
-                className="opacity-30 cursor-not-allowed text-stone-400"
+                className="p-1 opacity-25 cursor-not-allowed text-stone-400"
               >
                 <XIcon className="w-3 h-3" />
               </span>

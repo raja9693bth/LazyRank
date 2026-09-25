@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { LiveStats } from '../types.ts';
-import { Swords, Sliders, MoreHorizontal, Info, BookOpen, Sparkles, Coins } from 'lucide-react';
+import { Swords, Sliders, MoreHorizontal, Info, BookOpen, Sparkles } from 'lucide-react';
 import { LazyLogo } from './LazyLogo';
 import { LazyGoalProgress } from './LazyGoalProgress';
+import { LEGAL_CONFIG } from '../config/legal.ts';
 
 interface HeaderProps {
   onOpenAbout: () => void;
@@ -53,23 +54,23 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="sticky top-0 z-40 w-full border-b border-[#e8dfd3] bg-[#faf7f2]/95 backdrop-blur-md">
       {/* ROW 1: BRAND IDENTITY + CURRENCY SWITCH + PRIMARY ACTIONS */}
       <div className="mx-auto max-w-[1140px] px-3.5 sm:px-6 lg:px-8 h-12 sm:h-14 flex items-center justify-between gap-2 sm:gap-4">
-        {/* Left: Brand / Logo + PAY-TO-RANK */}
+        {/* Left: Brand / Logo + Sponsored Showcase */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
           <button
             id="brand-logo-btn"
             onClick={onLogoClick}
             className="flex items-center gap-2 group text-left cursor-pointer focus:outline-none select-none shrink-0"
-            aria-label="LAZY Home"
+            aria-label={`${LEGAL_CONFIG.BRAND_NAME} Home`}
           >
             <LazyLogo variant="horizontal" size="sm" className="group-hover:opacity-85 transition-opacity shrink-0" />
-            <span className="inline-block text-[9px] uppercase font-black tracking-wider px-1.5 py-0.5 rounded bg-[#fae7dc] text-[#913813] border border-[#f2cfbd] shrink-0">
-              PAY-TO-RANK
+            <span className="hidden sm:inline-block text-[9px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#f2ede4] text-stone-700 border border-[#e4dcce] shrink-0">
+              Sponsored Showcase
             </span>
           </button>
         </div>
 
         {/* Center: Desktop Navigation & Links */}
-        <nav aria-label="Desktop primary" className="hidden md:flex items-center gap-1.5">
+        <nav aria-label="Desktop primary" className="hidden md:flex items-center gap-2">
           <a
             href="/#leaderboard-section"
             className="px-3 py-1.5 rounded-xl hover:bg-stone-100 text-xs font-bold text-stone-700 transition-colors"
@@ -159,7 +160,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {isMobileMenuOpen && (
-              <div className="absolute right-0 mt-2 w-48 rounded-xl bg-white border border-stone-200 shadow-lg py-1.5 z-50 text-xs font-semibold text-stone-800">
+              <div className="absolute right-0 mt-2 w-52 rounded-xl bg-white border border-stone-200 shadow-lg py-1.5 z-50 text-xs font-semibold text-stone-800">
                 <button
                   type="button"
                   onClick={() => {
@@ -216,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
         id="header-secondary-utility-row"
         className="mx-auto max-w-[1140px] px-3.5 sm:px-6 lg:px-8 h-8 sm:h-9 flex items-center justify-between border-t border-[#f0eae1] text-[11px] text-stone-500"
       >
-        {/* Left: Honest Live Status & Daily Goal */}
+        {/* Left: Live Status & Goal */}
         <div className="flex items-center gap-2 sm:gap-3">
           {liveStats && (
             <button
@@ -234,12 +235,12 @@ export const Header: React.FC<HeaderProps> = ({
           <LazyGoalProgress variant="compact" />
         </div>
 
-        {/* Right: Currency Disclosure note */}
+        {/* Right: Explicit Illustrative Currency Disclosure */}
         <div className="text-[10px] text-stone-400 hidden sm:block">
           {currencyMode === 'USD' ? (
-            <span>*USD display calculated at fixed illustrative rate ₹85/$1. Checkout processed in INR.</span>
+            <span>*USD display calculated at fixed illustrative rate ₹85/$1. All checkout processed in INR.</span>
           ) : (
-            <span>All rankings verified via secure Cashfree payment.</span>
+            <span>Authoritative placement verified via Cashfree INR payment.</span>
           )}
         </div>
       </div>

@@ -37,6 +37,11 @@ try {
   execSync('npx tsx tests/phase3-payment-security.test.ts', { stdio: 'inherit' });
 
   console.log('\n========================================================');
+  console.log('RUNNING SUITE 8: FRONTEND CONTRACT SMOKE TESTS');
+  console.log('========================================================\n');
+  execSync('npx tsx tests/frontend-contract.test.ts', { stdio: 'inherit' });
+
+  console.log('\n========================================================');
   console.log('MASTER TEST SUITE RESULT: ALL ASSERTIONS PASSED (100%)');
   console.log('========================================================\n');
   process.exit(0);

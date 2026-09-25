@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, ActivityEvent, RankPeriod, LeaderboardResponse, LiveStats } from './types.ts';
 import { Header } from './components/Header.tsx';
 import { Hero } from './components/Hero.tsx';
@@ -8,10 +8,6 @@ import { MiniRanking } from './components/MiniRanking.tsx';
 import { CheckoutDrawer } from './components/CheckoutDrawer.tsx';
 import { ActionPanel } from './components/ActionPanel.tsx';
 import { Leaderboard } from './components/Leaderboard.tsx';
-import { ActivityFeed } from './components/ActivityFeed.tsx';
-import { HowItWorks } from './components/HowItWorks.tsx';
-import { GlobalActivityHeatmap } from './components/GlobalActivityHeatmap.tsx';
-import { LazyDilemmaWidget } from './components/LazyDilemmaWidget.tsx';
 import { ResultView } from './components/ResultView.tsx';
 import { MobileBottomNav, MobileNavSection } from './components/MobileBottomNav.tsx';
 import { NominationModal } from './components/NominationModal.tsx';
@@ -46,6 +42,17 @@ function storeOrderCheckout(orderId: string, record: PendingCheckout): void {
   sessionStorage.setItem(orderCheckoutKey(orderId), JSON.stringify(record));
 }
 
+// Generate exactly 64 lowercase hexadecimal characters with the given prefix
+function makeHex64(prefix: 'lazy' | 'ord'): string {
+  const bytes = new Uint8Array(32);
+  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 32; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return `${prefix}_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -59,7 +66,7 @@ export default function App() {
   const [allTimeTop3, setAllTimeTop3] = useState<UserProfile[]>([]);
   const [topAmount, setTopAmount] = useState<number>(0);
   const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(1);
-  const [activities, setActivities] = useState<ActivityEvent[]>([]);
+  const [_activities, setActivities] = useState<ActivityEvent[]>([]);
   const currentPeriod: RankPeriod = 'all';
   const [paymentConfig, setPaymentConfig] = useState<PublicPaymentConfig>({
     enabled: false,
@@ -70,9 +77,10 @@ export default function App() {
   const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
   const [isLiveStatsOpen, setIsLiveStatsOpen] = useState(false);
 
-  // Pagination & Filtering State (v2.1 Full Leaderboard Access)
+  // Pagination & Filtering State
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [totalCount, setTotalCount] = useState<number>(0);
+  const [verifiedTotalCount, setVerifiedTotalCount] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [filterMode, setFilterMode] = useState<'verified' | 'all'>('verified');
@@ -85,7 +93,6 @@ export default function App() {
   const [orderError, setOrderError] = useState<string | null>(null);
   const [isJustClaimed, setIsJustClaimed] = useState(false);
   const [upgradingProfile, setUpgradingProfile] = useState<UserProfile | null>(null);
-  const [globalActivityRefreshKey, setGlobalActivityRefreshKey] = useState<number>(0);
   const [currentIdempotencyKey, setCurrentIdempotencyKey] = useState<string | null>(null);
   const [pendingOwnerToken, setPendingOwnerToken] = useState<string | null>(null);
   const [orderAccessToken, setOrderAccessToken] = useState<string | null>(null);
@@ -100,8 +107,16 @@ export default function App() {
     category: undefined
   });
 
-  // Global Claims Today counter
-  const [claimsToday, setClaimsToday] = useState<number>(0);
+  // Global Claims Today counter (null = unavailable/loading, number = genuine count)
+  const [claimsToday, setClaimsToday] = useState<number | null>(null);
+
+  // Retry tracking for idempotency
+  const lastAttemptRef = useRef<{
+    name: string;
+    amount: number;
+    phone: string;
+    profileId?: string;
+  } | null>(null);
 
   // Challenge Banner state
   const [incomingChallenge, setIncomingChallenge] = useState<{
@@ -120,6 +135,7 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [reportingTargetId, setReportingTargetId] = useState<string | null>(null);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -140,7 +156,10 @@ export default function App() {
     filter = filterMode,
     isAppend = false
   ) => {
-    if (!isAppend) setIsLoadingLeaderboard(true);
+    if (!isAppend) {
+      setIsLoadingLeaderboard(true);
+      setLeaderboardError(false);
+    }
     try {
       const res = await fetch(
         `/api/leaderboard?period=${currentPeriod}&offset=${pageOffset}&limit=${pageSize}&filter=${filter}`
@@ -155,17 +174,21 @@ export default function App() {
           });
         } else {
           setProfiles(data.profiles || []);
-          // Set dynamic minimum amount to beat #1
           if (data.topAmount !== undefined) {
             setTopAmount(data.topAmount);
             setMinAmountToBeatTop(data.topAmount + 1);
           }
         }
         setTotalCount(data.totalCount || 0);
+        if (filter === 'verified') {
+          setVerifiedTotalCount(data.totalCount || 0);
+        }
         setHasMore(data.hasMore || false);
+      } else {
+        if (!isAppend) setLeaderboardError(true);
       }
     } catch {
-      // Graceful error state
+      if (!isAppend) setLeaderboardError(true);
     } finally {
       setIsLoadingLeaderboard(false);
       setIsLoadingMore(false);
@@ -193,6 +216,10 @@ export default function App() {
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
         setAllTimeTop3(data.profiles || []);
+        if (data.topAmount !== undefined && filterMode !== 'verified') {
+          setTopAmount(data.topAmount);
+          setMinAmountToBeatTop(data.topAmount + 1);
+        }
       }
     } catch {
       // Handled gracefully
@@ -207,9 +234,7 @@ export default function App() {
         const data = await res.json();
         setActivities(data.activities || []);
       }
-    } catch {
-      // Handled
-    }
+    } catch {}
   };
 
   // Load Global Activity Claims
@@ -240,9 +265,7 @@ export default function App() {
         const data: LiveStats = await res.json();
         setLiveStats(data);
       }
-    } catch {
-      // Handled gracefully
-    }
+    } catch {}
   };
 
   // Initial Load + URL parameter triage
@@ -283,6 +306,7 @@ export default function App() {
         .catch(() => {});
     }
 
+    // Redirect restoration from Cashfree return URL: ?order_id=...
     const returnOrderId = params.get('order_id');
     if (returnOrderId) {
       let cancelled = false;
@@ -293,7 +317,7 @@ export default function App() {
         } catch {}
 
         if (!recovered || !/^ord_[0-9a-f]{64}$/i.test(recovered.orderAccessToken)) {
-          setOrderError('Cannot restore this checkout in this browser. Contact support with your order ID.');
+          setOrderError(`Cannot restore this checkout in this browser. Please contact support@lazyproof.online with your order ID: ${returnOrderId}`);
           return;
         }
 
@@ -306,29 +330,29 @@ export default function App() {
         for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
           if (cancelled) break;
           try {
-            const statusRes = await fetch(`/api/payment/status/${returnOrderId}`, {
+            const statusRes = await fetch(`/api/payment/status/${encodeURIComponent(returnOrderId)}`, {
               headers: { 'x-order-access-token': recovered.orderAccessToken }
             });
+            if (cancelled) break;
             if (statusRes.ok) {
               const statusData = await statusRes.json();
-              if (statusData.orderStatus === 'PAID') {
-                const receiptRes = await fetch(`/api/payment/receipt/${returnOrderId}`, {
-                  headers: { 'x-order-access-token': recovered.orderAccessToken }
-                });
-                if (receiptRes.ok) {
-                  const receiptData = await receiptRes.json();
-                  if (receiptData.profile) {
-                    handlePaymentSuccess(receiptData.profile, undefined, recovered.ownerToken);
-                    return;
-                  }
+              if (statusData.status === 'PAID') {
+                if (statusData.profile) {
+                  handlePaymentSuccess(statusData.profile, undefined, recovered.ownerToken, returnOrderId);
+                  return;
                 }
-              } else if (['FAILED', 'USER_DROPPED', 'CANCELLED'].includes(statusData.orderStatus)) {
-                setOrderError(`Payment ${statusData.orderStatus.toLowerCase().replace('_', ' ')}. Please try again.`);
+              } else if (['FAILED', 'USER_DROPPED', 'CANCELLED', 'EXPIRED'].includes(statusData.status)) {
+                setOrderError(`Payment ${statusData.status.toLowerCase().replace('_', ' ')}. Please try again.`);
                 return;
               }
             }
           } catch {}
-          await new Promise(r => setTimeout(r, pollInterval));
+          if (attempt < maxPollAttempts - 1 && !cancelled) {
+            await new Promise(r => setTimeout(r, pollInterval));
+          }
+        }
+        if (!cancelled) {
+          setOrderError(`Payment status could not be verified automatically. Please contact support@lazyproof.online with your order ID: ${returnOrderId}`);
         }
       };
       pollReturnOrder();
@@ -394,7 +418,7 @@ export default function App() {
     setIsDrawerOpen(true);
   };
 
-  // Start Payment / Claim Order Creation
+  // Start Payment / Claim Order Creation (Restored Protocol)
   const handleStartPayment = async (claimData: {
     name: string;
     amount: number;
@@ -414,54 +438,86 @@ export default function App() {
     setIsCreatingOrder(true);
     setOrderError(null);
 
-    const generatedOwnerToken =
-      claimData.ownerToken ||
-      (typeof window !== 'undefined' && window.crypto?.randomUUID
-        ? window.crypto.randomUUID()
-        : 'tok_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
+    const targetProfileId = claimData.profileId || upgradingProfile?.id;
 
-    const clientGeneratedOrderAccessToken =
-      'ord_' +
-      Array.from(window.crypto.getRandomValues(new Uint8Array(32)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-
-    const targetProfileId = claimData.profileId || (upgradingProfile ? upgradingProfile.id : undefined);
-
-    let activeIdempotencyKey = currentIdempotencyKey;
-    if (!activeIdempotencyKey) {
-      activeIdempotencyKey =
-        'idemp_' +
-        Date.now() +
-        '_' +
-        Array.from(window.crypto.getRandomValues(new Uint8Array(16)))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-      setCurrentIdempotencyKey(activeIdempotencyKey);
+    // For existing profile upgrade: Must have saved owner token
+    let storedToken: string | undefined;
+    if (targetProfileId) {
+      try {
+        const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
+        storedToken = tokens[targetProfileId];
+      } catch {}
+      if (!storedToken) {
+        setOrderError('Unauthorized: Valid owner token is required to upgrade this profile. Token is missing from this browser.');
+        setIsCreatingOrder(false);
+        return;
+      }
     }
 
+    // Check if this is an identical retry or if parameters changed
+    const isIdenticalRetry =
+      lastAttemptRef.current &&
+      lastAttemptRef.current.name === claimData.name.trim() &&
+      lastAttemptRef.current.amount === Math.round(claimData.amount) &&
+      lastAttemptRef.current.phone === claimData.customerPhone &&
+      lastAttemptRef.current.profileId === targetProfileId;
+
+    // Preserve tokens on identical retry; generate fresh on new/changed order
+    let activeIdempKey = isIdenticalRetry && currentIdempotencyKey ? currentIdempotencyKey : null;
+    if (!activeIdempKey) {
+      activeIdempKey =
+        'idem_' +
+        Date.now() +
+        '_' +
+        Array.from(window.crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
+      setCurrentIdempotencyKey(activeIdempKey);
+    }
+
+    let activeOrderToken = isIdenticalRetry && orderAccessToken ? orderAccessToken : null;
+    if (!activeOrderToken) {
+      activeOrderToken = makeHex64('ord');
+      setOrderAccessToken(activeOrderToken);
+    }
+
+    let activeOwnerToken = targetProfileId
+      ? storedToken!
+      : isIdenticalRetry && pendingOwnerToken
+      ? pendingOwnerToken
+      : makeHex64('lazy');
+
+    if (!targetProfileId) {
+      setPendingOwnerToken(activeOwnerToken);
+    }
+
+    // Track attempt parameters for idempotency
+    lastAttemptRef.current = {
+      name: claimData.name.trim(),
+      amount: Math.round(claimData.amount),
+      phone: claimData.customerPhone,
+      profileId: targetProfileId
+    };
+
+    // Store in sessionStorage BEFORE network request
     const checkoutRecord: PendingCheckout = {
-      ownerToken: generatedOwnerToken,
-      orderAccessToken: clientGeneratedOrderAccessToken,
-      idempotencyKey: activeIdempotencyKey,
+      ownerToken: activeOwnerToken,
+      orderAccessToken: activeOrderToken,
+      idempotencyKey: activeIdempKey,
       createdAt: Date.now()
     };
     storePendingCheckout(checkoutRecord);
-
-    setPendingOwnerToken(generatedOwnerToken);
-    setOrderAccessToken(clientGeneratedOrderAccessToken);
 
     try {
       const res = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-idempotency-key': activeIdempotencyKey,
-          'x-order-access-token': clientGeneratedOrderAccessToken
+          'x-idempotency-key': activeIdempKey,
+          'x-order-access-token': activeOrderToken,
+          ...(targetProfileId && storedToken ? { 'x-profile-token': storedToken } : {})
         },
         body: JSON.stringify({
-          amount: claimData.amount,
-          customerName: claimData.name,
+          name: claimData.name.trim(),
+          amount: Math.round(claimData.amount),
           customerPhone: claimData.customerPhone,
           customerEmail: claimData.customerEmail,
           instagram: claimData.instagram,
@@ -470,8 +526,10 @@ export default function App() {
           reason: claimData.reason,
           lazyReason: claimData.lazyReason,
           profileId: targetProfileId,
-          ownerToken: generatedOwnerToken,
-          consentAccepted: claimData.consentAccepted,
+          ownerToken: targetProfileId ? storedToken : undefined,
+          pendingOwnerToken: targetProfileId ? undefined : activeOwnerToken,
+          orderAccessToken: activeOrderToken,
+          consentAccepted: true,
           consentTimestamp: claimData.consentTimestamp,
           consentVersion: claimData.consentVersion
         })
@@ -481,17 +539,15 @@ export default function App() {
 
       if (!res.ok) {
         if (res.status === 503) {
-          // Close drawer before payment modal opens
           setIsDrawerOpen(false);
           setOrderData({
             orderId: 'preview-disabled-mode',
-            orderAmount: claimData.amount,
-            customerName: claimData.name,
-            customerPhone: claimData.customerPhone,
+            name: claimData.name.trim(),
+            amount: Math.round(claimData.amount),
             currency: 'INR',
             isTop: false,
-            topAmount: 0,
-            minAmountToBeatTop: 1,
+            topAmount: topAmount,
+            minAmountToBeatTop: minAmountToBeatTop,
             paymentMode: 'disabled',
             instagram: claimData.instagram,
             linkedin: claimData.linkedin,
@@ -509,7 +565,6 @@ export default function App() {
         storeOrderCheckout(data.orderId, checkoutRecord);
       }
 
-      // Close drawer before payment modal opens
       setIsDrawerOpen(false);
       setOrderData(data);
       setIsPaymentModalOpen(true);
@@ -520,8 +575,13 @@ export default function App() {
     }
   };
 
-  // Successful Payment -> Show Result Card
-  const handlePaymentSuccess = (profile: UserProfile, previousTop?: UserProfile, ownerToken?: string) => {
+  // Successful Payment -> Show Result Card & Store Token
+  const handlePaymentSuccess = (
+    profile: UserProfile,
+    _previousTop?: UserProfile,
+    ownerToken?: string,
+    confirmedOrderId?: string
+  ) => {
     setIsPaymentModalOpen(false);
     setOrderData(null);
     setIsJustClaimed(true);
@@ -539,6 +599,9 @@ export default function App() {
 
     try {
       sessionStorage.removeItem(pendingCheckoutKey);
+      if (confirmedOrderId) {
+        sessionStorage.removeItem(orderCheckoutKey(confirmedOrderId));
+      }
       if (orderData?.orderId) {
         sessionStorage.removeItem(orderCheckoutKey(orderData.orderId));
       }
@@ -547,18 +610,17 @@ export default function App() {
     setPendingOwnerToken(null);
     setOrderAccessToken(null);
     setCurrentIdempotencyKey(null);
+    lastAttemptRef.current = null;
 
     window.history.pushState({}, '', `/?rank=${profile.id}`);
 
-    // Refresh leaderboard, all-time top 3 & activities to reflect new verified rank
     loadLeaderboard(0, 20, filterMode, false);
     loadAllTimeTop3();
     loadActivities();
     loadGlobalActivity();
-    setGlobalActivityRefreshKey(k => k + 1);
   };
 
-  // Upgrading existing rank (preserves profile ID and ownership credentials)
+  // Upgrading existing rank
   const handleUpgradeRank = (profile: UserProfile) => {
     setUpgradingProfile(profile);
     setSelectedProfile(null);
@@ -604,10 +666,7 @@ export default function App() {
     }
 
     setTimeout(() => {
-      let targetId = 'leaderboard-section';
-      if (section === 'activity') targetId = 'activity-section';
-
-      const el = document.getElementById(targetId);
+      const el = document.getElementById('leaderboard-section');
       if (el) {
         const headerOffset = 64;
         const elementPosition = el.getBoundingClientRect().top;
@@ -623,11 +682,10 @@ export default function App() {
 
   const verifiedTop1 = profiles.find(p => p.rank === 1 && p.isVerified);
   const topProfile = verifiedTop1 || (topAmount > 0 ? { name: 'Current #1', amount: topAmount } : undefined);
-  const verifiedProfilesCount = profiles.filter(p => p.isVerified).length;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#faf7f2] text-stone-900">
-      {/* Header with Currency Switcher & Navigation */}
+      {/* Header with Currency Switcher & Compact Navigation */}
       <Header
         onOpenAbout={() => navigate('/about')}
         onOpenRules={() => navigate('/rules')}
@@ -710,22 +768,22 @@ export default function App() {
                 }}
               />
             ) : (
-              /* HOMEPAGE VIEW: Centered Showcase Layout */
+              /* HOMEPAGE VIEW: IMAGE 32 LAYOUT */
               <>
-                {/* 1. Light Hero with Accurate Price & Mascot */}
+                {/* 1. Hero: Two-column Desktop, Contained Mascot, Responsive Minimum Price */}
                 <Hero
                   topAmount={topProfile ? topProfile.amount : topAmount}
                   topProfileName={topProfile?.name}
                   minAmountToBeatTop={minAmountToBeatTop}
+                  isLoadingMinAmount={isLoadingLeaderboard && profiles.length === 0}
+                  hasLeaderboardError={leaderboardError}
+                  onRetryLeaderboard={() => loadLeaderboard()}
                   onClaimAmount={handleHeroClaim}
-                  onScrollToLeaderboard={() => {
-                    const el = document.getElementById('leaderboard-section');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }}
                   currencyMode={currencyMode}
+                  canClaim={paymentConfig.enabled && paymentConfig.taxReady}
                 />
 
-                {/* 2. Accessible Quick Claim Bar */}
+                {/* 2. One QuickClaimBar directly underneath */}
                 <QuickClaimBar
                   onQuickClaim={({ name, category }) => {
                     handleOpenDrawerWithClaim(minAmountToBeatTop, name, category);
@@ -733,19 +791,12 @@ export default function App() {
                   isLoading={isCreatingOrder}
                 />
 
-                {/* 3. Honest Platform Statistics Ribbon */}
-                <StatsRibbon
-                  verifiedCount={verifiedProfilesCount || totalCount}
-                  claimsToday={claimsToday}
-                />
-
-                {/* 4. Showcase Two-Column Grid: Leaderboard + Sidebar MiniRanking */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start my-4">
-                  {/* Left (Main Content): Ranked Cards & Browse */}
+                {/* 3. Main Two-Column Area: Leaderboard on Left, MiniRanking on Right */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start my-6">
+                  {/* Left Column: Authoritative Leaderboard Showcase */}
                   <div className="lg:col-span-2">
                     <Leaderboard
                       profiles={profiles}
-                      allTimeTop3={allTimeTop3}
                       onSelectProfile={(p) => {
                         setIsJustClaimed(false);
                         setSelectedProfile(p);
@@ -755,6 +806,8 @@ export default function App() {
                       onReportProfile={(id) => setReportingTargetId(id)}
                       onClaimSpecificRank={(target) => handleOpenDrawerWithClaim(target)}
                       isLoading={isLoadingLeaderboard}
+                      hasError={leaderboardError}
+                      onRetry={() => loadLeaderboard()}
                       totalCount={totalCount}
                       hasMore={hasMore}
                       onLoadMore={handleLoadMore}
@@ -762,11 +815,12 @@ export default function App() {
                       currentFilter={filterMode}
                       onSelectFilter={handleFilterChange}
                       currencyMode={currencyMode}
+                      minAmountToBeatTop={minAmountToBeatTop}
                     />
                   </div>
 
-                  {/* Right (Sidebar): Top Spots MiniRanking */}
-                  <div className="lg:col-span-1 space-y-4">
+                  {/* Right Column: All-Time Top Spots Sidebar */}
+                  <div className="lg:col-span-1">
                     <MiniRanking
                       topProfiles={allTimeTop3.length > 0 ? allTimeTop3 : profiles.filter(p => p.isVerified)}
                       claimsToday={claimsToday}
@@ -777,31 +831,14 @@ export default function App() {
                       }}
                       currencyMode={currencyMode}
                     />
-
-                    {/* Small Interactive Poll Widget: Weekly Lazy Dilemma */}
-                    <LazyDilemmaWidget />
                   </div>
                 </div>
 
-                {/* 5. Global Activity Heatmap (Social Proof) */}
-                <GlobalActivityHeatmap
-                  refreshTrigger={globalActivityRefreshKey}
-                  onClaimClick={() => handleOpenDrawerWithClaim(minAmountToBeatTop)}
+                {/* 4. Honest Platform Statistics Ribbon (Below the Main Grid) */}
+                <StatsRibbon
+                  verifiedCount={verifiedTotalCount}
+                  claimsToday={claimsToday}
                 />
-
-                {/* 6. Live Activity Feed */}
-                <ActivityFeed
-                  activities={activities}
-                  onOpenChallenge={() => {
-                    setChallengeTargetRank(undefined);
-                    setNominationModalTab('challenge');
-                    setNominationDefaultName('');
-                    setIsChallengeModalOpen(true);
-                  }}
-                />
-
-                {/* 7. Explanatory Overview */}
-                <HowItWorks />
               </>
             )}
           </>
@@ -878,7 +915,7 @@ export default function App() {
         orderAccessToken={orderAccessToken}
       />
 
-      {/* Challenge / Notify Me / Lazy Reason Modal */}
+      {/* Challenge / Nomination Modal */}
       <NominationModal
         isOpen={isChallengeModalOpen}
         onClose={() => setIsChallengeModalOpen(false)}

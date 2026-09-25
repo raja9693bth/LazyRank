@@ -32,6 +32,11 @@ try {
   execSync('npx tsx tests/phase2-durability.test.ts', { stdio: 'inherit' });
 
   console.log('\n========================================================');
+  console.log('RUNNING SUITE 7: PHASE 3 PAYMENT SECURITY & SETTLEMENT (6 TESTS)');
+  console.log('========================================================\n');
+  execSync('npx tsx tests/phase3-payment-security.test.ts', { stdio: 'inherit' });
+
+  console.log('\n========================================================');
   console.log('MASTER TEST SUITE RESULT: ALL ASSERTIONS PASSED (100%)');
   console.log('========================================================\n');
   process.exit(0);

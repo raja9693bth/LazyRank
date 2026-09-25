@@ -374,35 +374,42 @@ export class PostgresDatabase {
 
       const order = orderRes.rows[0];
 
-      // Idempotency: If already paid, acknowledge
+      // Idempotency: If already paid, acknowledge safely without duplicate credits
       if (order.status === 'PAID') {
         const profRes = await client.query('SELECT * FROM profiles WHERE id = $1', [order.profile_id]);
         await client.query('COMMIT');
-        if (profRes.rows.length > 0) {
-          const profile = this.mapProfile(profRes.rows[0]);
-          return {
-            success: true,
-            message: 'Order already settled.',
-            profile,
-            ownerToken: order.owner_token
-          };
-        }
+        return {
+          success: true,
+          message: 'Order already settled.',
+          profile: profRes.rows.length > 0 ? this.mapProfile(profRes.rows[0]) : undefined
+        };
       }
 
-      // Verify amount matches order amount
-      const orderAmount = Number(order.amount);
-      if (Math.abs(orderAmount - params.amount) > 0.01) {
+      // Settle ONLY CREATED or PENDING orders; reject terminal or refund states
+      if (!['CREATED', 'PENDING'].includes(order.status)) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Order state is not settleable' };
+      }
+
+      // Verify amount matches order amount in integer paise
+      const toPaise = (amt: number): number => {
+        if (!Number.isFinite(amt)) throw new Error('Invalid amount');
+        const paise = Math.round(amt * 100);
+        if (Math.abs(amt * 100 - paise) >= 1e-8) throw new Error('Sub-paise amount');
+        return paise;
+      };
+      if (toPaise(Number(order.amount)) !== toPaise(params.amount)) {
         await client.query('ROLLBACK');
         return { success: false, message: 'Paid amount does not match registered order amount.' };
       }
 
       // 2. Insert into payment_transactions (provider_payment_id has UNIQUE constraint)
       const txId = 'tx_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
-      await client.query(
+      const txRes = await client.query(
         `INSERT INTO payment_transactions (
           id, order_id, provider, provider_payment_id, amount, currency, status, payment_method, signature_verified, raw_payload, created_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
-        ON CONFLICT (provider_payment_id) DO NOTHING`,
+        ON CONFLICT (provider_payment_id) DO NOTHING RETURNING id`,
         [
           txId,
           params.orderId,
@@ -417,6 +424,11 @@ export class PostgresDatabase {
         ]
       );
 
+      if (txRes.rowCount !== 1) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Payment ID already processed' };
+      }
+
       // Check current #1 top profile for displacement detection
       const prevTopRes = await client.query(
         "SELECT * FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
@@ -425,7 +437,6 @@ export class PostgresDatabase {
 
       // 3. Update or Create Profile
       let targetProfileId = order.profile_id;
-      let rawOwnerToken: string | undefined;
       let ownerTokenHash: string | undefined;
 
       if (targetProfileId) {
@@ -453,11 +464,14 @@ export class PostgresDatabase {
           ]
         );
       } else {
-        // Create new profile
+        // Create new profile using client-provided and securely stored hash
         targetProfileId = 'p-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
         const userId = 'u-' + crypto.randomUUID().replace(/-/g, '').slice(0, 8);
-        rawOwnerToken = 'lazy_' + crypto.randomUUID().replace(/-/g, '') + crypto.randomBytes(16).toString('hex');
-        ownerTokenHash = hashToken(rawOwnerToken);
+        if (!order.owner_token_hash) {
+          ownerTokenHash = hashToken('lazy_' + crypto.randomUUID().replace(/-/g, ''));
+        } else {
+          ownerTokenHash = order.owner_token_hash;
+        }
 
         await client.query(
           `INSERT INTO profiles (
@@ -539,13 +553,119 @@ export class PostgresDatabase {
         success: true,
         message: 'Payment verified and claimed.',
         profile: finalProfile,
-        ownerToken: rawOwnerToken,
         previousTop
       };
     } catch (err: any) {
       await client.query('ROLLBACK');
       console.error('[PostgreSQL] Atomic settlement error:', err);
       return { success: false, message: err?.message || 'Transaction settlement failed.' };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Preflight refund reservation: reserves refundable amount under FOR UPDATE before calling payment gateway
+   */
+  public async reserveRefundAtomic(
+    orderId: string,
+    refundPaise: number,
+    merchantRefundId: string,
+    reason: string
+  ): Promise<{ success: boolean; message?: string; remainingRefundablePaise?: number }> {
+    if (!this.pool) throw new Error('Database unavailable.');
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(987654321)');
+
+      const orderRes = await client.query(
+        'SELECT * FROM payment_orders WHERE order_id = $1 FOR UPDATE',
+        [orderId]
+      );
+      if (orderRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Order not found.' };
+      }
+      const order = orderRes.rows[0];
+      if (!['PAID', 'PARTIALLY_REFUNDED'].includes(order.status)) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Order is not refundable in this state.' };
+      }
+
+      const orderPaise = Math.round(Number(order.amount) * 100);
+
+      // Sum all settled (SUCCESS) and in-flight (PENDING) refunds
+      const totalRefRes = await client.query(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM refund_reversals WHERE order_id = $1 AND status IN ('PENDING', 'SUCCESS')",
+        [orderId]
+      );
+      const existingRefundedPaise = Math.round(Number(totalRefRes.rows[0].total) * 100);
+      const remainingPaise = orderPaise - existingRefundedPaise;
+
+      if (refundPaise > remainingPaise) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          message: `Refund amount (${refundPaise / 100} INR) exceeds remaining refundable amount (${remainingPaise / 100} INR).`,
+          remainingRefundablePaise: remainingPaise
+        };
+      }
+
+      const refundAmountINR = refundPaise / 100;
+      await client.query(
+        `INSERT INTO refund_reversals (id, order_id, provider_refund_id, amount, currency, reason, status, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, 'INR', $5, 'PENDING', NOW(), NOW())
+         ON CONFLICT (id) DO UPDATE SET status = 'PENDING', amount = EXCLUDED.amount, updated_at = NOW()`,
+        [merchantRefundId, orderId, merchantRefundId, refundAmountINR, reason]
+      );
+
+      await client.query(
+        "UPDATE payment_orders SET status = 'REFUND_PENDING', updated_at = NOW() WHERE order_id = $1 AND status = 'PAID'",
+        [orderId]
+      );
+
+      await client.query('COMMIT');
+      return { success: true, remainingRefundablePaise: remainingPaise - refundPaise };
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      return { success: false, message: err?.message || 'Failed to reserve refund.' };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Release or mark failed a refund reservation if provider rejects the request
+   */
+  public async failRefundReservation(merchantRefundId: string, orderId: string): Promise<void> {
+    if (!this.pool) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        "UPDATE refund_reversals SET status = 'FAILED', updated_at = NOW() WHERE id = $1 AND order_id = $2",
+        [merchantRefundId, orderId]
+      );
+      const pendingRes = await client.query(
+        "SELECT 1 FROM refund_reversals WHERE order_id = $1 AND status = 'PENDING' LIMIT 1",
+        [orderId]
+      );
+      if (pendingRes.rows.length === 0) {
+        const successRes = await client.query(
+          "SELECT 1 FROM refund_reversals WHERE order_id = $1 AND status = 'SUCCESS' LIMIT 1",
+          [orderId]
+        );
+        const restoreStatus = successRes.rows.length > 0 ? 'PARTIALLY_REFUNDED' : 'PAID';
+        await client.query(
+          "UPDATE payment_orders SET status = $1, updated_at = NOW() WHERE order_id = $2 AND status = 'REFUND_PENDING'",
+          [restoreStatus, orderId]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('[PostgreSQL] failRefundReservation error:', err);
     } finally {
       client.release();
     }
@@ -560,31 +680,33 @@ export class PostgresDatabase {
     amount: number;
     reason: string;
   }): Promise<boolean> {
-    if (!this.pool) return false;
-    const client = await this.pool.connect();
+    const res = await this.reserveRefundAtomic(params.orderId, Math.round(params.amount * 100), params.refundId, params.reason);
+    return res.success;
+  }
+
+  /**
+   * Deduplicate and record a payment webhook event
+   */
+  public async recordWebhookEvent(
+    eventId: string,
+    eventType: string,
+    orderId?: string | null,
+    providerPaymentId?: string | null,
+    payload?: any
+  ): Promise<boolean> {
+    if (!this.pool) return true;
     try {
-      await client.query('BEGIN');
-      const orderRes = await client.query('SELECT * FROM payment_orders WHERE order_id = $1 FOR UPDATE', [params.orderId]);
-      if (orderRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return false;
-      }
-      // Insert or update refund_reversals record with status PENDING
-      await client.query(
-        `INSERT INTO refund_reversals (id, order_id, provider_refund_id, amount, currency, reason, status, created_at)
-         VALUES ($1, $2, $3, $4, 'INR', $5, 'PENDING', NOW())
-         ON CONFLICT (id) DO UPDATE SET status = 'PENDING'`,
-        [params.refundId, params.orderId, params.refundId, params.amount, params.reason]
+      const res = await this.pool.query(
+        `INSERT INTO payment_webhook_events (event_id, event_type, order_id, cf_payment_id, payload, processed, created_at)
+         VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
+         ON CONFLICT (event_id) DO NOTHING
+         RETURNING id`,
+        [eventId, eventType, orderId || null, providerPaymentId || null, JSON.stringify(payload || {})]
       );
-      await client.query("UPDATE payment_orders SET status = 'REFUND_PENDING', updated_at = NOW() WHERE order_id = $1", [params.orderId]);
-      await client.query('COMMIT');
-      return true;
+      return res.rowCount === 1;
     } catch (err) {
-      await client.query('ROLLBACK');
-      console.error('[PostgreSQL] recordRefundPending error:', err);
-      return false;
-    } finally {
-      client.release();
+      console.error('[PostgreSQL] recordWebhookEvent error:', err);
+      return true;
     }
   }
 

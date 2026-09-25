@@ -25,13 +25,17 @@ interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onPaymentSuccess: (profile: UserProfile, previousTop?: UserProfile, ownerToken?: string) => void;
+  pendingOwnerToken?: string | null;
+  orderAccessToken?: string | null;
 }
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
   orderData,
   isOpen,
   onClose,
-  onPaymentSuccess
+  onPaymentSuccess,
+  pendingOwnerToken,
+  orderAccessToken
 }) => {
   const [step, setStep] = useState<'disabled' | 'checkout' | 'polling' | 'success' | 'error'>('disabled');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -81,7 +85,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     pollIntervalRef.current = setInterval(async () => {
       attempts++;
       try {
-        const res = await fetch(`/api/payment/status/${encodeURIComponent(orderId)}`);
+        const headers: Record<string, string> = {};
+        if (orderAccessToken) headers['x-order-access-token'] = orderAccessToken;
+        const res = await fetch(`/api/payment/status/${encodeURIComponent(orderId)}`, { headers });
         const data = await res.json();
 
         if (data.status === 'PAID' && data.profile) {
@@ -105,7 +111,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const handleSuccess = async (profile: UserProfile, _ownerToken: string | undefined, orderId: string) => {
     setCompletedProfile(profile);
     try {
-      const receiptRes = await fetch(`/api/payment/receipt/${encodeURIComponent(orderId)}`);
+      const headers: Record<string, string> = {};
+      if (orderAccessToken) headers['x-order-access-token'] = orderAccessToken;
+      const receiptRes = await fetch(`/api/payment/receipt/${encodeURIComponent(orderId)}`, { headers });
       if (receiptRes.ok) {
         const rData = await receiptRes.json();
         setReceiptData(rData);
@@ -468,7 +476,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    onPaymentSuccess(completedProfile, undefined, completedProfile.ownerToken);
+                    onPaymentSuccess(completedProfile, undefined, pendingOwnerToken ?? undefined);
                   }}
                   className="flex-1 py-3 px-4 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-white font-bold text-xs shadow-xs transition-all cursor-pointer"
                 >

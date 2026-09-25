@@ -10,7 +10,7 @@ import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE
 import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
 import { paymentManager } from './server/payments/index.ts';
 import { prerenderRoute } from './server/prerender.tsx';
-import { validateContact, ContactInput } from './server/db/postgres.ts';
+import { validateContact, ContactInput, hashToken } from './server/db/postgres.ts';
 
 const BANNED_WORDS = [
   'kill', 'suicide', 'die', 'murder', 'bitch', 'asshole', 'bastard', 'slut', 'whore', 'nigger', 'faggot', 'chutiya', 'madarchod', 'bhenchod', 'gaand'
@@ -53,6 +53,9 @@ setInterval(() => {
 function getClientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || 'unknown';
 }
+
+export const CURRENT_TERMS_VERSION = '2026-09-24';
+export const CURRENT_PRIVACY_VERSION = '2026-09-24';
 
 const ADMIN_SECRET = process.env.ADMIN_KEY || process.env.ADMIN_SECRET;
 
@@ -118,15 +121,16 @@ async function startServer() {
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    const isProd = process.env.NODE_ENV === 'production';
     const cspDirectives = [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://sdk.cashfree.com",
+      isProd ? "script-src 'self' https://sdk.cashfree.com" : "script-src 'self' 'unsafe-inline' https://sdk.cashfree.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https: blob:",
-      "connect-src 'self' https: wss: https://sandbox.cashfree.com https://api.cashfree.com",
+      isProd ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com" : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com",
       "frame-src 'self' https://sdk.cashfree.com",
-      "frame-ancestors 'self' https://ai.studio https://*.google.com https://*.run.app https://lazyproof.online",
+      "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'"
     ].join('; ');
@@ -286,8 +290,13 @@ async function startServer() {
       });
     }
 
-    const { name, amount, instagram, linkedin, website, reason, lazyReason, profileId, customerEmail, customerPhone, consentAccepted, consentTimestamp, consentVersion } = req.body;
-    const providedToken = (req.headers['x-profile-token'] as string) || req.body?.ownerToken;
+    const {
+      name, amount, instagram, linkedin, website, reason, lazyReason,
+      profileId, customerEmail, customerPhone, consentAccepted,
+      ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
+    } = req.body;
+    const providedToken = (req.headers['x-profile-token'] as string) || bodyOwnerToken || pendingOwnerToken;
+    const clientOrderAccessToken = (req.headers['x-order-access-token'] as string) || orderAccessToken;
 
     // For existing profile upgrades: profile must exist, owner token must be present and valid
     if (profileId) {
@@ -312,16 +321,14 @@ async function startServer() {
       return res.status(400).json({ error: 'A valid 10-digit mobile number is required for checkout.' });
     }
 
-    // Optional customer email validation: if provided, must be valid format; if omitted, use neutral dummy (never merchant support)
-    let validCustomerEmail: string;
+    // Optional customer email validation: if provided, must be valid format; if omitted, leave undefined
+    let validCustomerEmail: string | undefined = undefined;
     if (customerEmail && typeof customerEmail === 'string' && customerEmail.trim().length > 0) {
       const emailTrim = customerEmail.trim();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) {
         return res.status(400).json({ error: 'Please enter a valid email address or leave the field blank.' });
       }
       validCustomerEmail = emailTrim;
-    } else {
-      validCustomerEmail = `customer_${phoneStr}@lazyproof.online`;
     }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -335,7 +342,7 @@ async function startServer() {
     const num = Number(amount);
     const parsedAmount = parseInt(amount, 10);
     if (isNaN(parsedAmount) || !Number.isInteger(num) || parsedAmount < 1 || parsedAmount > 1000000) {
-      return res.status(400).json({ error: 'Payment amount must be a whole integer between ₹1 and ₹10,000,00.' });
+      return res.status(400).json({ error: 'Payment amount must be a whole integer between ₹1 and ₹10,00,000.' });
     }
 
     if (reason && typeof reason === 'string' && reason.length > 140) {
@@ -349,6 +356,23 @@ async function startServer() {
     const topAmount = db.isPostgresAuthoritative() ? await db.pg.getTopAmount() : db.getTopAmount();
     const isTop = parsedAmount > topAmount;
 
+    // Server-authoritative quote breakdown in minor integer paise
+    const basePaise = parsedAmount * 100;
+    const taxPaise = 0;
+    const feePaise = 0;
+    const totalPaise = basePaise + taxPaise + feePaise;
+    const quoteSnapshot = {
+      basePaise,
+      taxPaise,
+      feePaise,
+      totalPaise,
+      currency: 'INR',
+      serviceDescription: 'Digital sponsored profile placement on LazyProof',
+      taxBasis: 'Exempt sole proprietorship / threshold basis',
+      quoteVersion: CURRENT_TERMS_VERSION,
+      timestamp: new Date().toISOString()
+    };
+
     db.trackEvent('checkoutStarts');
 
     // Real retry-safe checkout idempotency
@@ -356,10 +380,21 @@ async function startServer() {
       (req.body?.idempotencyKey as string | undefined)?.trim();
     const idempotencyKey = clientProvidedIdempotency || `idem_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
-    // If order with this idempotencyKey already exists, return it directly
+    // If order with this idempotencyKey already exists, verify consistency and return directly
     const existingOrder = await db.getOrderByIdempotencyKey(idempotencyKey);
     if (existingOrder) {
       const isExistingTop = existingOrder.amount > topAmount;
+      const amountMatch = Number(existingOrder.amount) === parsedAmount;
+      const nameMatch = existingOrder.name === name.trim();
+      const phoneMatch = !existingOrder.customerPhone || existingOrder.customerPhone === phoneStr;
+      const profileMatch = (existingOrder.profileId || undefined) === (profileId || undefined);
+
+      if (!amountMatch || !nameMatch || !phoneMatch || !profileMatch) {
+        return res.status(409).json({
+          error: 'Idempotency conflict: order parameters differ for this idempotency key.'
+        });
+      }
+
       return res.json({
         orderId: existingOrder.orderId,
         paymentSessionId: existingOrder.paymentSessionId,
@@ -374,6 +409,7 @@ async function startServer() {
         minAmountToBeatTop: topAmount + 1,
         profileId: existingOrder.profileId,
         paymentMode: existingOrder.paymentMode,
+        quote: existingOrder.quoteSnapshot || quoteSnapshot,
         instagram: existingOrder.instagram,
         linkedin: existingOrder.linkedin,
         website: existingOrder.website,
@@ -389,8 +425,11 @@ async function startServer() {
       orderId,
       name: name.trim(),
       amount: parsedAmount,
+      currency: 'INR',
       profileId,
       ownerToken: providedToken,
+      orderAccessToken: clientOrderAccessToken,
+      quoteSnapshot,
       instagram: db.normalizeInstagram(instagram),
       linkedin: db.normalizeLinkedIn(linkedin),
       website: db.normalizeWebsite(website),
@@ -401,8 +440,8 @@ async function startServer() {
       customerEmail: validCustomerEmail,
       customerPhone: phoneStr,
       consentAccepted: true,
-      consentTimestamp: (consentTimestamp && typeof consentTimestamp === 'string') ? consentTimestamp : new Date().toISOString(),
-      consentVersion: (consentVersion && typeof consentVersion === 'string') ? consentVersion : '2026-09-24'
+      consentTimestamp: new Date().toISOString(),
+      consentVersion: CURRENT_TERMS_VERSION
     });
 
     try {
@@ -440,6 +479,7 @@ async function startServer() {
         minAmountToBeatTop: topAmount + 1,
         profileId,
         paymentMode: paymentManager.getMode(),
+        quote: quoteSnapshot,
         instagram: db.normalizeInstagram(instagram),
         linkedin: db.normalizeLinkedIn(linkedin),
         website: db.normalizeWebsite(website),
@@ -488,8 +528,7 @@ async function startServer() {
         return res.json({
           success: true,
           message: 'Legitimacy Verified via Provider Settlement.',
-          profile: prof,
-          ownerToken: prof.ownerToken
+          profile: db.sanitizeProfile(prof)
         });
       }
       return res.status(400).json({ error: 'This payment order has already been verified and claimed.' });
@@ -505,7 +544,7 @@ async function startServer() {
       return res.status(400).json({ error: 'Payment reference has already been processed.' });
     }
 
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'production' || db.isPostgresAuthoritative()) {
       return res.status(403).json({
         error: 'Direct client-side verification is disabled in production. Payments must settle via verified gateway webhook or server status verification.'
       });
@@ -536,7 +575,6 @@ async function startServer() {
       success: true,
       message: 'Legitimacy Verified.',
       profile: db.sanitizeProfile(result.profile),
-      ownerToken: result.profile.ownerToken,
       previousTop: result.previousTop ? db.sanitizeProfile(result.previousTop) : undefined
     });
   });
@@ -551,6 +589,16 @@ async function startServer() {
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
+
+    // Require valid x-order-access-token if order has an access token hash
+    const orderAccessToken = (req.headers['x-order-access-token'] as string | undefined)?.trim();
+    if (order.orderAccessTokenHash) {
+      if (!orderAccessToken || !db.constantTimeMatch(order.orderAccessTokenHash, hashToken(orderAccessToken))) {
+        return res.status(403).json({ error: 'Unauthorized: Valid order access token required.' });
+      }
+    }
+    res.setHeader('Cache-Control', 'no-store');
+
     if (order.status === 'completed' || order.status === 'PAID') {
       const profile = order.profileId
         ? (db.isPostgresAuthoritative() ? await db.pg.getProfile(order.profileId) : db.getProfile(order.profileId))
@@ -558,8 +606,7 @@ async function startServer() {
       return res.json({
         orderId,
         status: 'PAID',
-        profile: profile ? db.sanitizeProfile(profile) : undefined,
-        ownerToken: profile ? profile.ownerToken : undefined
+        profile: profile ? db.sanitizeProfile(profile) : undefined
       });
     }
 
@@ -567,28 +614,34 @@ async function startServer() {
       try {
         const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
         if (providerStatus.status === 'PAID' && order.status !== 'completed' && order.status !== 'PAID') {
+          const toPaise = (amt: number): number => Math.round(amt * 100);
+          if (!providerStatus.providerPaymentId || providerStatus.currency !== 'INR' ||
+              providerStatus.amount === undefined ||
+              toPaise(providerStatus.amount) !== toPaise(order.amount)) {
+            return res.status(409).json({ error: 'Provider payment verification mismatch against registered order.' });
+          }
+
           if (db.isPostgresAuthoritative()) {
             const settlement = await db.pg.settlePaymentAtomic({
               orderId,
-              providerPaymentId: providerStatus.providerPaymentId || `cf_${orderId}`,
+              providerPaymentId: providerStatus.providerPaymentId,
               provider: 'cashfree',
               amount: order.amount,
               paymentMethod: providerStatus.paymentMethod || 'UPI',
-              signatureVerified: true
+              signatureVerified: false
             });
             if (settlement.success && settlement.profile) {
               return res.json({
                 orderId,
                 status: 'PAID',
-                profile: db.sanitizeProfile(settlement.profile),
-                ownerToken: settlement.ownerToken
+                profile: db.sanitizeProfile(settlement.profile)
               });
             }
           } else {
             const result = db.verifyAndClaimRank({
               name: order.name,
               amount: order.amount,
-              paymentRef: providerStatus.providerPaymentId || `cf_${orderId}`,
+              paymentRef: providerStatus.providerPaymentId,
               orderId,
               instagram: order.instagram,
               linkedin: order.linkedin,
@@ -602,8 +655,7 @@ async function startServer() {
               return res.json({
                 orderId,
                 status: 'PAID',
-                profile: db.sanitizeProfile(result.profile),
-                ownerToken: result.profile.ownerToken
+                profile: db.sanitizeProfile(result.profile)
               });
             }
           }
@@ -633,6 +685,16 @@ async function startServer() {
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
+
+    // Require valid x-order-access-token if order has an access token hash
+    const orderAccessToken = (req.headers['x-order-access-token'] as string | undefined)?.trim();
+    if (order.orderAccessTokenHash) {
+      if (!orderAccessToken || !db.constantTimeMatch(order.orderAccessTokenHash, hashToken(orderAccessToken))) {
+        return res.status(403).json({ error: 'Unauthorized: Valid order access token required.' });
+      }
+    }
+    res.setHeader('Cache-Control', 'no-store');
+
     res.json({
       receiptId: 'REC-' + order.orderId.toUpperCase(),
       operator: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
@@ -666,7 +728,10 @@ async function startServer() {
       return res.status(429).json({ error: 'Too many webhook requests.' });
     }
 
-    const rawBodyBuf = (req as any).rawBody || Buffer.from(JSON.stringify(req.body));
+    const rawBodyBuf = (req as any).rawBody;
+    if (!rawBodyBuf || rawBodyBuf.length === 0) {
+      return res.status(400).json({ error: 'Missing raw webhook request body.' });
+    }
     const rawBodyStr = rawBodyBuf.toString('utf8');
 
     // Case 1: Cashfree PG official webhook (identified by x-webhook-timestamp header)
@@ -676,6 +741,21 @@ async function startServer() {
         return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
       }
 
+      // Deduplicate webhook event
+      const eventId = (req.headers['x-webhook-id'] as string) ||
+        (verification.rawPayload?.event_id) ||
+        `evt_${crypto.createHash('sha256').update(rawBodyStr).digest('hex').slice(0, 24)}`;
+      const recorded = await db.recordWebhookEvent(
+        eventId,
+        verification.event || 'CASHFREE_WEBHOOK',
+        verification.orderId,
+        verification.providerPaymentId,
+        verification.rawPayload
+      );
+      if (!recorded) {
+        return res.json({ received: true, processed: false, reason: 'Duplicate event acknowledged.' });
+      }
+
       if ((verification.status === 'REFUNDED' || verification.refund) && verification.orderId) {
         const refundDetails = verification.refund;
         const refundAmount = refundDetails?.amount || verification.amount || 0;
@@ -683,16 +763,7 @@ async function startServer() {
         const refundStatus = refundDetails?.status || (verification.status === 'REFUNDED' ? 'SUCCESS' : 'FAILED');
 
         if (refundStatus === 'SUCCESS') {
-          if (db.isPostgresAuthoritative()) {
-            await db.pg.reverseRefundAtomic({
-              orderId: verification.orderId,
-              amount: refundAmount,
-              providerRefundId: providerRefId,
-              reason: 'Cashfree webhook refund confirmation'
-            });
-          } else {
-            await db.reverseRefund(verification.orderId, refundAmount, 'Cashfree webhook refund confirmation', providerRefId);
-          }
+          await db.reverseRefund(verification.orderId, refundAmount, 'Cashfree webhook refund confirmation', providerRefId);
           return res.json({ received: true, processed: true, status: 'REFUNDED' });
         } else {
           return res.json({ received: true, processed: true, status: refundStatus });
@@ -704,23 +775,37 @@ async function startServer() {
         if (!order) {
           return res.status(404).json({ error: 'Referenced order not found.' });
         }
-        if (verification.amount !== undefined && verification.amount !== order.amount) {
-          return res.status(400).json({ error: 'Payment amount mismatch against order record.' });
-        }
-        if (verification.currency && verification.currency !== 'INR') {
-          return res.status(400).json({ error: 'Payment currency mismatch.' });
-        }
         if (order.status === 'completed' || order.status === 'PAID') {
           return res.json({ received: true, processed: true, message: 'Order already completed.' });
+        }
+
+        // Gateway reconciliation: call /orders/{id}/payments to verify directly with provider
+        let providerPaymentId = verification.providerPaymentId;
+        let paymentMethod = verification.paymentMethod || 'UPI';
+        if (paymentManager.isEnabled()) {
+          const providerStatus = await paymentManager.getProvider().getPaymentStatus(verification.orderId);
+          if (providerStatus.status !== 'PAID' || !providerStatus.providerPaymentId) {
+            return res.status(409).json({ error: 'Gateway payment record not in PAID state.' });
+          }
+          if (providerStatus.currency !== 'INR' || (verification.currency && verification.currency !== 'INR')) {
+            return res.status(400).json({ error: 'Payment currency mismatch.' });
+          }
+          const toPaise = (amt: number): number => Math.round(amt * 100);
+          if (toPaise(providerStatus.amount!) !== toPaise(order.amount) ||
+              (verification.amount !== undefined && toPaise(verification.amount) !== toPaise(order.amount))) {
+            return res.status(400).json({ error: 'Payment amount mismatch against order record.' });
+          }
+          providerPaymentId = providerStatus.providerPaymentId;
+          paymentMethod = providerStatus.paymentMethod || paymentMethod;
         }
 
         if (db.isPostgresAuthoritative()) {
           const settlementResult = await db.pg.settlePaymentAtomic({
             orderId: verification.orderId,
-            providerPaymentId: verification.providerPaymentId,
+            providerPaymentId,
             provider: 'cashfree',
             amount: order.amount,
-            paymentMethod: verification.paymentMethod || 'UPI',
+            paymentMethod,
             signatureVerified: true,
             rawPayload: verification.rawPayload
           });
@@ -740,7 +825,7 @@ async function startServer() {
         const result = db.verifyAndClaimRank({
           name: order.name,
           amount: order.amount,
-          paymentRef: verification.providerPaymentId,
+          paymentRef: providerPaymentId,
           orderId: verification.orderId,
           instagram: order.instagram,
           linkedin: order.linkedin,
@@ -767,6 +852,11 @@ async function startServer() {
     }
 
     // Case 2: Standard webhook signature HMAC check (generic webhook secret)
+    // Strictly forbidden when PAYMENT_MODE=live or in production
+    if (paymentManager.getMode() === 'live' || process.env.NODE_ENV === 'production') {
+      return res.status(400).json({ error: 'Generic webhook settlement is disabled in production/live mode.' });
+    }
+
     const signature = req.headers['x-webhook-signature'] as string | undefined;
     const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET;
 
@@ -788,8 +878,6 @@ async function startServer() {
       } catch {
         return res.status(401).json({ error: 'Webhook cryptographic validation failed.' });
       }
-    } else if (process.env.NODE_ENV === 'production') {
-      return res.status(500).json({ error: 'Webhook signing secret is required in production.' });
     }
 
     const body = req.body;
@@ -873,6 +961,10 @@ async function startServer() {
 
   // Admin-authorized refund endpoint
   app.post('/api/payment/refund', async (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 10, 60000)) {
+      return res.status(429).json({ error: 'Too many refund requests.' });
+    }
     const adminKey = req.headers['x-admin-key'] as string | undefined;
     if (!verifyAdminKey(adminKey)) {
       return res.status(403).json({ error: 'Unauthorized: Admin authentication required.' });
@@ -885,25 +977,44 @@ async function startServer() {
     if (!order) {
       return res.status(404).json({ error: 'Order not found.' });
     }
-    const refundAmount = Number(amount) || order.amount;
-    if (isNaN(refundAmount) || refundAmount <= 0) {
-      return res.status(400).json({ error: 'Valid positive refund amount is required.' });
+
+    const amountINR: number = amount === undefined ? order.amount : Number(amount);
+    if (!Number.isFinite(amountINR) || amountINR <= 0 ||
+        Math.abs(amountINR * 100 - Math.round(amountINR * 100)) >= 1e-8) {
+      return res.status(400).json({ error: 'Invalid refund amount.' });
     }
+    const refundPaise: number = Math.round(amountINR * 100);
+    const validStatuses = db.isPostgresAuthoritative()
+      ? ['PAID', 'PARTIALLY_REFUNDED']
+      : ['PAID', 'PARTIALLY_REFUNDED', 'completed', 'PENDING'];
+    if (!validStatuses.includes(order.status)) {
+      return res.status(409).json({ error: 'Order is not refundable in this state.' });
+    }
+
     const refundReason = (reason && typeof reason === 'string') ? reason : 'Customer refund request';
-    const refundId = 'ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const merchantRefundId = (req.body.refundId && typeof req.body.refundId === 'string' ? req.body.refundId.trim() : '') || ('ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12));
+
+    // Preflight reservation: reserve remaining refundable amount under FOR UPDATE BEFORE calling payment gateway
+    const reservation = await db.reserveRefundAtomic(orderId, refundPaise, merchantRefundId, refundReason);
+    if (!reservation.success) {
+      return res.status(400).json({
+        success: false,
+        error: reservation.message || 'Refund reservation failed.'
+      });
+    }
 
     if (paymentManager.isEnabled()) {
       try {
         const providerRes = await paymentManager.getProvider().createRefund({
           orderId,
-          refundId,
-          amount: refundAmount,
+          refundId: merchantRefundId,
+          amount: amountINR,
           reason: refundReason
         });
 
         if (!providerRes.success || providerRes.status === 'FAILED') {
-          // Rule 2: If Cashfree createRefund returns FAILED:
-          // do NOT debit rank, do NOT mark order REFUNDED, return truthful failure state
+          // Release reservation
+          await db.failRefundReservation(merchantRefundId, orderId);
           return res.status(400).json({
             success: false,
             status: 'FAILED',
@@ -912,83 +1023,55 @@ async function startServer() {
         }
 
         if (providerRes.status === 'PENDING') {
-          // Rule 3: If Cashfree returns PENDING:
-          // mark refund/order REFUND_PENDING, do NOT debit verified sponsorship yet
-          if (db.isPostgresAuthoritative()) {
-            await db.pg.recordRefundPending({
-              orderId,
-              refundId,
-              amount: refundAmount,
-              reason: refundReason
-            });
-          }
           return res.json({
             success: true,
             status: 'REFUND_PENDING',
             orderId,
-            refundId,
-            amount: refundAmount,
+            refundId: merchantRefundId,
+            amount: amountINR,
             message: 'Refund initiated with payment provider and is currently pending confirmation.'
           });
         }
 
-        // Rule 4: If Cashfree returns SUCCESS immediately:
         if (providerRes.status === 'SUCCESS') {
-          if (db.isPostgresAuthoritative()) {
-            const reversed = await db.pg.reverseRefundAtomic({
+          const providerRefundId = providerRes.raw?.cf_refund_id ? String(providerRes.raw.cf_refund_id) : merchantRefundId;
+          const reversed = await db.reverseRefund(orderId, amountINR, refundReason, providerRefundId);
+          if (!reversed) {
+            return res.status(500).json({
+              error: 'Refund succeeded at gateway but database reconciliation is pending.',
               orderId,
-              providerRefundId: refundId,
-              amount: refundAmount,
-              reason: refundReason
+              refundId: merchantRefundId,
+              status: 'RECONCILIATION_PENDING'
             });
-            if (!reversed.success) {
-              return res.status(400).json({ error: reversed.message || 'Refund reversal failed.' });
-            }
-          } else {
-            await db.reverseRefund(orderId, refundAmount, refundReason, refundId);
           }
+          const updatedOrder = await db.getOrderAsync(orderId);
           return res.json({
             success: true,
-            status: 'REFUNDED',
+            status: updatedOrder?.status || 'REFUNDED',
             orderId,
-            refundId,
-            amount: refundAmount
+            refundId: merchantRefundId,
+            amount: amountINR
           });
         }
       } catch (err: any) {
         console.warn('[Refund] Provider refund error:', err?.message);
         return res.status(502).json({
           success: false,
-          status: 'FAILED',
+          status: 'RECONCILIATION_PENDING',
           error: err?.message || 'Payment gateway communication failure during refund.'
         });
       }
     }
 
     // In disabled / mock mode (e.g. test environment)
-    if (db.isPostgresAuthoritative()) {
-      const reversed = await db.pg.reverseRefundAtomic({
-        orderId,
-        providerRefundId: refundId,
-        amount: refundAmount,
-        reason: refundReason
-      });
-      return res.json({
-        success: reversed.success,
-        orderId,
-        refundId,
-        amount: refundAmount,
-        status: 'REFUNDED'
-      });
-    }
-
-    const reversed = await db.reverseRefund(orderId, refundAmount, refundReason, refundId);
+    const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId);
+    const updatedOrder = await db.getOrderAsync(orderId);
     return res.json({
       success: reversed,
       orderId,
-      refundId,
-      amount: refundAmount,
-      status: 'REFUNDED'
+      refundId: merchantRefundId,
+      amount: amountINR,
+      status: updatedOrder?.status || 'REFUNDED'
     });
   });
 

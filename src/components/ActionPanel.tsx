@@ -481,16 +481,20 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
           {/* Pricing & Checkout Transparency Box (Section 3F) */}
           <div className="p-3.5 rounded-xl border border-[#ede5da] bg-[#faf8f4] text-xs space-y-2">
             <div className="flex items-center justify-between font-bold text-stone-900 border-b border-[#ede5da] pb-1.5">
-              <span>Service Item</span>
+              <span>Quote Item</span>
               <span>Amount</span>
             </div>
             <div className="flex items-center justify-between text-stone-700">
-              <span className="truncate pr-2">Digital Sponsored Profile Placement & Showcase</span>
-              <span className="font-mono-numbers font-bold">₹{amount.toLocaleString('en-IN')} INR</span>
+              <span className="truncate pr-2">Base Sponsorship (Placement & Showcase)</span>
+              <span className="font-mono-numbers font-bold">₹{amount.toLocaleString('en-IN')}</span>
             </div>
             <div className="flex items-center justify-between text-[11px] text-stone-500">
-              <span>Tax Consideration</span>
-              <span>Inclusive of applicable taxes</span>
+              <span>Applicable Taxes (GST: Exempt Sole Proprietorship)</span>
+              <span className="font-mono-numbers">₹0</span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-stone-500">
+              <span>Platform & Processing Fees</span>
+              <span className="font-mono-numbers">₹0</span>
             </div>
             <div className="flex items-center justify-between text-xs font-black text-stone-950 border-t border-[#ede5da] pt-1.5">
               <span>Final Payable Total</span>

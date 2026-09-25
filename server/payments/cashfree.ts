@@ -45,7 +45,7 @@ export class CashfreeProvider implements PaymentProvider {
       throw new Error('Cashfree credentials are not configured.');
     }
 
-    const customerId = 'cust_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const customerId = 'cust_' + crypto.createHash('sha256').update(`${params.customerPhone || '9876543210'}:${params.orderId}`).digest('hex').slice(0, 16);
     const returnUrl = params.returnUrl || `https://lazyproof.online/?order_id=${params.orderId}&status=return`;
     const notifyUrl = params.notifyUrl || `https://lazyproof.online/api/payment/webhook`;
     const idempotencyKey = params.idempotencyKey || crypto.randomUUID();
@@ -133,12 +133,15 @@ export class CashfreeProvider implements PaymentProvider {
     // Find successful payment
     const successful = payments.find((p: any) => p.payment_status === 'SUCCESS');
     if (successful) {
+      if (!successful.payment_currency) {
+        throw new Error('Cashfree payment record missing payment_currency.');
+      }
       return {
         orderId,
         status: 'PAID',
         providerPaymentId: String(successful.cf_payment_id),
         amount: Number(successful.payment_amount),
-        currency: successful.payment_currency || 'INR',
+        currency: successful.payment_currency,
         paymentMethod: successful.payment_group || 'UPI',
         raw: successful
       };
@@ -179,6 +182,11 @@ export class CashfreeProvider implements PaymentProvider {
 
     if (!signature || !timestamp) {
       return { isValid: false, error: 'Missing webhook signature or timestamp header.' };
+    }
+
+    const tsNum = Number(timestamp);
+    if (!Number.isFinite(tsNum) || tsNum <= 0) {
+      return { isValid: false, error: 'Invalid webhook timestamp format.' };
     }
 
     if (!this.secretKey) {

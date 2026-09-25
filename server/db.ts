@@ -821,8 +821,11 @@ export class LazyDatabase {
     orderId: string;
     name: string;
     amount: number;
+    currency?: string;
     profileId?: string;
     ownerToken?: string;
+    orderAccessToken?: string;
+    quoteSnapshot?: any;
     instagram?: string;
     linkedin?: string;
     website?: string;
@@ -839,7 +842,7 @@ export class LazyDatabase {
     if (this.isPostgresAuthoritative()) {
       await this.pg.createOrder({
         ...order,
-        currency: 'INR',
+        currency: order.currency || 'INR',
         paymentMode: order.paymentMode || process.env.PAYMENT_MODE || 'disabled',
         provider: 'cashfree'
       });
@@ -1250,6 +1253,48 @@ export class LazyDatabase {
       return true;
     }
     return false;
+  }
+
+  public async reserveRefundAtomic(orderId: string, refundPaise: number, merchantRefundId: string, reason: string): Promise<{ success: boolean; message?: string; remainingRefundablePaise?: number }> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.reserveRefundAtomic(orderId, refundPaise, merchantRefundId, reason);
+    }
+    if (this.state.orders && this.state.orders[orderId]) {
+      const ord = this.state.orders[orderId];
+      if (!['PAID', 'PARTIALLY_REFUNDED', 'completed', 'PENDING'].includes(ord.status)) {
+        return { success: false, message: 'Order is not refundable in this state' };
+      }
+      const orderPaise = Math.round(ord.amount * 100);
+      const existingRefundedPaise = Math.round((ord.refundedAmount || 0) * 100);
+      const remainingPaise = orderPaise - existingRefundedPaise;
+      if (refundPaise > remainingPaise) {
+        return { success: false, message: 'Refund amount exceeds remaining refundable amount', remainingRefundablePaise: remainingPaise };
+      }
+      ord.status = 'REFUND_PENDING';
+      this.saveData();
+      return { success: true, remainingRefundablePaise: remainingPaise - refundPaise };
+    }
+    return { success: false, message: 'Order not found' };
+  }
+
+  public async failRefundReservation(merchantRefundId: string, orderId: string): Promise<void> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.failRefundReservation(merchantRefundId, orderId);
+    }
+    if (this.state.orders && this.state.orders[orderId]) {
+      const ord = this.state.orders[orderId];
+      if (ord.status === 'REFUND_PENDING') {
+        ord.status = (ord.refundedAmount && ord.refundedAmount > 0) ? 'PARTIALLY_REFUNDED' : 'PAID';
+        this.saveData();
+      }
+    }
+  }
+
+  public async recordWebhookEvent(eventId: string, eventType: string, orderId?: string | null, providerPaymentId?: string | null, payload?: any): Promise<boolean> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.recordWebhookEvent(eventId, eventType, orderId, providerPaymentId, payload);
+    }
+    return true;
   }
 
   public createParticipant(params: {

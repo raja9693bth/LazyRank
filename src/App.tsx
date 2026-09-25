@@ -60,6 +60,9 @@ export default function App() {
   const [isJustClaimed, setIsJustClaimed] = useState(false);
   const [upgradingProfile, setUpgradingProfile] = useState<UserProfile | null>(null);
   const [globalActivityRefreshKey, setGlobalActivityRefreshKey] = useState<number>(0);
+  const [currentIdempotencyKey, setCurrentIdempotencyKey] = useState<string | null>(null);
+  const [pendingOwnerToken, setPendingOwnerToken] = useState<string | null>(null);
+  const [orderAccessToken, setOrderAccessToken] = useState<string | null>(null);
 
   // Challenge Banner state
   const [incomingChallenge, setIncomingChallenge] = useState<{
@@ -320,8 +323,6 @@ export default function App() {
   };
 
   // Initiates Checkout Order with Server
-  const [currentIdempotencyKey, setCurrentIdempotencyKey] = useState<string | null>(null);
-
   const handleStartPayment = async (claimData: {
     name: string;
     amount: number;
@@ -355,6 +356,23 @@ export default function App() {
         } catch {}
       }
 
+      const makeSecret = (prefix: string): string => {
+        const bytes = crypto.getRandomValues(new Uint8Array(32));
+        return `${prefix}_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
+      };
+
+      const pendingToken = targetProfileId
+        ? storedToken
+        : (pendingOwnerToken || makeSecret('lazy'));
+      if (!targetProfileId && !pendingOwnerToken) {
+        setPendingOwnerToken(pendingToken || null);
+      }
+
+      const orderToken = orderAccessToken || makeSecret('ord');
+      if (!orderAccessToken) {
+        setOrderAccessToken(orderToken);
+      }
+
       // Generate or reuse stable idempotency key for this checkout attempt
       const idempotencyKey = currentIdempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
       if (!currentIdempotencyKey) {
@@ -366,12 +384,15 @@ export default function App() {
         headers: {
           'Content-Type': 'application/json',
           'x-idempotency-key': idempotencyKey,
+          ...(orderToken ? { 'x-order-access-token': orderToken } : {}),
           ...(storedToken ? { 'x-profile-token': storedToken } : {})
         },
         body: JSON.stringify({
           ...claimData,
           profileId: targetProfileId,
-          ownerToken: storedToken,
+          ownerToken: targetProfileId ? storedToken : undefined,
+          pendingOwnerToken: targetProfileId ? undefined : pendingToken,
+          orderAccessToken: orderToken,
           idempotencyKey
         })
       });
@@ -417,13 +438,17 @@ export default function App() {
     setSelectedProfile(profile);
     setUpgradingProfile(null);
 
-    if (ownerToken && profile.id) {
+    const tokenToSave = ownerToken || pendingOwnerToken;
+    if (tokenToSave && profile.id) {
       try {
         const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
-        tokens[profile.id] = ownerToken;
+        tokens[profile.id] = tokenToSave;
         localStorage.setItem('lazy_tokens', JSON.stringify(tokens));
       } catch {}
     }
+    setPendingOwnerToken(null);
+    setOrderAccessToken(null);
+    setCurrentIdempotencyKey(null);
 
     window.history.pushState({}, '', `/?rank=${profile.id}`);
 
@@ -712,6 +737,8 @@ export default function App() {
         onClose={() => setIsPaymentModalOpen(false)}
         orderData={orderData}
         onPaymentSuccess={handlePaymentSuccess}
+        pendingOwnerToken={pendingOwnerToken}
+        orderAccessToken={orderAccessToken}
       />
 
       {/* Challenge / Notify Me / Lazy Reason Modal */}

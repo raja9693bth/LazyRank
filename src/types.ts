@@ -230,7 +230,7 @@ export interface ReportRecord {
   targetId: string;
   reason: string;
   createdAt: string;
-  status: 'pending' | 'resolved' | 'dismissed';
+  status: 'pending' | 'reviewed' | 'dismissed' | 'actioned';
 }
 
 export interface LeaderboardResponse {

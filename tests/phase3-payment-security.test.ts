@@ -145,10 +145,10 @@ assert.ok(modalSrc.includes("headers['x-order-access-token'] = orderAccessToken"
 assert.ok(modalSrc.includes('onPaymentSuccess(completedProfile, undefined, pendingOwnerToken ?? undefined)'), 'PaymentModal delivers pendingOwnerToken on success');
 
 const actionPanelSrc = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'ActionPanel.tsx'), 'utf-8');
-assert.ok(actionPanelSrc.includes('Base Sponsorship'), 'ActionPanel displays Base Sponsorship amount');
-assert.ok(actionPanelSrc.includes('Applicable Taxes'), 'ActionPanel displays Applicable Taxes');
-assert.ok(actionPanelSrc.includes('Platform & Processing Fees'), 'ActionPanel displays Platform & Processing Fees');
-assert.ok(actionPanelSrc.includes('Final Payable Total'), 'ActionPanel displays Final Payable Total');
+assert.ok(actionPanelSrc.includes('Base Amount') || actionPanelSrc.includes('Base Sponsorship'), 'ActionPanel displays Base Amount');
+assert.ok(actionPanelSrc.includes('Services Tax (GST)') || actionPanelSrc.includes('Goods &amp; Services Tax') || actionPanelSrc.includes('Applicable Taxes'), 'ActionPanel displays GST / Applicable Taxes');
+assert.ok(actionPanelSrc.includes('Platform Fee') || actionPanelSrc.includes('Platform & Processing Fees'), 'ActionPanel displays Platform Fee');
+assert.ok(actionPanelSrc.includes('Total Payable') || actionPanelSrc.includes('Final Payable Total'), 'ActionPanel displays Total Payable');
 pass('Frontend client securely manages tokens and displays transparent quote breakdown');
 
 console.log(`\nPHASE 3 COMPLETE: All ${passed} tests passed successfully.\n`);

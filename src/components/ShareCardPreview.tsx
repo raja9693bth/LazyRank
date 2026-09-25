@@ -54,7 +54,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#f59e0b';
       ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      const streakText1 = profile.rank <= 10 && profile.lazyStreakDays ? `🔥 ${profile.lazyStreakDays}-DAY LAZY STREAK • TOP 10` : 'LAZY • LEGITIMACY VERIFIED';
+      const streakText1 = profile.rank === 1 ? '👑 ALL-TIME #1 • TOP SPONSOR' : 'LAZY • LEGITIMACY VERIFIED';
       ctx.fillText(streakText1, width / 2, 220);
 
       // Crown / Trophy
@@ -165,7 +165,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#18181b';
       ctx.font = '900 40px sans-serif';
       ctx.textAlign = 'center';
-      const streakText2 = profile.rank <= 10 && profile.lazyStreakDays ? `🔥 ${profile.lazyStreakDays}-DAY LAZY STREAK • TOP 10` : 'LAZY • OFFICIAL LEADERBOARD';
+      const streakText2 = profile.rank === 1 ? '👑 ALL-TIME #1 • TOP SPONSOR' : 'LAZY • OFFICIAL LEADERBOARD';
       ctx.fillText(streakText2, width / 2, 220);
 
       // Statement
@@ -269,7 +269,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#a1a1aa';
       ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      const streakText3 = profile.rank <= 10 && profile.lazyStreakDays ? `🔥 ${profile.lazyStreakDays}-DAY LAZY STREAK • TOP 10` : 'LAZY • VERIFIED RANK';
+      const streakText3 = profile.rank === 1 ? '👑 ALL-TIME #1 • TOP SPONSOR' : 'LAZY • VERIFIED RANK';
       ctx.fillText(streakText3, width / 2, 220);
 
       // Text

@@ -310,44 +310,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
     };
   }, [trajectoryData]);
 
-  // Live Rank Expiry & Scheduled Drop Timer Calculation
-  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(Date.now());
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const dailyResetTimestamp = useMemo(() => {
-    // Indian Standard Time (IST) is UTC+05:30 (19,800,000 ms)
-    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-    const nowUtc = currentTime;
-    const nowIst = new Date(nowUtc + IST_OFFSET_MS);
-    const tomorrowMidnightUtc = Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate() + 1);
-    return tomorrowMidnightUtc - IST_OFFSET_MS;
-  }, [currentTime]);
-
-  const remainingMs = Math.max(0, dailyResetTimestamp - currentTime);
-  const totalDailyMs = 24 * 60 * 60 * 1000;
-  const percentElapsed = Math.min(100, Math.max(0, Math.round(((totalDailyMs - remainingMs) / totalDailyMs) * 100)));
-
-  const hours = Math.floor(remainingMs / (1000 * 60 * 60));
-  const minutes = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((remainingMs % (1000 * 60)) / 1000);
-
-  const formattedResetTime = useMemo(() => {
-    try {
-      return new Date(dailyResetTimestamp).toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-    } catch {
-      return '12:00 AM IST';
-    }
-  }, [dailyResetTimestamp]);
 
   const handleCopyRoast = async () => {
     if (!roast) return;
@@ -547,7 +510,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
             </span>
           </div>
 
-          {/* Mini Lazy Streak Indicator Pill */}
+          {/* Mini All-Time Rank Indicator Pill */}
           <div
             id="mini-lazy-streak-pill"
             data-testid="mini-lazy-streak-badge"
@@ -560,8 +523,8 @@ export const ResultView: React.FC<ResultViewProps> = ({
             <Flame className={`w-3.5 h-3.5 ${profile.rank <= 10 ? 'text-orange-600 fill-orange-500' : 'text-stone-400'}`} />
             <span>
               {profile.rank <= 10
-                ? `Lazy Streak: ${profile.lazyStreakDays || 1} ${(profile.lazyStreakDays || 1) === 1 ? 'Day' : 'Days'} in Top 10`
-                : 'Lazy Streak: Enter Top 10 to start'}
+                ? `All-Time Top 10: Rank #${profile.rank}`
+                : `All-Time Rank: #${profile.rank}`}
             </span>
           </div>
 
@@ -674,112 +637,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
           )}
         </div>
 
-        {/* Lazy Streak Retention Card */}
-        <div className="mt-6 text-left">
-          <h2 className="text-xs font-black uppercase tracking-wider text-stone-500 mb-2 flex items-center gap-1.5">
-            <Flame className="w-3.5 h-3.5 text-orange-500" />
-            <span>Rank Retention & Streaks</span>
-          </h2>
-        </div>
-
-        <div
-          id="lazy-streak-card"
-          data-testid="lazy-streak-indicator"
-          className="mt-6 p-4 sm:p-5 rounded-2xl border text-left shadow-2xs transition-all relative overflow-hidden bg-gradient-to-br from-amber-50/70 via-orange-50/40 to-stone-50 border-orange-200/90"
-        >
-          {/* Top Warm Glow Accent */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600" />
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-orange-100">
-            <div className="flex items-start gap-3">
-              <div className="p-2.5 rounded-xl bg-orange-100 text-orange-700 mt-0.5 shrink-0 shadow-2xs">
-                <Flame className="w-5 h-5 text-orange-600 fill-orange-500 animate-pulse" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="text-sm sm:text-base font-extrabold text-zinc-950 tracking-tight">
-                    Lazy Streak
-                  </h3>
-                  {profile.rank <= 10 ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-black uppercase tracking-wider shadow-2xs">
-                      <span>🔥 ACTIVE STREAK</span>
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-stone-200 text-stone-700 text-[10px] font-black uppercase tracking-wider">
-                      <span>UNRANKED STREAK</span>
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-stone-600 mt-0.5">
-                  {profile.rank <= 10
-                    ? 'Consecutive days maintaining a verified Top 10 position on the lazy leaderboard.'
-                    : 'Top 10 status is required to start and build consecutive day lazy streaks.'}
-                </p>
-              </div>
-            </div>
-
-            {/* Days Count Callout */}
-            <div className="flex items-center gap-2 self-start sm:self-auto bg-white px-3.5 py-2 rounded-xl border border-orange-200/80 shadow-2xs shrink-0">
-              <span className="font-mono-numbers text-2xl sm:text-3xl font-black text-orange-600">
-                {profile.rank <= 10 ? (profile.lazyStreakDays || 1) : 0}
-              </span>
-              <div className="text-[10px] font-bold text-stone-500 leading-tight">
-                <div>CONSECUTIVE</div>
-                <div className="text-orange-950 font-black uppercase">
-                  {profile.rank <= 10 && (profile.lazyStreakDays || 1) === 1 ? 'DAY' : 'DAYS'}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Retention Insight / Milestone Bar */}
-          <div className="pt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-            <div className="space-y-1">
-              <div className="font-bold text-stone-900 flex items-center gap-1.5">
-                <span>
-                  {profile.rank <= 10
-                    ? (profile.lazyStreakDays || 1) >= 7
-                      ? '👑 Week-long Sloth Legend! Top 10 spot defended for over a week.'
-                      : (profile.lazyStreakDays || 1) >= 3
-                      ? '⚡ Hot Sloth Streak! 3+ days of uninterrupted couch dedication.'
-                      : '🌱 Streak Started! Day 1 in the Top 10. Defend your spot to build it tomorrow.'
-                    : `Currently Rank #${profile.rank}. Claim or upgrade into the Top 10 to begin your streak!`}
-                </span>
-              </div>
-              <p className="text-[11px] text-stone-500">
-                {profile.rank <= 10
-                  ? 'Streak resets if your rank drops outside the Top 10 when the 24-hour immunity expires.'
-                  : 'Every day you finish inside the Top 10 adds +1 to your public Lazy Streak.'}
-              </p>
-            </div>
-
-            {/* Visual Streak Days Tracker Dots */}
-            <div className="flex items-center gap-1 shrink-0">
-              {[1, 2, 3, 4, 5, 6, 7].map((day) => {
-                const isAchieved = profile.rank <= 10 && (profile.lazyStreakDays || 1) >= day;
-                const isCurrent = profile.rank <= 10 && (profile.lazyStreakDays || 1) === day;
-                return (
-                  <div
-                    key={day}
-                    className={`flex flex-col items-center justify-center w-7 h-8 rounded-lg text-[10px] font-mono-numbers font-bold border transition-all ${
-                      isCurrent
-                        ? 'bg-orange-500 text-white border-orange-600 shadow-xs scale-105'
-                        : isAchieved
-                        ? 'bg-amber-100 text-amber-900 border-amber-300'
-                        : 'bg-white text-stone-400 border-stone-200'
-                    }`}
-                    title={`Day ${day} ${isAchieved ? 'Achieved' : 'Milestone'}`}
-                  >
-                    <span>{day}d</span>
-                    {isAchieved && <span className="text-[8px] leading-none">✓</span>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Leaderboard Position & Daily Cycle Card */}
+        {/* All-Time Leaderboard Position & Dynamic Ranking Card */}
         <div
           id="rank-expiry-card"
           data-testid="rank-expiry-indicator"
@@ -793,10 +651,10 @@ export const ResultView: React.FC<ResultViewProps> = ({
               </div>
               <div>
                 <h3 className="text-sm sm:text-base font-extrabold text-zinc-950 tracking-tight flex items-center gap-1.5">
-                  <span>Leaderboard Status & Daily Cycle</span>
+                  <span>All-Time Leaderboard Standing</span>
                 </h3>
                 <p className="text-xs text-stone-500 mt-0.5">
-                  Your rank is determined strictly by verified payment amount. Active until outranked.
+                  Rankings are strictly determined by cumulative verified sponsorship. Active until outranked.
                 </p>
               </div>
             </div>
@@ -804,81 +662,31 @@ export const ResultView: React.FC<ResultViewProps> = ({
             <div className="self-start sm:self-auto">
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold uppercase tracking-wider">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span>Permanent & Active</span>
+                <span>Verified All-Time Placement</span>
               </span>
-            </div>
-          </div>
-
-          {/* Daily Cycle Countdown Block */}
-          <div className="my-3.5 p-3 sm:p-4 rounded-xl bg-stone-50 border border-stone-200 shadow-2xs">
-            <div className="flex items-center justify-between text-xs font-bold text-stone-600 mb-2 px-1">
-              <span className="flex items-center gap-1.5">
-                <Timer className="w-3.5 h-3.5 text-stone-500" />
-                <span>Today's Board Cycle Ends In (00:00 IST)</span>
-              </span>
-              <span className="font-mono text-[11px] text-stone-400 font-semibold">
-                Resets at Midnight IST
-              </span>
-            </div>
-
-            {/* Digital Clock Units */}
-            <div className="flex items-center justify-center gap-2 sm:gap-3 py-1 font-mono">
-              <div className="flex flex-col items-center bg-white border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
-                <span className="text-2xl sm:text-3xl font-black text-zinc-950 tracking-tight">
-                  {String(hours).padStart(2, '0')}
-                </span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 mt-0.5">Hours</span>
-              </div>
-
-              <span className="text-xl sm:text-2xl font-black text-stone-400 pb-3">:</span>
-
-              <div className="flex flex-col items-center bg-white border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
-                <span className="text-2xl sm:text-3xl font-black text-zinc-950 tracking-tight">
-                  {String(minutes).padStart(2, '0')}
-                </span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 mt-0.5">Mins</span>
-              </div>
-
-              <span className="text-xl sm:text-2xl font-black text-stone-400 pb-3">:</span>
-
-              <div className="flex flex-col items-center bg-white border border-stone-200 rounded-xl px-3 py-2 min-w-[62px] sm:min-w-[72px]">
-                <span className="text-2xl sm:text-3xl font-black text-amber-600 tracking-tight">
-                  {String(seconds).padStart(2, '0')}
-                </span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-500 mt-0.5">Secs</span>
-              </div>
-            </div>
-
-            <div className="mt-3.5 space-y-1.5">
-              <div className="flex items-center justify-between text-[11px] font-medium text-stone-500 px-0.5">
-                <span>Daily Period Cycle Elapsed: <strong className="font-mono text-zinc-700">{percentElapsed}%</strong></span>
-                <span>Reset: <strong className="font-mono text-zinc-800">{formattedResetTime}</strong></span>
-              </div>
-              <div className="w-full bg-stone-200/80 rounded-full h-2 p-0.5 overflow-hidden">
-                <div
-                  style={{ width: `${percentElapsed}%` }}
-                  className="h-full rounded-full bg-amber-500 transition-all duration-1000"
-                />
-              </div>
             </div>
           </div>
 
           {/* Defense & Displacement Notice */}
-          <div className="p-3 rounded-xl border border-stone-200 bg-stone-50/80 text-xs leading-relaxed text-stone-700">
+          <div className="mt-3.5 p-3.5 rounded-xl border border-stone-200 bg-stone-50/80 text-xs leading-relaxed text-stone-700 space-y-2">
             <div className="flex items-start gap-2">
               <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
               <div>
                 <div className="font-extrabold text-[12px] text-zinc-900">
                   {isRankOne
-                    ? 'Current Leader: Defend the Crown'
-                    : `Rank #${profile.rank}: Climbing Higher`}
+                    ? 'Current #1: All-Time Lead Sponsor'
+                    : `Rank #${profile.rank}: All-Time Leaderboard Position`}
                 </div>
                 <p className="mt-0.5 text-[11px] text-stone-600 leading-normal">
                   {isRankOne
                     ? `You currently hold #1 on LAZY with ₹${profile.amount.toLocaleString('en-IN')}. Anyone who verifies more than ₹${profile.amount.toLocaleString('en-IN')} will push you to #2.`
-                    : `Your entry is permanent on the All-Time leaderboard. When another contender verifies a higher payment, positions adjust in real time according to total paid amount.`}
+                    : `Your profile holds permanent placement on the All-Time leaderboard. When another contender verifies a higher payment, positions adjust dynamically in real time according to cumulative settled amount.`}
                 </p>
               </div>
+            </div>
+            <div className="text-[11px] text-stone-500 border-t border-stone-200/60 pt-2 flex items-center justify-between">
+              <span>Tie-break rule: Earlier payment verification wins</span>
+              <span className="font-semibold text-stone-700">Amount DESC, Verified ASC</span>
             </div>
           </div>
 

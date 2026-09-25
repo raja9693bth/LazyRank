@@ -1,6 +1,5 @@
 import React from 'react';
-import { UserProfile, RankPeriod } from '../types.ts';
-import { TodayResetCountdown } from './TodayResetCountdown.tsx';
+import { UserProfile } from '../types.ts';
 import { 
   Trophy, 
   ExternalLink, 
@@ -21,8 +20,6 @@ import {
 interface LeaderboardProps {
   profiles: UserProfile[];
   allTimeTop3?: UserProfile[];
-  currentPeriod: RankPeriod;
-  onSelectPeriod: (period: RankPeriod) => void;
   onSelectProfile: (profile: UserProfile) => void;
   onVoteProfile?: (id: string) => void;
   onReportProfile?: (id: string) => void;
@@ -40,8 +37,6 @@ interface LeaderboardProps {
 export const Leaderboard: React.FC<LeaderboardProps> = ({
   profiles,
   allTimeTop3,
-  currentPeriod,
-  onSelectPeriod,
   onSelectProfile,
   onVoteProfile,
   onReportProfile,
@@ -55,35 +50,11 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
   onSelectFilter,
   actionPanelSlot
 }) => {
-  // Authoritative period headings
-  const getPeriodTitle = () => {
-    switch (currentPeriod) {
-      case 'today':
-        return "Today's Laziest";
-      case 'week':
-        return "This Week's Laziest";
-      case 'month':
-        return "This Month's Laziest";
-      case 'all':
-        return "All-Time Laziest";
-    }
-  };
-
   // Compact editorial empty states
   const getEmptyStateText = () => {
-    if (currentFilter === 'all') {
-      return "No claims registered for this period yet.";
-    }
-    switch (currentPeriod) {
-      case 'today':
-        return "Today is still unclaimed.";
-      case 'week':
-        return "No verified claims this week yet.";
-      case 'month':
-        return "No verified claims this month yet.";
-      case 'all':
-        return "No verified claims recorded yet.";
-    }
+    return currentFilter === 'all'
+      ? 'No participants yet.'
+      : 'No verified claims recorded yet.';
   };
 
   // Persistent All-Time Top 3 (Global Benchmark Layer)
@@ -106,7 +77,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
             </p>
           </div>
           <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#faeee5] border border-[#f2ded0] text-[#7c2d12] text-[10px] font-extrabold shadow-2xs">
-            Permanent Hall of Fame
+            Current All-Time Top 3
           </span>
         </div>
 
@@ -317,69 +288,16 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="text-base sm:text-lg font-extrabold tracking-tight text-stone-900 flex items-center gap-1.5">
-              <span>{getPeriodTitle()}</span>
+              <span>All-Time Leaderboard</span>
               <span className="text-xs font-mono-numbers font-bold text-stone-400">
                 ({totalCount})
               </span>
             </h2>
             <p className="text-[11px] text-stone-500 mt-0.5">
               {currentFilter === 'verified'
-                ? 'Public verified rankings for this period.'
-                : 'All participants: verified paid ranks and pending claims.'}
+                ? 'Verified profiles ranked by cumulative settled sponsorship.'
+                : 'All participants, including unverified profiles.'}
             </p>
-          </div>
-
-          {/* Time Tabs: Today | This Week | This Month | All Time */}
-          <div className="inline-flex rounded-lg bg-[#f0eae1]/90 p-0.5 text-xs font-medium text-stone-600 self-start sm:self-auto">
-            <button
-              id="tab-today-btn"
-              onClick={() => onSelectPeriod('today')}
-              aria-pressed={currentPeriod === 'today'}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer inline-flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
-                currentPeriod === 'today'
-                  ? 'bg-white text-stone-900 shadow-xs'
-                  : 'hover:text-stone-900 text-stone-600'
-              }`}
-            >
-              <span>Today</span>
-              <span className={`w-1.5 h-1.5 rounded-full ${currentPeriod === 'today' ? 'bg-orange-500 animate-pulse' : 'bg-stone-300'}`} />
-            </button>
-            <button
-              id="tab-week-btn"
-              onClick={() => onSelectPeriod('week')}
-              aria-pressed={currentPeriod === 'week'}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
-                currentPeriod === 'week'
-                  ? 'bg-white text-stone-900 shadow-xs'
-                  : 'hover:text-stone-900 text-stone-600'
-              }`}
-            >
-              This Week
-            </button>
-            <button
-              id="tab-month-btn"
-              onClick={() => onSelectPeriod('month')}
-              aria-pressed={currentPeriod === 'month'}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
-                currentPeriod === 'month'
-                  ? 'bg-white text-stone-900 shadow-xs'
-                  : 'hover:text-stone-900 text-stone-600'
-              }`}
-            >
-              This Month
-            </button>
-            <button
-              id="tab-all-btn"
-              onClick={() => onSelectPeriod('all')}
-              aria-pressed={currentPeriod === 'all'}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold tracking-tight transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
-                currentPeriod === 'all'
-                  ? 'bg-white text-stone-900 shadow-xs'
-                  : 'hover:text-stone-900 text-stone-600'
-              }`}
-            >
-              All Time
-            </button>
           </div>
         </div>
 
@@ -422,24 +340,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
               </span>
             ) : null}
           </div>
-        </div>
-
-        {/* COUNTDOWN TIMER COMPONENT: Shows how long until the 'Today' leaderboard resets */}
-        <div className="mt-3">
-          {currentPeriod === 'today' ? (
-            <TodayResetCountdown
-              variant="full"
-              topParticipantName={profiles.find(p => p.isVerified && p.amount > 0)?.name}
-              topParticipantAmount={profiles.find(p => p.isVerified && p.amount > 0)?.amount}
-              onClaimClick={onClaimSpecificRank ? () => onClaimSpecificRank(1) : undefined}
-              onReset={() => onSelectPeriod('today')}
-            />
-          ) : (
-            <TodayResetCountdown
-              variant="compact"
-              onClaimClick={() => onSelectPeriod('today')}
-            />
-          )}
         </div>
       </div>
 

@@ -26,6 +26,7 @@ export interface SettlePaymentParams {
 
 export interface RefundParams {
   orderId: string;
+  merchantRefundId: string;
   providerRefundId?: string;
   amount: number;
   reason: string;
@@ -129,11 +130,14 @@ export class PostgresDatabase {
   constructor(connectionString?: string) {
     const connStr = connectionString || process.env.DATABASE_URL;
     if (connStr) {
-      const isLocal = connStr.includes('127.0.0.1') || connStr.includes('localhost') || connStr.includes('sslmode=disable');
-      const isSsl = process.env.NODE_ENV === 'production' && !isLocal;
+      if (process.env.NODE_ENV === 'production' && connStr.includes('sslmode=disable')) {
+        throw new Error('FATAL: sslmode=disable is strictly forbidden in production environment.');
+      }
+      const isLocal = (connStr.includes('127.0.0.1') || connStr.includes('localhost')) && process.env.NODE_ENV !== 'production';
+      const isSsl = process.env.NODE_ENV === 'production' || (!isLocal && !connStr.includes('sslmode=disable'));
       this.pool = new Pool({
         connectionString: connStr,
-        ssl: isSsl ? true : undefined,
+        ssl: isSsl ? { rejectUnauthorized: true } : undefined,
         max: 10,
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 5000,
@@ -180,11 +184,26 @@ export class PostgresDatabase {
         );
         if (migRes.rows.length === 0) {
           const migPath = path.join(process.cwd(), 'server', 'db', 'migrations', '002_remediation.sql');
-          if (fs.existsSync(migPath)) {
-            const migSql = fs.readFileSync(migPath, 'utf-8');
-            await client.query(migSql);
-            console.log('[PostgreSQL] Migration 002_remediation applied successfully.');
+          if (!fs.existsSync(migPath)) {
+            throw new Error('Required migration 002_remediation.sql is missing.');
           }
+          const migSql = fs.readFileSync(migPath, 'utf-8');
+          await client.query(migSql);
+          console.log('[PostgreSQL] Migration 002_remediation applied successfully.');
+        }
+
+        // 4. Check and apply migration 003_final_polish if not already recorded
+        const mig003Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '003_final_polish'"
+        );
+        if (mig003Res.rows.length === 0) {
+          const mig003Path = path.join(process.cwd(), 'server', 'db', 'migrations', '003_final_polish.sql');
+          if (!fs.existsSync(mig003Path)) {
+            throw new Error('Required migration 003_final_polish.sql is missing.');
+          }
+          const mig003Sql = fs.readFileSync(mig003Path, 'utf-8');
+          await client.query(mig003Sql);
+          console.log('[PostgreSQL] Migration 003_final_polish applied successfully.');
         }
 
         this.isInitialized = true;
@@ -468,10 +487,9 @@ export class PostgresDatabase {
         targetProfileId = 'p-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
         const userId = 'u-' + crypto.randomUUID().replace(/-/g, '').slice(0, 8);
         if (!order.owner_token_hash) {
-          ownerTokenHash = hashToken('lazy_' + crypto.randomUUID().replace(/-/g, ''));
-        } else {
-          ownerTokenHash = order.owner_token_hash;
+          throw new Error('Missing client owner token hash; cannot fulfill unowned paid order');
         }
+        ownerTokenHash = order.owner_token_hash;
 
         await client.query(
           `INSERT INTO profiles (
@@ -572,7 +590,7 @@ export class PostgresDatabase {
     refundPaise: number,
     merchantRefundId: string,
     reason: string
-  ): Promise<{ success: boolean; message?: string; remainingRefundablePaise?: number }> {
+  ): Promise<{ success: boolean; message?: string; remainingRefundablePaise?: number; statusCode?: number }> {
     if (!this.pool) throw new Error('Database unavailable.');
     const client = await this.pool.connect();
     try {
@@ -588,12 +606,42 @@ export class PostgresDatabase {
         return { success: false, message: 'Order not found.' };
       }
       const order = orderRes.rows[0];
-      if (!['PAID', 'PARTIALLY_REFUNDED'].includes(order.status)) {
+      if (!['PAID', 'PARTIALLY_REFUNDED'].includes(order.status) && order.status !== 'REFUND_PENDING') {
         await client.query('ROLLBACK');
         return { success: false, message: 'Order is not refundable in this state.' };
       }
 
+      // Check existing row with this merchant ID before summing remaining balance
+      const existingRowRes = await client.query(
+        'SELECT * FROM refund_reversals WHERE (id = $1 OR merchant_refund_id = $1) FOR UPDATE',
+        [merchantRefundId]
+      );
+
       const orderPaise = Math.round(Number(order.amount) * 100);
+
+      if (existingRowRes.rows.length > 0) {
+        const existingRow = existingRowRes.rows[0];
+        const existingRowPaise = Math.round(Number(existingRow.amount) * 100);
+        if (existingRow.order_id === orderId && existingRowPaise === refundPaise) {
+          if (existingRow.status === 'PENDING') {
+            await client.query('COMMIT');
+            return { success: true, message: 'Existing pending refund reservation returned idempotently.' };
+          }
+          if (existingRow.status === 'SUCCESS') {
+            await client.query('COMMIT');
+            return { success: true, message: 'Refund already settled.' };
+          }
+        }
+        // mismatched order/amount or FAILED
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Conflict: Refund ID already exists with mismatched order, amount, or failed status.', statusCode: 409 };
+      }
+
+      // New different ID while order is REFUND_PENDING: reject to prevent double refund
+      if (order.status === 'REFUND_PENDING') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Order already has a pending refund in progress.', statusCode: 409 };
+      }
 
       // Sum all settled (SUCCESS) and in-flight (PENDING) refunds
       const totalRefRes = await client.query(
@@ -614,10 +662,11 @@ export class PostgresDatabase {
 
       const refundAmountINR = refundPaise / 100;
       await client.query(
-        `INSERT INTO refund_reversals (id, order_id, provider_refund_id, amount, currency, reason, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, 'INR', $5, 'PENDING', NOW(), NOW())
-         ON CONFLICT (id) DO UPDATE SET status = 'PENDING', amount = EXCLUDED.amount, updated_at = NOW()`,
-        [merchantRefundId, orderId, merchantRefundId, refundAmountINR, reason]
+        `INSERT INTO refund_reversals
+           (id, order_id, merchant_refund_id, provider_refund_id, amount,
+            currency, reason, status, created_at, updated_at)
+         VALUES ($1, $2, $1, NULL, $3, 'INR', $4, 'PENDING', NOW(), NOW())`,
+        [merchantRefundId, orderId, refundAmountINR, reason]
       );
 
       await client.query(
@@ -692,22 +741,20 @@ export class PostgresDatabase {
     eventType: string,
     orderId?: string | null,
     providerPaymentId?: string | null,
-    payload?: any
+    payload?: unknown
   ): Promise<boolean> {
-    if (!this.pool) return true;
-    try {
-      const res = await this.pool.query(
-        `INSERT INTO payment_webhook_events (event_id, event_type, order_id, cf_payment_id, payload, processed, created_at)
-         VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
-         ON CONFLICT (event_id) DO NOTHING
-         RETURNING id`,
-        [eventId, eventType, orderId || null, providerPaymentId || null, JSON.stringify(payload || {})]
-      );
-      return res.rowCount === 1;
-    } catch (err) {
-      console.error('[PostgreSQL] recordWebhookEvent error:', err);
-      return true;
-    }
+    if (!this.pool) throw new Error('Webhook inbox unavailable');
+    if (!eventId || eventId.length > 128) throw new Error('Invalid webhook event ID');
+    const id = `wh_${crypto.randomUUID()}`;
+    const result = await this.pool.query(
+      `INSERT INTO payment_webhook_events
+         (id, event_id, event_type, order_id, provider_payment_id, payload, processed_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())
+       ON CONFLICT (event_id) DO NOTHING RETURNING id`,
+      [id, eventId, eventType, orderId ?? null, providerPaymentId ?? null,
+       JSON.stringify(payload ?? {})]
+    );
+    return result.rowCount === 1;
   }
 
   /**
@@ -736,44 +783,73 @@ export class PostgresDatabase {
       }
 
       const order = orderRes.rows[0];
-      const orderAmount = Number(order.amount);
+      const orderPaise = Math.round(Number(order.amount) * 100);
+      const refundPaise = Math.round(params.amount * 100);
       const profileId = order.profile_id;
 
-      // Idempotency: If providerRefundId is supplied and already settled with SUCCESS, return immediately
-      if (params.providerRefundId) {
-        const existingRef = await client.query(
-          "SELECT 1 FROM refund_reversals WHERE (provider_refund_id = $1 OR id = $1) AND status = 'SUCCESS' LIMIT 1",
-          [params.providerRefundId]
-        );
-        if (existingRef.rows.length > 0) {
-          await client.query('COMMIT');
-          return { success: true, message: 'Refund reversal already settled.' };
-        }
+      // Locate precisely the PENDING reservation by (order_id, merchant_refund_id)
+      const reservationRes = await client.query(
+        'SELECT * FROM refund_reversals WHERE order_id = $1 AND (merchant_refund_id = $2 OR id = $2) FOR UPDATE',
+        [params.orderId, params.merchantRefundId]
+      );
+
+      if (reservationRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: `No refund reservation found for order ${params.orderId} and refund ${params.merchantRefundId}.` };
       }
 
-      // Check total settled refunds so far
+      const reservation = reservationRes.rows[0];
+      const resPaise = Math.round(Number(reservation.amount) * 100);
+
+      // Validate exact integer paise match
+      if (resPaise !== refundPaise) {
+        await client.query('ROLLBACK');
+        return { success: false, message: `Refund amount mismatch: reservation has ${resPaise} paise, but received ${refundPaise} paise.` };
+      }
+
+      // Check currency
+      if (reservation.currency !== 'INR') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Currency mismatch: expected INR.' };
+      }
+
+      // If already SUCCESS with the same provider ID, acknowledge idempotently without another ledger debit
+      if (reservation.status === 'SUCCESS') {
+        if (!params.providerRefundId || reservation.provider_refund_id === params.providerRefundId) {
+          await client.query('COMMIT');
+          return { success: true, message: 'Refund already settled.' };
+        }
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Conflict: Refund already settled with different provider refund ID.' };
+      }
+
+      // If previous provider ID was bound and differs, reject mismatch
+      if (reservation.provider_refund_id && params.providerRefundId && reservation.provider_refund_id !== params.providerRefundId) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Conflict: Provider refund ID mismatch.' };
+      }
+
+      // Require rowCount === 1 before ledger insert
+      const updateRes = await client.query(
+        `UPDATE refund_reversals
+         SET status = 'SUCCESS', provider_refund_id = $1, updated_at = NOW()
+         WHERE id = $2 AND order_id = $3 AND status = 'PENDING'
+         RETURNING id`,
+        [params.providerRefundId || null, reservation.id, params.orderId]
+      );
+
+      if (updateRes.rowCount !== 1) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Could not transition reservation from PENDING to SUCCESS.' };
+      }
+
+      // Sum all settled (SUCCESS) refunds including this one
       const totalRefundedRes = await client.query(
         "SELECT COALESCE(SUM(amount), 0) as total FROM refund_reversals WHERE order_id = $1 AND status = 'SUCCESS'",
         [params.orderId]
       );
-      const alreadyRefunded = Number(totalRefundedRes.rows[0].total);
-
-      if (alreadyRefunded + params.amount > orderAmount + 0.01) {
-        await client.query('ROLLBACK');
-        return { success: false, message: 'Total refund amount exceeds original successfully captured payment.' };
-      }
-
-      // Record refund reversal with status SUCCESS
-      const refId = params.providerRefundId || ('ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12));
-      await client.query(
-        `INSERT INTO refund_reversals (id, order_id, provider_refund_id, amount, currency, reason, status, created_at)
-         VALUES ($1, $2, $3, $4, 'INR', $5, 'SUCCESS', NOW())
-         ON CONFLICT (id) DO UPDATE SET status = 'SUCCESS', amount = EXCLUDED.amount, updated_at = NOW()`,
-        [refId, params.orderId, params.providerRefundId || null, params.amount, params.reason]
-      );
-
-      const newTotalRefunded = alreadyRefunded + params.amount;
-      const finalOrderStatus = newTotalRefunded >= orderAmount - 0.01 ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+      const settledPaise = Math.round(Number(totalRefundedRes.rows[0].total) * 100);
+      const finalOrderStatus = settledPaise >= orderPaise ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
 
       // Update order status
       await client.query(
@@ -890,6 +966,9 @@ export class PostgresDatabase {
     topAmount: number;
     minAmountToBeatTop: number;
   }> {
+    if (options?.period && options.period !== 'all') {
+      throw new Error("Only all-time leaderboard is available; period must be 'all' or absent.");
+    }
     if (!this.pool) {
       return { profiles: [], totalCount: 0, hasMore: false, page: 1, pageSize: 20, topAmount: 0, minAmountToBeatTop: 1 };
     }
@@ -996,6 +1075,7 @@ export class PostgresDatabase {
       title: row.title || undefined,
       badge: row.badge || undefined,
       lazyReason: row.lazy_reason || undefined,
+      roast: row.roast || undefined,
       lazyStreakDays: row.lazy_streak_days || 0,
       isVerified: Boolean(row.is_verified),
       firstVerifiedAt: row.first_verified_at ? new Date(row.first_verified_at).toISOString() : undefined,
@@ -1063,11 +1143,46 @@ export class PostgresDatabase {
 
   public async resolveReport(reportId: string): Promise<boolean> {
     if (!this.pool) throw new Error('Database unavailable');
-    const res = await this.pool.query(
-      "UPDATE reports SET status = 'resolved' WHERE id = $1 RETURNING id",
+    const result = await this.pool.query(
+      "UPDATE reports SET status = 'actioned' WHERE id = $1 AND status <> 'actioned' RETURNING id",
       [reportId]
     );
-    return (res.rowCount ?? 0) > 0;
+    return result.rowCount === 1;
+  }
+
+  public async setProfileLazyReason(profileId: string, lazyReason: string, ownerToken?: string): Promise<UserProfile | null> {
+    if (!this.pool) throw new Error('Database unavailable');
+    if (!ownerToken || typeof ownerToken !== 'string' || !ownerToken.trim()) {
+      throw new Error('Unauthorized: Owner token is required to modify this profile.');
+    }
+
+    const res = await this.pool.query(
+      'SELECT * FROM profiles WHERE id = $1',
+      [profileId]
+    );
+    if (res.rows.length === 0) return null;
+
+    const row = res.rows[0];
+    if (!verifyOwnerToken(row.owner_token_hash, ownerToken.trim())) {
+      throw new Error('Unauthorized: Invalid owner token for this profile.');
+    }
+
+    const updateRes = await this.pool.query(
+      'UPDATE profiles SET lazy_reason = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [lazyReason.trim(), profileId]
+    );
+    if (updateRes.rows.length === 0) return null;
+    return this.mapProfile(updateRes.rows[0]);
+  }
+
+  public async updateProfileRoast(profileId: string, roast: string): Promise<UserProfile | null> {
+    if (!this.pool) throw new Error('Database unavailable');
+    const updateRes = await this.pool.query(
+      'UPDATE profiles SET roast = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+      [roast.trim(), profileId]
+    );
+    if (updateRes.rows.length === 0) return null;
+    return this.mapProfile(updateRes.rows[0]);
   }
 
   /**
@@ -1305,5 +1420,97 @@ export class PostgresDatabase {
       console.error('[PostgreSQL] checkRateLimit error:', err);
       return true;
     }
+  }
+
+  /**
+   * Reconcile pending payments and refunds using PostgreSQL advisory lock
+   * Prevents multi-replica duplicate work.
+   */
+  public async reconcilePendingTransactions(provider: any): Promise<{ reconciledOrders: number; reconciledRefunds: number }> {
+    if (!this.pool) return { reconciledOrders: 0, reconciledRefunds: 0 };
+    const client = await this.pool.connect();
+    let reconciledOrders = 0;
+    let reconciledRefunds = 0;
+
+    try {
+      const lockRes = await client.query('SELECT pg_try_advisory_lock(554433221) AS locked');
+      if (!lockRes.rows[0]?.locked) {
+        return { reconciledOrders: 0, reconciledRefunds: 0 };
+      }
+
+      try {
+        // Query up to 20 PENDING / CREATED orders between 5 minutes and 24 hours old
+        const pendingOrdersRes = await client.query(
+          `SELECT order_id, amount, status FROM payment_orders
+           WHERE status IN ('PENDING', 'CREATED')
+             AND created_at <= NOW() - INTERVAL '5 minutes'
+             AND created_at >= NOW() - INTERVAL '24 hours'
+           ORDER BY created_at ASC
+           LIMIT 20`
+        );
+
+        for (const order of pendingOrdersRes.rows) {
+          try {
+            const providerStatus = await provider.getPaymentStatus(order.order_id);
+            if (providerStatus.status === 'PAID' && providerStatus.providerPaymentId) {
+              const toPaise = (amt: number): number => Math.round(amt * 100);
+              if (providerStatus.amount !== undefined && toPaise(providerStatus.amount) === toPaise(Number(order.amount))) {
+                const res = await this.settlePaymentAtomic({
+                  orderId: order.order_id,
+                  providerPaymentId: providerStatus.providerPaymentId,
+                  provider: provider.name || 'cashfree',
+                  amount: Number(order.amount),
+                  paymentMethod: providerStatus.paymentMethod || 'UPI',
+                  signatureVerified: false
+                });
+                if (res.success) reconciledOrders++;
+              }
+            }
+          } catch (orderErr) {
+            console.warn(`[Reconciliation] Order ${order.order_id} check failed:`, orderErr);
+          }
+        }
+
+        // Query up to 20 PENDING refunds between 5 minutes and 24 hours old
+        const pendingRefundsRes = await client.query(
+          `SELECT order_id, merchant_refund_id, id, amount, reason FROM refund_reversals
+           WHERE status = 'PENDING'
+             AND created_at <= NOW() - INTERVAL '5 minutes'
+             AND created_at >= NOW() - INTERVAL '24 hours'
+           ORDER BY created_at ASC
+           LIMIT 20`
+        );
+
+        for (const ref of pendingRefundsRes.rows) {
+          const merchantRefId = ref.merchant_refund_id || ref.id;
+          try {
+            const refundStatus = await provider.getRefundStatus(ref.order_id, merchantRefId);
+            if (refundStatus.status === 'SUCCESS' && refundStatus.providerRefundId) {
+              const res = await this.reverseRefundAtomic({
+                orderId: ref.order_id,
+                merchantRefundId: merchantRefId,
+                amount: Number(ref.amount),
+                reason: ref.reason || 'Reconciled refund',
+                providerRefundId: refundStatus.providerRefundId
+              });
+              if (res.success) reconciledRefunds++;
+            } else if (refundStatus.status === 'FAILED') {
+              await this.failRefundReservation(merchantRefId, ref.order_id);
+              reconciledRefunds++;
+            }
+          } catch (refErr) {
+            console.warn(`[Reconciliation] Refund ${merchantRefId} check failed:`, refErr);
+          }
+        }
+      } finally {
+        await client.query('SELECT pg_advisory_unlock(554433221)');
+      }
+    } catch (err) {
+      console.error('[Reconciliation] Error:', err);
+    } finally {
+      client.release();
+    }
+
+    return { reconciledOrders, reconciledRefunds };
   }
 }

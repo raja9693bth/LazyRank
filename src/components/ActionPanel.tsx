@@ -26,6 +26,8 @@ interface ActionPanelProps {
   }) => void;
   isLoading?: boolean;
   errorMessage?: string | null;
+  taxDisclosure?: string;
+  taxReady?: boolean;
 }
 
 export const ActionPanel: React.FC<ActionPanelProps> = ({
@@ -37,7 +39,9 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   onCancelUpgrade,
   onStartPayment,
   isLoading = false,
-  errorMessage
+  errorMessage,
+  taxDisclosure,
+  taxReady = false
 }) => {
   const [amount, setAmount] = useState<number>(initialAmount ?? minAmountToBeatTop);
   const [amountTouched, setAmountTouched] = useState<boolean>(false);
@@ -485,19 +489,26 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
               <span>Amount</span>
             </div>
             <div className="flex items-center justify-between text-stone-700">
-              <span className="truncate pr-2">Base Sponsorship (Placement & Showcase)</span>
+              <span className="truncate pr-2">Base Amount</span>
               <span className="font-mono-numbers font-bold">₹{amount.toLocaleString('en-IN')}</span>
             </div>
-            <div className="flex items-center justify-between text-[11px] text-stone-500">
-              <span>Applicable Taxes (GST: Exempt Sole Proprietorship)</span>
+            <div className="flex items-start justify-between gap-2 text-[11px] text-stone-500">
+              <span>
+                <strong>Goods &amp; Services Tax (GST)</strong>
+                <small className="block">
+                  {taxDisclosure || (taxReady
+                    ? 'Unregistered (Turnover below threshold under Section 22 CGST Act) — ₹0'
+                    : 'GST status being verified — checkout unavailable')}
+                </small>
+              </span>
               <span className="font-mono-numbers">₹0</span>
             </div>
             <div className="flex items-center justify-between text-[11px] text-stone-500">
-              <span>Platform & Processing Fees</span>
+              <span>Platform Fee</span>
               <span className="font-mono-numbers">₹0</span>
             </div>
             <div className="flex items-center justify-between text-xs font-black text-stone-950 border-t border-[#ede5da] pt-1.5">
-              <span>Final Payable Total</span>
+              <span>Total Payable</span>
               <span className="font-mono-numbers text-sm text-[#9c3a16]">₹{amount.toLocaleString('en-IN')} INR</span>
             </div>
 
@@ -544,8 +555,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
           <button
             id="prove-your-laziness-btn"
             type="submit"
-            disabled={isLoading || !name.trim() || amount < 1 || !termsAccepted || customerPhone.replace(/\D/g, '').length !== 10}
-            aria-label={`Prove your laziness - pay ₹${amount.toLocaleString('en-IN')}`}
+            disabled={isLoading || !taxReady || !name.trim() || amount < 1 || !termsAccepted || customerPhone.replace(/\D/g, '').length !== 10}
+            aria-label={taxReady ? `Prove your laziness - pay ₹${amount.toLocaleString('en-IN')}` : 'Checkout unavailable pending payment and tax verification'}
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] py-3 px-5 text-xs sm:text-sm font-black text-white shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-2"
           >
             {isLoading ? (
@@ -553,6 +564,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
                 <span>Preparing Payment...</span>
               </>
+            ) : !taxReady ? (
+              <span>CHECKOUT UNAVAILABLE — TAX &amp; PAYMENT VERIFICATION PENDING</span>
             ) : (
               <>
                 <span>PROVE YOUR LAZINESS — PAY ₹{amount.toLocaleString('en-IN')}</span>

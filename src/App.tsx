@@ -25,6 +25,23 @@ import { RulesPage } from './pages/RulesPage.tsx';
 import { updatePageSeo, updateProfileSeo } from './utils/seo.ts';
 import { Swords } from 'lucide-react';
 
+type PublicPaymentConfig = { enabled: boolean; taxReady: boolean; taxDisclosure: string };
+
+type PendingCheckout = {
+  ownerToken: string;
+  orderAccessToken: string;
+  idempotencyKey: string;
+  createdAt: number;
+};
+const pendingCheckoutKey = 'lazy_checkout_pending_v1';
+const orderCheckoutKey = (orderId: string): string => `lazy_checkout_${orderId}`;
+function storePendingCheckout(record: PendingCheckout): void {
+  sessionStorage.setItem(pendingCheckoutKey, JSON.stringify(record));
+}
+function storeOrderCheckout(orderId: string, record: PendingCheckout): void {
+  sessionStorage.setItem(orderCheckoutKey(orderId), JSON.stringify(record));
+}
+
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -39,7 +56,12 @@ export default function App() {
   const [topAmount, setTopAmount] = useState<number>(0);
   const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(1);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
-  const [currentPeriod, setCurrentPeriod] = useState<RankPeriod>('today');
+  const currentPeriod: RankPeriod = 'all';
+  const [paymentConfig, setPaymentConfig] = useState<PublicPaymentConfig>({
+    enabled: false,
+    taxReady: false,
+    taxDisclosure: 'GST status being verified — checkout unavailable'
+  });
   const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);
   const [liveStats, setLiveStats] = useState<LiveStats | null>(null);
   const [isLiveStatsOpen, setIsLiveStatsOpen] = useState(false);
@@ -82,9 +104,20 @@ export default function App() {
   const [reportingTargetId, setReportingTargetId] = useState<string | null>(null);
   const [isLoadingLeaderboard, setIsLoadingLeaderboard] = useState(false);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch('/api/payment/config', { signal: controller.signal })
+      .then(async (r) => {
+        if (!r.ok) throw new Error('Configuration unavailable');
+        return r.json();
+      })
+      .then((c: PublicPaymentConfig) => setPaymentConfig(c))
+      .catch(() => { /* keep disabled defaults */ });
+    return () => controller.abort();
+  }, []);
+
   // Load Leaderboard from Server with full server-side pagination & filter support
   const loadLeaderboard = async (
-    period: RankPeriod = currentPeriod,
     offset: number = 0,
     limit: number = 20,
     filter: 'verified' | 'all' = filterMode,
@@ -97,7 +130,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch(`/api/leaderboard?period=${period}&offset=${offset}&limit=${limit}&filter=${filter}`);
+      const res = await fetch(`/api/leaderboard?period=all&offset=${offset}&limit=${limit}&filter=${filter}`);
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
         if (isAppend) {
@@ -171,7 +204,7 @@ export default function App() {
 
   // Initial Load + URL parameter triage
   useEffect(() => {
-    loadLeaderboard(currentPeriod);
+    loadLeaderboard();
     loadAllTimeTop3();
     loadActivities();
     loadLiveStats();
@@ -205,29 +238,77 @@ export default function App() {
 
     const returnOrderId = params.get('order_id');
     if (returnOrderId) {
-      fetch(`/api/payment/status/${encodeURIComponent(returnOrderId)}`)
-        .then(res => res.json())
-        .then(data => {
-          if (data.status === 'PAID') {
-            loadLeaderboard(currentPeriod);
-            loadActivities();
-            loadLiveStats();
-            if (data.profile) {
-              setOrderData({
-                orderId: returnOrderId,
-                name: data.profile.name,
-                amount: data.profile.amount,
-                currency: 'INR',
-                isTop: data.profile.rank === 1,
-                topAmount: data.profile.amount,
-                minAmountToBeatTop: data.profile.amount + 1,
-                paymentMode: 'live'
-              });
-              setIsPaymentModalOpen(true);
+      let cancelled = false;
+      const pollReturnOrder = async () => {
+        let recovered: PendingCheckout | null = null;
+        try {
+          recovered = JSON.parse(sessionStorage.getItem(orderCheckoutKey(returnOrderId)) || 'null') as PendingCheckout | null;
+        } catch {}
+
+        if (!recovered || !/^ord_[0-9a-f]{64}$/i.test(recovered.orderAccessToken)) {
+          setOrderError('Cannot restore this checkout in this browser. Contact support with your order ID.');
+          return;
+        }
+
+        setPendingOwnerToken(recovered.ownerToken);
+        setOrderAccessToken(recovered.orderAccessToken);
+
+        // Bounded polling for status
+        const maxPollAttempts = 10;
+        const pollInterval = 2000;
+        for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
+          if (cancelled) break;
+          try {
+            const response = await fetch(`/api/payment/status/${encodeURIComponent(returnOrderId)}`, {
+              headers: { 'x-order-access-token': recovered.orderAccessToken }
+            });
+            if (cancelled) break;
+            if (response.ok) {
+              const data = await response.json();
+              if (data.status === 'PAID') {
+                loadLeaderboard();
+                loadActivities();
+                loadLiveStats();
+                if (data.profile) {
+                  setOrderData({
+                    orderId: returnOrderId,
+                    name: data.profile.name,
+                    amount: data.profile.amount,
+                    currency: 'INR',
+                    isTop: data.profile.rank === 1,
+                    topAmount: data.profile.amount,
+                    minAmountToBeatTop: data.profile.amount + 1,
+                    paymentMode: 'live'
+                  });
+                  setIsPaymentModalOpen(true);
+                  if (recovered.ownerToken && data.profile.id) {
+                    try {
+                      const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
+                      tokens[data.profile.id] = recovered.ownerToken;
+                      localStorage.setItem('lazy_tokens', JSON.stringify(tokens));
+                    } catch {}
+                  }
+                  try {
+                    sessionStorage.removeItem(pendingCheckoutKey);
+                    sessionStorage.removeItem(orderCheckoutKey(returnOrderId));
+                  } catch {}
+                }
+                break;
+              } else if (data.status === 'FAILED' || data.status === 'EXPIRED') {
+                setOrderError(`Payment ${data.status.toLowerCase()}. Please try again.`);
+                break;
+              }
             }
+          } catch {
+            // retry until bounded limit
           }
-        })
-        .catch(() => {});
+          if (attempt < maxPollAttempts - 1) {
+            await new Promise(r => setTimeout(r, pollInterval));
+          }
+        }
+      };
+      pollReturnOrder();
+      return () => { cancelled = true; };
     }
 
     const challengeName = params.get('challenge');
@@ -297,28 +378,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handlePeriodChange = (period: RankPeriod) => {
-    setCurrentPeriod(period);
-    setCurrentPage(1);
-    loadLeaderboard(period, 0, 20, filterMode, false);
-    fetch('/api/analytics/track', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event: 'leaderboardClicks' })
-    }).catch(() => {});
-  };
-
   const handleFilterChange = (filter: 'verified' | 'all') => {
     setFilterMode(filter);
     setCurrentPage(1);
-    loadLeaderboard(currentPeriod, 0, 20, filter, false);
+    loadLeaderboard(0, 20, filter, false);
   };
 
   const handleLoadMore = () => {
     if (hasMore && !isLoadingMore && !isLoadingLeaderboard) {
       const remaining = totalCount - profiles.length;
       const nextBatch = Math.min(100, Math.max(1, remaining));
-      loadLeaderboard(currentPeriod, profiles.length, nextBatch, filterMode, true);
+      loadLeaderboard(profiles.length, nextBatch, filterMode, true);
     }
   };
 
@@ -347,6 +417,14 @@ export default function App() {
     }).catch(() => {});
 
     try {
+      sessionStorage.setItem('__storage_test__', '1');
+      sessionStorage.removeItem('__storage_test__');
+    } catch {
+      setOrderError('Browser storage (sessionStorage) is disabled or blocked. Please enable cookies/storage to proceed with checkout.');
+      return;
+    }
+
+    try {
       let storedToken: string | undefined;
       const targetProfileId = claimData.profileId || upgradingProfile?.id;
       if (targetProfileId) {
@@ -356,35 +434,50 @@ export default function App() {
         } catch {}
       }
 
-      const makeSecret = (prefix: string): string => {
+      let pendingRecord: PendingCheckout | null = null;
+      try {
+        const raw = sessionStorage.getItem(pendingCheckoutKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed.ownerToken === 'string' && typeof parsed.orderAccessToken === 'string' && typeof parsed.idempotencyKey === 'string') {
+            pendingRecord = parsed;
+          }
+        }
+      } catch {}
+
+      const makeSecret = (prefix: 'lazy' | 'ord'): string => {
         const bytes = crypto.getRandomValues(new Uint8Array(32));
         return `${prefix}_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
       };
 
       const pendingToken = targetProfileId
-        ? storedToken
-        : (pendingOwnerToken || makeSecret('lazy'));
-      if (!targetProfileId && !pendingOwnerToken) {
-        setPendingOwnerToken(pendingToken || null);
+        ? (storedToken || makeSecret('lazy'))
+        : (pendingRecord?.ownerToken || pendingOwnerToken || makeSecret('lazy'));
+      if (!targetProfileId) {
+        setPendingOwnerToken(pendingToken);
       }
 
-      const orderToken = orderAccessToken || makeSecret('ord');
-      if (!orderAccessToken) {
-        setOrderAccessToken(orderToken);
-      }
+      const orderToken = pendingRecord?.orderAccessToken || orderAccessToken || makeSecret('ord');
+      setOrderAccessToken(orderToken);
 
       // Generate or reuse stable idempotency key for this checkout attempt
-      const idempotencyKey = currentIdempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
-      if (!currentIdempotencyKey) {
-        setCurrentIdempotencyKey(idempotencyKey);
-      }
+      const idempotencyKey = currentIdempotencyKey || pendingRecord?.idempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+      setCurrentIdempotencyKey(idempotencyKey);
+
+      const checkoutRecord: PendingCheckout = {
+        ownerToken: pendingToken,
+        orderAccessToken: orderToken,
+        idempotencyKey,
+        createdAt: pendingRecord?.createdAt || Date.now()
+      };
+      storePendingCheckout(checkoutRecord);
 
       const res = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-idempotency-key': idempotencyKey,
-          ...(orderToken ? { 'x-order-access-token': orderToken } : {}),
+          'x-order-access-token': orderToken,
           ...(storedToken ? { 'x-profile-token': storedToken } : {})
         },
         body: JSON.stringify({
@@ -421,6 +514,10 @@ export default function App() {
         throw new Error(data.error || 'Failed to initiate payment.');
       }
 
+      if (data.orderId) {
+        storeOrderCheckout(data.orderId, checkoutRecord);
+      }
+
       setOrderData(data);
       setIsPaymentModalOpen(true);
     } catch (err: any) {
@@ -446,6 +543,14 @@ export default function App() {
         localStorage.setItem('lazy_tokens', JSON.stringify(tokens));
       } catch {}
     }
+
+    try {
+      sessionStorage.removeItem(pendingCheckoutKey);
+      if (orderData?.orderId) {
+        sessionStorage.removeItem(orderCheckoutKey(orderData.orderId));
+      }
+    } catch {}
+
     setPendingOwnerToken(null);
     setOrderAccessToken(null);
     setCurrentIdempotencyKey(null);
@@ -453,7 +558,7 @@ export default function App() {
     window.history.pushState({}, '', `/?rank=${profile.id}`);
 
     // Refresh leaderboard, all-time top 3 & activities to reflect new verified rank
-    loadLeaderboard(currentPeriod, 0, 20, filterMode, false);
+    loadLeaderboard(0, 20, filterMode, false);
     loadAllTimeTop3();
     loadActivities();
     setGlobalActivityRefreshKey(k => k + 1);
@@ -540,8 +645,6 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#fbf9f5] text-stone-900">
       {/* Header with Live Stats (Section 4 & 5) */}
       <Header
-        currentPeriod={currentPeriod}
-        onSelectPeriod={handlePeriodChange}
         onOpenAbout={() => navigate('/about')}
         onOpenRules={() => navigate('/rules')}
         onOpenChallenge={() => {
@@ -616,7 +719,7 @@ export default function App() {
                 onUpgradeRank={handleUpgradeRank}
                 onProfileUpdated={(updatedProfile) => {
                   setSelectedProfile(updatedProfile);
-                  loadLeaderboard(currentPeriod);
+                  loadLeaderboard();
                 }}
               />
             ) : (
@@ -636,8 +739,6 @@ export default function App() {
                 <Leaderboard
                   profiles={profiles}
                   allTimeTop3={allTimeTop3}
-                  currentPeriod={currentPeriod}
-                  onSelectPeriod={handlePeriodChange}
                   onSelectProfile={(p) => {
                     setIsJustClaimed(false);
                     setSelectedProfile(p);
@@ -664,6 +765,8 @@ export default function App() {
                       onStartPayment={handleStartPayment}
                       isLoading={isCreatingOrder}
                       errorMessage={orderError}
+                      taxReady={paymentConfig.enabled && paymentConfig.taxReady}
+                      taxDisclosure={paymentConfig.taxDisclosure}
                     />
                   }
                 />
@@ -717,7 +820,7 @@ export default function App() {
           if (selectedProfile && selectedProfile.id === updatedProfile.id) {
             setSelectedProfile(updatedProfile);
           }
-          loadLeaderboard(currentPeriod);
+          loadLeaderboard();
           loadAllTimeTop3();
           loadActivities();
         }}
@@ -752,7 +855,7 @@ export default function App() {
         currentProfile={selectedProfile || undefined}
         onProfileUpdated={(updatedProfile) => {
           setSelectedProfile(updatedProfile);
-          loadLeaderboard(currentPeriod);
+          loadLeaderboard();
         }}
       />
 
@@ -776,7 +879,7 @@ export default function App() {
           targetId={reportingTargetId}
           targetType="profile"
           onReportSubmitted={() => {
-            loadLeaderboard(currentPeriod);
+            loadLeaderboard();
           }}
         />
       )}
@@ -785,7 +888,7 @@ export default function App() {
       <AdminModal
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
-        onRefreshLeaderboard={() => loadLeaderboard(currentPeriod)}
+        onRefreshLeaderboard={() => loadLeaderboard()}
       />
 
       {/* Real-time Live Stats Modal */}

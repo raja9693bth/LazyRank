@@ -175,11 +175,11 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
               {activeProfile.rank <= 10 && (
                 <div
                   id="user-settings-lazy-streak-badge"
-                  title={`${activeProfile.lazyStreakDays || 1} consecutive days maintained in Top 10`}
+                  title="All-Time Top 10 rank holder"
                   className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 text-xs font-black"
                 >
                   <Flame className="w-3.5 h-3.5 text-orange-600 fill-orange-500" />
-                  <span>{activeProfile.lazyStreakDays || 1}d streak</span>
+                  <span>Top 10</span>
                 </div>
               )}
             </div>

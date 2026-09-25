@@ -5,8 +5,6 @@ import { LazyLogo } from './LazyLogo';
 import { LazyGoalProgress } from './LazyGoalProgress';
 
 interface HeaderProps {
-  currentPeriod: RankPeriod;
-  onSelectPeriod: (period: RankPeriod) => void;
   onOpenAbout: () => void;
   onOpenRules: () => void;
   onOpenChallenge: () => void;
@@ -18,8 +16,6 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  currentPeriod,
-  onSelectPeriod,
   onOpenAbout,
   onOpenRules,
   onOpenChallenge,
@@ -71,60 +67,15 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
 
-        {/* Center (Desktop only sm+): High-Prominence Primary Leaderboard Navigation */}
-        <nav
-          aria-label="Leaderboard Periods Desktop"
-          className="hidden sm:flex items-center gap-1 p-1 rounded-xl bg-stone-200/80 border border-stone-300/90 shadow-inner text-xs font-semibold text-stone-600 shrink-0"
-        >
-          <button
-            id="nav-tab-today"
-            type="button"
-            onClick={() => onSelectPeriod('today')}
-            className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-extrabold tracking-tight transition-all cursor-pointer select-none ${
-              currentPeriod === 'today'
-                ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-            }`}
+        {/* Center: Semantic link to Leaderboard */}
+        <div className="hidden sm:flex items-center gap-2">
+          <a
+            href="/#leaderboard-section"
+            className="px-3.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 border border-stone-200 text-xs font-bold text-stone-800 transition-colors"
           >
-            Today
-          </button>
-          <button
-            id="nav-tab-week"
-            type="button"
-            onClick={() => onSelectPeriod('week')}
-            className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-extrabold tracking-tight transition-all cursor-pointer select-none ${
-              currentPeriod === 'week'
-                ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-            }`}
-          >
-            <span className="hidden sm:inline">This </span>Week
-          </button>
-          <button
-            id="nav-tab-month"
-            type="button"
-            onClick={() => onSelectPeriod('month')}
-            className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-extrabold tracking-tight transition-all cursor-pointer select-none ${
-              currentPeriod === 'month'
-                ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-            }`}
-          >
-            <span className="hidden sm:inline">This </span>Month
-          </button>
-          <button
-            id="nav-tab-all"
-            type="button"
-            onClick={() => onSelectPeriod('all')}
-            className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-extrabold tracking-tight transition-all cursor-pointer select-none ${
-              currentPeriod === 'all'
-                ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-            }`}
-          >
-            All Time
-          </button>
-        </nav>
+            All-Time Leaderboard
+          </a>
+        </div>
 
         {/* Right: Primary Viral Action (Challenge CTA) */}
         <div className="flex items-center gap-2 shrink-0">
@@ -137,71 +88,6 @@ export const Header: React.FC<HeaderProps> = ({
             <Swords className="w-3.5 h-3.5 shrink-0" />
             <span>Challenge</span>
           </button>
-        </div>
-      </div>
-
-      {/* ========================================================================= */}
-      {/* ROW 2 (Mobile only <sm): DEDICATED LEADERBOARD PERIOD TABS STRIP          */}
-      {/* Primary Leaderboard Navigation is the most prominent element on mobile    */}
-      {/* ========================================================================= */}
-      <div
-        id="header-mobile-period-row"
-        className="block sm:hidden border-t border-[#eee6dc] bg-[#fbf9f5] px-3.5 py-2 shadow-xs"
-      >
-        <div className="flex items-center justify-between">
-          <nav
-            aria-label="Leaderboard Periods Mobile"
-            className="w-full flex items-center justify-between gap-1 p-1 rounded-xl bg-stone-200/80 border border-stone-300/80 shadow-inner text-xs font-semibold text-stone-600"
-          >
-            <button
-              id="mobile-nav-tab-today"
-              type="button"
-              onClick={() => onSelectPeriod('today')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-black tracking-tight text-center transition-all cursor-pointer select-none ${
-                currentPeriod === 'today'
-                  ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                  : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-              }`}
-            >
-              Today
-            </button>
-            <button
-              id="mobile-nav-tab-week"
-              type="button"
-              onClick={() => onSelectPeriod('week')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-black tracking-tight text-center transition-all cursor-pointer select-none ${
-                currentPeriod === 'week'
-                  ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                  : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-              }`}
-            >
-              Week
-            </button>
-            <button
-              id="mobile-nav-tab-month"
-              type="button"
-              onClick={() => onSelectPeriod('month')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-black tracking-tight text-center transition-all cursor-pointer select-none ${
-                currentPeriod === 'month'
-                  ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                  : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-              }`}
-            >
-              Month
-            </button>
-            <button
-              id="mobile-nav-tab-all"
-              type="button"
-              onClick={() => onSelectPeriod('all')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-black tracking-tight text-center transition-all cursor-pointer select-none ${
-                currentPeriod === 'all'
-                  ? 'bg-stone-900 text-white shadow-sm ring-1 ring-stone-950/20'
-                  : 'text-stone-700 hover:text-stone-950 hover:bg-stone-300/50'
-              }`}
-            >
-              All Time
-            </button>
-          </nav>
         </div>
       </div>
 

@@ -266,8 +266,10 @@ async function runPostgresIntegrationTests() {
   // 11. Partial Refund Test
   console.log('\n--- 11. Partial Refund & Rank Recalculation ---');
   // Vikram currently has ₹4,000 from two orders (order1: 2500, order2: 1500)
+  await pg.reserveRefundAtomic(orderId2, 1500 * 100, 'mer_ref_partial_001', 'Customer requested partial refund');
   const partialRefundRes = await pg.reverseRefundAtomic({
     orderId: orderId2,
+    merchantRefundId: 'mer_ref_partial_001',
     providerRefundId: 'cf_ref_partial_001',
     amount: 1500,
     reason: 'Customer requested partial refund'
@@ -280,8 +282,10 @@ async function runPostgresIntegrationTests() {
 
   // 12. Full Refund Test
   console.log('\n--- 12. Full Refund & Rank Adjustment ---');
+  await pg.reserveRefundAtomic(orderId1, 2500 * 100, 'mer_ref_full_001', 'Customer requested full refund');
   const fullRefundRes = await pg.reverseRefundAtomic({
     orderId: orderId1,
+    merchantRefundId: 'mer_ref_full_001',
     providerRefundId: 'cf_ref_full_001',
     amount: 2500,
     reason: 'Customer requested full refund'

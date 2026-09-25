@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   title VARCHAR(120),
   badge VARCHAR(60),
   lazy_reason VARCHAR(120),
+  roast TEXT,
   lazy_streak_days INTEGER NOT NULL DEFAULT 0,
   is_verified BOOLEAN NOT NULL DEFAULT FALSE,
   first_verified_at TIMESTAMPTZ,

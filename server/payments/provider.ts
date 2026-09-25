@@ -71,10 +71,21 @@ export interface RefundResult {
   error?: string;
 }
 
+export interface ProviderRefundStatus {
+  orderId: string;
+  merchantRefundId: string;
+  providerRefundId: string;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED';
+  amount: number;
+  currency: 'INR';
+  raw?: any;
+}
+
 export interface PaymentProvider {
   name: string;
   createOrder(params: CreateOrderParams): Promise<ProviderOrderResult>;
   getPaymentStatus(orderId: string): Promise<ProviderPaymentStatus>;
   verifyWebhook(rawBody: string, headers: Record<string, string | string[] | undefined>): Promise<WebhookVerificationResult>;
   createRefund(params: RefundRequestParams): Promise<RefundResult>;
+  getRefundStatus(orderId: string, merchantRefundId: string): Promise<ProviderRefundStatus>;
 }

@@ -187,19 +187,32 @@ async function runCommercialTests() {
   });
   assert(missingHeaderRes.isValid === false, 'Webhook missing timestamp header is rejected');
 
-  // Delayed valid webhook (legitimate Cashfree retry): valid signature with older timestamp is accepted per Requirement 13
+  // Delayed valid webhook (legitimate Cashfree retry within 5 minutes): valid signature is accepted
+  const recentRetryTimestamp = String(Date.now() - 2 * 60 * 1000);
+  const recentRetrySignature = crypto
+    .createHmac('sha256', dummySecret)
+    .update(recentRetryTimestamp + testPayload)
+    .digest('base64');
+
+  const replayRes = await provider.verifyWebhook(testPayload, {
+    'x-webhook-timestamp': recentRetryTimestamp,
+    'x-webhook-signature': recentRetrySignature
+  });
+  assert(replayRes.isValid === true, 'Delayed valid webhook with authentic Cashfree HMAC signature is accepted');
+  assert(replayRes.status === 'SUCCESS', 'Delayed webhook parsed correctly');
+
+  // Stale webhook outside five-minute window must be rejected
   const oldTimestamp = String(Date.now() - 20 * 60 * 1000);
   const oldSignature = crypto
     .createHmac('sha256', dummySecret)
     .update(oldTimestamp + testPayload)
     .digest('base64');
 
-  const replayRes = await provider.verifyWebhook(testPayload, {
+  const staleRes = await provider.verifyWebhook(testPayload, {
     'x-webhook-timestamp': oldTimestamp,
     'x-webhook-signature': oldSignature
   });
-  assert(replayRes.isValid === true, 'Delayed valid webhook with authentic Cashfree HMAC signature is accepted');
-  assert(replayRes.status === 'SUCCESS', 'Delayed webhook parsed correctly');
+  assert(staleRes.isValid === false, 'Stale webhook outside five-minute window is rejected');
 
   // ----------------------------------------------------
   // SUITE 4: PAYMENT MODES & PRODUCTION SAFETY
@@ -282,14 +295,14 @@ async function runCommercialTests() {
   assert(profBefore?.amount === 1000, 'Profile created with initial verified amount ₹1,000');
 
   // Execute reverseRefund of ₹600
-  const refundSuccess = await db.reverseRefund(refundOrderId, 600, 'Customer requested partial refund');
+  const refundSuccess = await db.reverseRefund(refundOrderId, 600, 'Customer requested partial refund', 'ref_test_p1');
   assert(refundSuccess === true, 'db.reverseRefund completes successfully');
 
   const profAfter = db.getProfile(refundProfileId);
   assert(profAfter?.amount === 400, 'Verified amount accurately decremented from ₹1,000 to ₹400 upon refund');
 
   // Execute full refund of remaining ₹400
-  await db.reverseRefund(refundOrderId, 400, 'Customer requested complete refund');
+  await db.reverseRefund(refundOrderId, 400, 'Customer requested complete refund', 'ref_test_p2');
   const profFinal = db.getProfile(refundProfileId);
   assert(profFinal?.amount === 0, 'Verified amount accurately reduced to ₹0 after full refund');
 
@@ -381,6 +394,10 @@ async function runCommercialTests() {
   // Temporarily enable payment mode in paymentManager to test input validation
   const pmMode = (paymentManager as any).mode;
   (paymentManager as any).mode = 'sandbox';
+  const origTaxBasis = process.env.MERCHANT_TAX_BASIS;
+  const origTaxReviewed = process.env.MERCHANT_TAX_REVIEWED;
+  process.env.MERCHANT_TAX_BASIS = 'verified_unregistered_below_threshold';
+  process.env.MERCHANT_TAX_REVIEWED = 'true';
 
   try {
     const resBadToken = await fetchJson(`${BASE}/api/payment/create-order`, {
@@ -423,6 +440,8 @@ async function runCommercialTests() {
 
   } finally {
     (paymentManager as any).mode = pmMode;
+    process.env.MERCHANT_TAX_BASIS = origTaxBasis;
+    process.env.MERCHANT_TAX_REVIEWED = origTaxReviewed;
   }
 
   // 6.6 Admin-authorized refund endpoint

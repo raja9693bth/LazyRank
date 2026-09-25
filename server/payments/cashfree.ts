@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { PaymentProvider, CreateOrderParams, ProviderOrderResult, ProviderPaymentStatus, WebhookVerificationResult, RefundRequestParams, RefundResult, RefundWebhookDetails } from './provider.ts';
+import { PaymentProvider, CreateOrderParams, ProviderOrderResult, ProviderPaymentStatus, WebhookVerificationResult, RefundRequestParams, RefundResult, RefundWebhookDetails, ProviderRefundStatus } from './provider.ts';
 
 export const DEFAULT_CASHFREE_API_VERSION = '2026-01-01';
 
@@ -184,9 +184,13 @@ export class CashfreeProvider implements PaymentProvider {
       return { isValid: false, error: 'Missing webhook signature or timestamp header.' };
     }
 
-    const tsNum = Number(timestamp);
-    if (!Number.isFinite(tsNum) || tsNum <= 0) {
+    if (!/^(?:\d{10}|\d{13})$/.test(timestamp)) {
       return { isValid: false, error: 'Invalid webhook timestamp format.' };
+    }
+    const tsNum = Number(timestamp);
+    const tsMillis = timestamp.length === 10 ? tsNum * 1000 : tsNum;
+    if (!Number.isFinite(tsNum) || !Number.isSafeInteger(tsNum) || Math.abs(Date.now() - tsMillis) > 300_000) {
+      return { isValid: false, error: 'Webhook timestamp outside five-minute window.' };
     }
 
     if (!this.secretKey) {
@@ -245,12 +249,14 @@ export class CashfreeProvider implements PaymentProvider {
       const payment = body.data?.payment || {};
 
       let status: 'SUCCESS' | 'FAILED' | 'USER_DROPPED' | 'REFUNDED' | undefined;
-      if (eventType === 'PAYMENT_SUCCESS_WEBHOOK' || payment.payment_status === 'SUCCESS') {
+      if (eventType === 'PAYMENT_SUCCESS_WEBHOOK' && payment.payment_status === 'SUCCESS') {
         status = 'SUCCESS';
-      } else if (eventType === 'PAYMENT_FAILED_WEBHOOK' || payment.payment_status === 'FAILED') {
+      } else if (eventType === 'PAYMENT_FAILED_WEBHOOK' && payment.payment_status === 'FAILED') {
         status = 'FAILED';
-      } else if (eventType === 'PAYMENT_USER_DROPPED_WEBHOOK' || payment.payment_status === 'USER_DROPPED') {
+      } else if (eventType === 'PAYMENT_USER_DROPPED_WEBHOOK' && payment.payment_status === 'USER_DROPPED') {
         status = 'USER_DROPPED';
+      } else {
+        return { isValid: false, error: 'Inconsistent Cashfree event and payment status.' };
       }
 
       return {
@@ -308,6 +314,45 @@ export class CashfreeProvider implements PaymentProvider {
       success: true,
       refundId: params.refundId,
       status: data.refund_status === 'SUCCESS' ? 'SUCCESS' : 'PENDING',
+      raw: data
+    };
+  }
+
+  /**
+   * Cashfree PG Get Refund Status
+   * Endpoint: GET /pg/orders/{orderId}/refunds/{merchantRefundId}
+   */
+  public async getRefundStatus(orderId: string, merchantRefundId: string): Promise<ProviderRefundStatus> {
+    if (!this.isConfigured()) {
+      throw new Error('Cashfree credentials are not configured.');
+    }
+
+    const res = await fetch(`${this.baseUrl}/orders/${encodeURIComponent(orderId)}/refunds/${encodeURIComponent(merchantRefundId)}`, {
+      method: 'GET',
+      headers: {
+        'x-client-id': this.appId,
+        'x-client-secret': this.secretKey,
+        'x-api-version': this.apiVersion
+      }
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Cashfree getRefundStatus returned HTTP ${res.status}: ${errText}`);
+    }
+
+    const data: any = await res.json();
+    const rawStatus = String(data.refund_status || '').toUpperCase();
+    const status: 'PENDING' | 'SUCCESS' | 'FAILED' =
+      rawStatus === 'SUCCESS' ? 'SUCCESS' : rawStatus === 'PENDING' ? 'PENDING' : 'FAILED';
+
+    return {
+      orderId: data.order_id || orderId,
+      merchantRefundId: data.refund_id || merchantRefundId,
+      providerRefundId: String(data.cf_refund_id || ''),
+      status,
+      amount: Number(data.refund_amount || 0),
+      currency: 'INR',
       raw: data
     };
   }

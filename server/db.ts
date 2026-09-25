@@ -782,7 +782,7 @@ export class LazyDatabase {
    * Sanitizes profile to strip private server-only tokens and internal fields before sending to public clients
    */
   public sanitizeProfile(profile: UserProfile): UserProfile {
-    const { ownerToken, ...safe } = profile as any;
+    const { ownerToken, ownerTokenHash, owner_token_hash, ...safe } = profile as any;
     delete safe.isGhostMode;
     delete safe.is_ghost_mode;
     delete safe.adminNotes;
@@ -1221,10 +1221,10 @@ export class LazyDatabase {
     };
   }
 
-  public async reverseRefund(orderId: string, amount: number, reason: string, providerRefundId?: string): Promise<boolean> {
+  public async reverseRefund(orderId: string, amount: number, reason: string, merchantRefundId: string, providerRefundId?: string): Promise<boolean> {
     if (this.isPostgresAuthoritative()) {
       try {
-        const res = await this.pg.reverseRefundAtomic({ orderId, amount, reason, providerRefundId });
+        const res = await this.pg.reverseRefundAtomic({ orderId, merchantRefundId, amount, reason, providerRefundId });
         return res.success;
       } catch (pgErr) {
         console.error('[PostgreSQL] Reverse refund error:', pgErr);
@@ -1876,7 +1876,7 @@ export class LazyDatabase {
     } else if (action === 'resolve_report') {
       const r = this.state.reports.find(rep => rep.id === targetId);
       if (r) {
-        r.status = 'resolved';
+        r.status = 'actioned';
         affected = true;
       }
     }

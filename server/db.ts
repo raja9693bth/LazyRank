@@ -352,9 +352,6 @@ export class LazyDatabase {
   constructor() {
     this.state = this.loadData();
     this.recalculateRanks();
-    if (this.pg.isAvailable()) {
-      this.pg.init().catch(err => console.error('[PostgreSQL] Async init error:', err));
-    }
   }
 
   private loadData(): DatabaseState {

@@ -25,6 +25,7 @@ export interface UserProfile {
   badge?: string; // Badge for #1, top ranks, or verified
   isVerified: boolean; // Must be true for public legitimacy rank
   verifiedAt?: string; // Server verification timestamp
+  firstVerifiedAt?: string; // Earliest immutable verification timestamp for deterministic tie-breaking
   createdAt: string;
   updatedAt: string;
   votesCount?: number; // Social +1 laziness votes

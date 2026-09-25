@@ -10,6 +10,7 @@ import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE
 import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
 import { paymentManager } from './server/payments/index.ts';
 import { prerenderRoute } from './server/prerender.tsx';
+import { validateContact, ContactInput } from './server/db/postgres.ts';
 
 const BANNED_WORDS = [
   'kill', 'suicide', 'die', 'murder', 'bitch', 'asshole', 'bastard', 'slut', 'whore', 'nigger', 'faggot', 'chutiya', 'madarchod', 'bhenchod', 'gaand'
@@ -1222,80 +1223,132 @@ async function startServer() {
   });
 
   // Report content (Strict target existence validation and character limits)
-  app.post('/api/report', (req: Request, res: Response) => {
-    const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 40, 60000)) {
-      return res.status(429).json({ error: 'Too many reports submitted. Please wait.' });
-    }
+  app.post('/api/report', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const clientIp = getClientIp(req);
+      const isRateLimited = db.isPostgresAuthoritative()
+        ? !(await db.pg.checkRateLimit(`report:${clientIp}`, 40, 60000))
+        : !checkRateLimit(clientIp, 40, 60000);
 
-    const { targetType, targetId, reason } = req.body;
-    const validTypes = ['profile', 'nomination'];
-    const effectiveType = (targetType || 'profile').toLowerCase();
-    if (!validTypes.includes(effectiveType)) {
-      return res.status(400).json({ error: 'Invalid target type. Must be profile or nomination.' });
-    }
-
-    if (!targetId || typeof targetId !== 'string' || targetId.trim().length === 0 || targetId.trim().length > 64) {
-      return res.status(400).json({ error: 'Valid target ID is required.' });
-    }
-
-    if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
-      return res.status(400).json({ error: 'Reason is required.' });
-    }
-
-    if (reason.trim().length > 500) {
-      return res.status(400).json({ error: 'Reason cannot exceed 500 characters.' });
-    }
-
-    const cleanTargetId = targetId.trim();
-    if (effectiveType === 'profile') {
-      const target = db.getRawProfile(cleanTargetId);
-      if (!target) {
-        return res.status(404).json({ error: 'Reported profile does not exist.' });
+      if (isRateLimited) {
+        return res.status(429).json({ error: 'Too many reports submitted. Please wait.' });
       }
-    } else if (effectiveType === 'nomination') {
-      const target = db.getNomination(cleanTargetId);
-      if (!target) {
-        return res.status(404).json({ error: 'Reported challenge does not exist.' });
-      }
-    }
 
-    db.reportContent(effectiveType as 'profile' | 'nomination', cleanTargetId, reason.trim());
-    res.json({ success: true, message: 'Report submitted for review.' });
+      const { targetType, targetId, reason, details } = req.body;
+      const validTypes = ['profile', 'nomination', 'comment'];
+      const effectiveType = (targetType || 'profile').toLowerCase();
+      if (!validTypes.includes(effectiveType)) {
+        return res.status(400).json({ error: 'Invalid target type. Must be profile, nomination, or comment.' });
+      }
+
+      if (!targetId || typeof targetId !== 'string' || targetId.trim().length === 0 || targetId.trim().length > 64) {
+        return res.status(400).json({ error: 'Valid target ID is required.' });
+      }
+
+      if (!reason || typeof reason !== 'string' || reason.trim().length === 0) {
+        return res.status(400).json({ error: 'Reason is required.' });
+      }
+
+      if (reason.trim().length > 100) {
+        return res.status(400).json({ error: 'Reason cannot exceed 100 characters.' });
+      }
+
+      if (details && typeof details === 'string' && details.trim().length > 1000) {
+        return res.status(400).json({ error: 'Details cannot exceed 1000 characters.' });
+      }
+
+      const cleanTargetId = targetId.trim();
+
+      if (db.isPostgresAuthoritative()) {
+        try {
+          const report = await db.pg.createReport({
+            targetType: effectiveType as 'profile' | 'comment' | 'nomination',
+            targetId: cleanTargetId,
+            reason: reason.trim(),
+            details: typeof details === 'string' ? details.trim() : undefined,
+            clientIp
+          });
+          return res.status(201).json({ success: true, message: 'Report submitted for review.', reportId: report.id });
+        } catch (err: any) {
+          if (err.message && err.message.includes('does not exist')) {
+            return res.status(404).json({ error: err.message });
+          }
+          console.error('[PostgreSQL] createReport error:', err);
+          return res.status(503).json({ error: 'Database temporarily unavailable for moderation reporting.' });
+        }
+      }
+
+      if (effectiveType === 'profile') {
+        const target = db.getRawProfile(cleanTargetId);
+        if (!target) {
+          return res.status(404).json({ error: 'Reported profile does not exist.' });
+        }
+      } else if (effectiveType === 'nomination') {
+        const target = db.getNomination(cleanTargetId);
+        if (!target) {
+          return res.status(404).json({ error: 'Reported challenge does not exist.' });
+        }
+      }
+
+      db.reportContent(effectiveType as 'profile' | 'nomination', cleanTargetId, reason.trim());
+      return res.json({ success: true, message: 'Report submitted for review.' });
+    } catch (error: unknown) {
+      return next(error);
+    }
   });
 
   // Contact inquiry / support ticket submission
-  app.post('/api/contact', (req: Request, res: Response) => {
-    const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 6, 60000)) {
-      return res.status(429).json({ error: `Too many messages sent. Please wait a minute or email ${SERVER_LEGAL_CONFIG.SUPPORT_EMAIL} directly.` });
-    }
+  app.post('/api/contact', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const clientIp = getClientIp(req);
+      const isRateLimited = db.isPostgresAuthoritative()
+        ? !(await db.pg.checkRateLimit(`contact:${clientIp}`, 6, 60000))
+        : !checkRateLimit(clientIp, 6, 60000);
 
-    const { name, email, subject, orderId, message } = req.body;
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return res.status(400).json({ error: 'Full name is required.' });
-    }
-    if (!email || typeof email !== 'string' || !/^\S+@\S+\.\S+$/.test(email.trim())) {
-      return res.status(400).json({ error: 'A valid email address is required.' });
-    }
-    if (!message || typeof message !== 'string' || message.trim().length < 5) {
-      return res.status(400).json({ error: 'Please provide a message with at least 5 characters.' });
-    }
+      if (isRateLimited) {
+        return res.status(429).json({
+          error: `Too many messages sent. Please wait a minute or email ${SERVER_LEGAL_CONFIG.SUPPORT_EMAIL} directly.`
+        });
+      }
 
-    const saved = db.submitContact({
-      name: name.trim(),
-      email: email.trim(),
-      subject: (typeof subject === 'string' && subject.trim()) ? subject.trim() : 'General Support',
-      orderId: (typeof orderId === 'string' && orderId.trim()) ? orderId.trim() : undefined,
-      message: message.trim(),
-      ip: clientIp
-    });
+      let input: ContactInput;
+      try {
+        input = validateContact(req.body);
+      } catch (err: any) {
+        return res.status(400).json({ error: err.message || 'Invalid contact request.' });
+      }
 
-    res.json({
-      success: true,
-      message: `Inquiry received successfully. Our support desk (${SERVER_LEGAL_CONFIG.SUPPORT_EMAIL}) reviews inquiries during published business hours and aims to respond as soon as reasonably possible.`,
-      inquiryId: saved.id
-    });
+      let inquiryId: string;
+      if (db.isPostgresAuthoritative()) {
+        try {
+          const saved = await db.pg.createContactInquiry(input, clientIp);
+          inquiryId = saved.id;
+        } catch (dbErr: any) {
+          console.error('[PostgreSQL] Failed to record contact inquiry:', dbErr);
+          return res.status(503).json({
+            error: `Support desk database temporarily unavailable. Please email ${SERVER_LEGAL_CONFIG.SUPPORT_EMAIL} directly.`
+          });
+        }
+      } else {
+        const saved = db.submitContact({
+          name: input.name,
+          email: input.email,
+          subject: input.subject,
+          orderId: input.orderId,
+          message: input.message,
+          ip: clientIp
+        });
+        inquiryId = saved.id;
+      }
+
+      return res.status(201).json({
+        success: true,
+        message: `Inquiry received successfully. Our support desk (${SERVER_LEGAL_CONFIG.SUPPORT_EMAIL}) reviews inquiries during published business hours and aims to respond as soon as reasonably possible.`,
+        inquiryId
+      });
+    } catch (error: unknown) {
+      return next(error);
+    }
   });
 
   // Activity feed
@@ -1305,9 +1358,17 @@ async function startServer() {
   });
 
   // Global Activity and Claims Heat Map metrics (Authoritative real-time social proof)
-  app.get('/api/activity/global', (req: Request, res: Response) => {
-    const data = db.getGlobalActivity();
-    res.json(data);
+  app.get('/api/activity/global', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (db.isPostgresAuthoritative()) {
+        const data = await db.pg.getGlobalActivity();
+        return res.json(data);
+      }
+      const data = db.getGlobalActivity();
+      return res.json(data);
+    } catch (error: unknown) {
+      return next(error);
+    }
   });
 
   // Weekly Lazy Dilemma Poll endpoints (Server-controlled voter identity derived from client IP)
@@ -1375,56 +1436,87 @@ async function startServer() {
   });
 
   // Protected admin data endpoint (Header-only authentication, constant-time check, no-store)
-  app.get('/api/admin/data', (req: Request, res: Response) => {
-    const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 20, 60000)) {
-      return res.status(429).json({ error: 'Too many admin requests.' });
-    }
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  app.get('/api/admin/data', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const clientIp = getClientIp(req);
+      if (!checkRateLimit(clientIp, 20, 60000)) {
+        return res.status(429).json({ error: 'Too many admin requests.' });
+      }
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
 
-    const authHeader = req.headers['authorization'];
-    const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
-    const adminKey = (req.headers['x-admin-key'] as string) || bearerKey;
+      const authHeader = req.headers['authorization'];
+      const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
+      const adminKey = (req.headers['x-admin-key'] as string) || bearerKey;
 
-    if (!verifyAdminKey(adminKey)) {
-      return res.status(401).json({ error: 'Unauthorized admin access.' });
+      if (!verifyAdminKey(adminKey)) {
+        return res.status(401).json({ error: 'Unauthorized admin access.' });
+      }
+
+      if (db.isPostgresAuthoritative()) {
+        const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 100);
+        const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+        const data = await db.pg.getAdminData(limit, offset);
+        return res.json(data);
+      }
+
+      return res.json(db.getAdminData());
+    } catch (error: unknown) {
+      return next(error);
     }
-    res.json(db.getAdminData());
   });
 
   // Protected admin action endpoint (Header-only authentication, constant-time check, no-store)
-  app.post('/api/admin/moderate', async (req: Request, res: Response) => {
-    const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 30, 60000)) {
-      return res.status(429).json({ error: 'Too many admin requests.' });
-    }
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  app.post('/api/admin/moderate', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const clientIp = getClientIp(req);
+      if (!checkRateLimit(clientIp, 30, 60000)) {
+        return res.status(429).json({ error: 'Too many admin requests.' });
+      }
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
 
-    const authHeader = req.headers['authorization'];
-    const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
-    const adminKey = (req.headers['x-admin-key'] as string) || bearerKey;
+      const authHeader = req.headers['authorization'];
+      const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.substring(7).trim() : undefined;
+      const adminKey = (req.headers['x-admin-key'] as string) || bearerKey;
 
-    if (!verifyAdminKey(adminKey)) {
-      return res.status(401).json({ error: 'Unauthorized admin access.' });
-    }
+      if (!verifyAdminKey(adminKey)) {
+        return res.status(401).json({ error: 'Unauthorized admin access.' });
+      }
 
-    const { action, targetId } = req.body;
-    const validActions = ['remove', 'restore', 'resolve_report'];
-    if (!action || typeof action !== 'string' || !validActions.includes(action)) {
-      return res.status(400).json({ error: 'Invalid moderation action. Must be remove, restore, or resolve_report.' });
-    }
-    if (!targetId || typeof targetId !== 'string' || targetId.trim().length === 0) {
-      return res.status(400).json({ error: 'Valid target ID is required.' });
-    }
+      const { action, targetId } = req.body;
+      const validActions = ['remove', 'restore', 'resolve_report'];
+      if (!action || typeof action !== 'string' || !validActions.includes(action)) {
+        return res.status(400).json({ error: 'Invalid moderation action. Must be remove, restore, or resolve_report.' });
+      }
+      if (!targetId || typeof targetId !== 'string' || targetId.trim().length === 0) {
+        return res.status(400).json({ error: 'Valid target ID is required.' });
+      }
 
-    const success = db.moderate(action as any, targetId.trim());
-    if (db.isPostgresAuthoritative() && (action === 'remove' || action === 'restore')) {
-      await db.pg.moderateProfile(targetId.trim(), action);
+      const cleanTargetId = targetId.trim();
+
+      if (db.isPostgresAuthoritative()) {
+        if (action === 'resolve_report') {
+          const ok = await db.pg.resolveReport(cleanTargetId);
+          if (!ok) {
+            return res.status(404).json({ error: 'Report not found or already resolved.' });
+          }
+          return res.json({ success: true, message: 'Report resolved successfully.' });
+        } else if (action === 'remove' || action === 'restore') {
+          const ok = await db.pg.moderateProfile(cleanTargetId, action);
+          if (!ok) {
+            return res.status(404).json({ error: 'Target profile not found or action could not be applied.' });
+          }
+          return res.json({ success: true, message: `Action ${action} applied successfully.` });
+        }
+      }
+
+      const success = db.moderate(action as any, cleanTargetId);
+      if (!success) {
+        return res.status(404).json({ error: 'Target not found or action could not be applied.' });
+      }
+      return res.json({ success: true, message: `Action ${action} applied successfully.` });
+    } catch (error: unknown) {
+      return next(error);
     }
-    if (!success && !db.isPostgresAuthoritative()) {
-      return res.status(404).json({ error: 'Target not found or action could not be applied.' });
-    }
-    res.json({ success: true, message: `Action ${action} applied successfully.` });
   });
 
   // In-memory cache for rendered OG card PNG buffers (LRU-capped)

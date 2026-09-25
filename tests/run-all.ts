@@ -27,6 +27,11 @@ try {
   execSync('npx tsx tests/phase1-ux-legal.test.ts', { stdio: 'inherit' });
 
   console.log('\n========================================================');
+  console.log('RUNNING SUITE 6: PHASE 2 POSTGRESQL MIGRATION & DURABLE DATA (5 TESTS)');
+  console.log('========================================================\n');
+  execSync('npx tsx tests/phase2-durability.test.ts', { stdio: 'inherit' });
+
+  console.log('\n========================================================');
   console.log('MASTER TEST SUITE RESULT: ALL ASSERTIONS PASSED (100%)');
   console.log('========================================================\n');
   process.exit(0);

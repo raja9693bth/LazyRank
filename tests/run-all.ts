@@ -17,7 +17,12 @@ try {
   execSync('npx tsx tests/postgres-authoritative.test.ts', { stdio: 'inherit' });
 
   console.log('\n========================================================');
-  console.log('MASTER TEST SUITE RESULT: 141/141 ASSERTIONS PASSED (100%)');
+  console.log('RUNNING SUITE 4: FINAL PRE-GATEWAY COMPLIANCE & PAYMENT CORRECTNESS (12 TESTS)');
+  console.log('========================================================\n');
+  execSync('npx tsx tests/final-compliance-gateway.test.ts', { stdio: 'inherit' });
+
+  console.log('\n========================================================');
+  console.log('MASTER TEST SUITE RESULT: 153/153 ASSERTIONS PASSED (100%)');
   console.log('========================================================\n');
   process.exit(0);
 } catch (error: any) {

@@ -29,7 +29,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
           <div className="flex flex-wrap items-center justify-center gap-2">
             <div className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500 bg-zinc-50 px-3 py-1 rounded-full border border-zinc-200/80">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>100% Server-Verified Payments</span>
+              <span>Server-Authoritative Payment Verification</span>
               <span className="text-zinc-300">·</span>
               <span>Zero Client Authority</span>
             </div>

@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   lazy_reason VARCHAR(120),
   lazy_streak_days INTEGER NOT NULL DEFAULT 0,
   is_verified BOOLEAN NOT NULL DEFAULT FALSE,
-  owner_token VARCHAR(128) NOT NULL,
+  owner_token_hash VARCHAR(128) NOT NULL,
   moderation_status VARCHAR(30) NOT NULL DEFAULT 'active' CHECK (moderation_status IN ('active', 'reported', 'hidden', 'banned', 'removed', 'resolved')),
   votes_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles (user_id);
 CREATE TABLE IF NOT EXISTS payment_orders (
   order_id VARCHAR(64) PRIMARY KEY,
   profile_id VARCHAR(64) REFERENCES profiles(id) ON DELETE SET NULL,
-  owner_token VARCHAR(128),
+  owner_token_hash VARCHAR(128),
   name VARCHAR(60) NOT NULL,
   amount NUMERIC(14, 2) NOT NULL CHECK (amount > 0),
   currency VARCHAR(10) NOT NULL DEFAULT 'INR',
@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS payment_orders (
   cf_payment_id VARCHAR(100),
   customer_email VARCHAR(120),
   customer_phone VARCHAR(30),
+  consent_accepted BOOLEAN NOT NULL DEFAULT FALSE,
+  consent_timestamp TIMESTAMPTZ,
+  consent_version VARCHAR(30),
   instagram VARCHAR(100),
   linkedin VARCHAR(255),
   website VARCHAR(255),
@@ -60,7 +63,7 @@ CREATE TABLE IF NOT EXISTS payment_orders (
 
 CREATE INDEX IF NOT EXISTS idx_payment_orders_status ON payment_orders (status);
 CREATE INDEX IF NOT EXISTS idx_payment_orders_provider_order_id ON payment_orders (provider_order_id);
-CREATE INDEX IF NOT EXISTS idx_payment_orders_idempotency ON payment_orders (idempotency_key);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_orders_idempotency_unique ON payment_orders (idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 -- 3. Payment Transactions Table (Unique Gateway Settlements)
 CREATE TABLE IF NOT EXISTS payment_transactions (

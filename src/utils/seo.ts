@@ -1,4 +1,5 @@
 import { UserProfile } from '../types.ts';
+import { LEGAL_CONFIG } from '../config/legal.ts';
 
 export interface PageSeoConfig {
   title: string;
@@ -27,7 +28,7 @@ export const PAGE_SEO: Record<string, PageSeoConfig> = {
   },
   '/rules': {
     title: "Official Rules & Ranking Mechanics — How LAZY Works",
-    description: "Comprehensive breakdown of the LAZY rules: verified monetary bids, strict tie-breaking by timestamp, position displacement, and tamper-proof claim permanence.",
+    description: "Comprehensive breakdown of the LAZY rules: verified cumulative sponsorship, strict tie-breaking by timestamp, position displacement, and tamper-proof claim permanence.",
     canonicalPath: '/rules',
     ogType: 'website',
     breadcrumbName: 'Rules'
@@ -139,11 +140,11 @@ export function generateClientRouteJsonLd(route: string): object[] {
     extraProps = {
       mainEntity: {
         '@type': 'Organization',
-        name: 'LAZY Project',
+        name: LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
         url: BASE_URL,
         contactPoint: {
           '@type': 'ContactPoint',
-          email: 'contact@lazyproof.online',
+          email: LEGAL_CONFIG.SUPPORT_EMAIL,
           contactType: 'customer service',
           availableLanguage: ['English', 'Hindi']
         }

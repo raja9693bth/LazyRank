@@ -48,7 +48,7 @@ export const DeliveryPage: React.FC<DeliveryPageProps> = ({ onNavigate }) => {
           <div className="flex items-start gap-2.5 p-3 rounded-xl bg-zinc-50 border border-zinc-200">
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-[10px] font-bold text-white">2</span>
             <div>
-              <strong>Gateway Payment Processing:</strong> You are directed to our certified payment gateway partner (e.g. Cashfree) where you complete the transaction using UPI, net banking, debit/credit cards, or other supported payment methods.
+              <strong>Gateway Payment Processing:</strong> You are directed to a PCI-DSS compliant payment gateway (such as Cashfree) where you complete the transaction using UPI, net banking, debit/credit cards, or other supported payment methods.
             </div>
           </div>
           <div className="flex items-start gap-2.5 p-3 rounded-xl bg-zinc-50 border border-zinc-200">
@@ -88,7 +88,7 @@ export const DeliveryPage: React.FC<DeliveryPageProps> = ({ onNavigate }) => {
             <strong>No "0 Seconds" Guarantee:</strong> Because payment settlement relies on third-party banking networks, card processing switches, UPI server responses, and gateway webhook delivery, we do not claim or guarantee instantaneous "zero-second" delivery.
           </li>
           <li>
-            <strong>Pending Verification State:</strong> If a gateway settlement response is delayed due to banking latency, the system displays a clear, truthful status: <em>"Payment Confirmation Pending"</em>. During this period, our automated reconciler queries the gateway status endpoint until authoritative confirmation is secured.
+            <strong>Pending Verification State:</strong> If a gateway settlement response is delayed due to banking latency, the system displays a clear, truthful status: <em>"Payment Confirmation Pending"</em>. During this period, our server checks the payment state with the gateway upon your browser return or status query, and awaits verified webhook delivery before crediting rank.
           </li>
         </ul>
       </section>
@@ -106,15 +106,15 @@ export const DeliveryPage: React.FC<DeliveryPageProps> = ({ onNavigate }) => {
             <span>Resolution Protocol</span>
           </div>
           <p className="text-zinc-600">
-            Please check your email receipt or contact our support team at{' '}
+            Please check your on-site order/payment status and digital receipt, or contact our customer support desk at{' '}
             <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">
               {LEGAL_CONFIG.SUPPORT_EMAIL}
             </a>{' '}
             with your order ID or Bank Reference Number (UTR / RRN).
           </p>
           <ul className="list-disc list-inside space-y-1 text-zinc-600 pl-1">
-            <li>We will trace the payment directly with our gateway partner.</li>
-            <li>If the payment is verified, we will immediately credit your placement manually.</li>
+            <li>We will trace the payment directly with the payment gateway.</li>
+            <li>If the payment is authoritatively confirmed by the gateway, your verified placement will be activated immediately.</li>
             <li>If you prefer a refund due to the delay, a full refund will be initiated back to your original payment method within our standard 5–7 business day refund window.</li>
           </ul>
         </div>

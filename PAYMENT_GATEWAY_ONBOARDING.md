@@ -71,18 +71,20 @@ All compliance pages are complete, live, mobile-responsive, and prominently link
 ## 4. Technical Payment Architecture & Integration Flow
 
 ### Primary Payment Gateway Partner:
-**Cashfree Payments India Pvt Ltd** (API Version `2023-08-01` / current supported Hosted Checkout)
+**Cashfree Payments India Pvt Ltd** (API Version `2026-01-01` / current supported Hosted Checkout)
 
 ### Checkout & Settlement Lifecycle:
 ```
 1. Client Configuration:
    User chooses display name & sponsorship amount (₹1 – ₹10,00,000 INR)
-   + Reviews itemized breakdown (Service description, amount, tax consideration)
-   + Checks mandatory Terms & Refund Policy agreement checkbox
+   + Provides required 10-digit mobile number & optional email
+   + Manually checks affirmative Terms, Privacy & Refund Policy checkbox (defaults unchecked)
 
 2. Order Creation:
    Frontend POST /api/payment/create-order
-   → Server validates display name (1-30 chars, profanity filter), amount (whole integer)
+   → Client generates stable idempotencyKey reused across retries
+   → Server validates display name (1-30 chars, profanity filter), amount (whole integer), mobile number
+   → Server checks idempotency key in PostgreSQL; if existing, returns existing session immediately
    → Server creates internal pending order in PostgreSQL (authoritative)
    → Server invokes Cashfree PG API (POST https://api.cashfree.com/pg/orders) with payment_session_id
    → Cashfree returns payment_session_id
@@ -98,7 +100,6 @@ All compliance pages are complete, live, mobile-responsive, and prominently link
      - x-webhook-signature
      - x-webhook-timestamp
    → Server validates HMAC-SHA256 signature using CASHFREE_SECRET_KEY
-   → Server verifies timestamp freshness (within 10-minute window) to prevent replay attacks
    → Server matches order_id, verifies payment_amount === order.amount and currency === 'INR'
    → Database executes atomic transaction in PostgreSQL:
      - Inserts payment_transactions record
@@ -113,8 +114,8 @@ All compliance pages are complete, live, mobile-responsive, and prominently link
 ## 5. Webhook Security & Idempotency Guarantees
 
 1. **Cryptographic Validation:** Webhook authenticity is verified strictly using Cashfree's official HMAC-SHA256 signature protocol and `CASHFREE_SECRET_KEY`. Unsigned or mismatched webhooks are rejected with HTTP 401.
-2. **Replay Protection:** Webhooks with timestamps older than 10 minutes are rejected.
-3. **Idempotency:** When duplicate webhooks or retries arrive for an already completed order ID, the server acknowledges with HTTP 200 without creating duplicate financial ledger entries, duplicate profile records, or duplicate analytics revenue.
+2. **Replay & Idempotency Protection:** Webhooks require cryptographic HMAC-SHA256 signature verification, unique `cf_payment_id` registration in `payment_transactions`, and terminal-state idempotency so legitimate retries never create duplicate ledger settlements or duplicate rank boosts.
+3. **Dedicated Refund Webhook Handling:** Cashfree refund notifications parse `data.refund` fields (`cf_refund_id`, `refund_amount`, `refund_status`). Only authoritatively confirmed `SUCCESS` refunds commit ledger debits.
 4. **Out-of-Order Handling:** Status queries via `/api/payment/status/:orderId` ensure eventual consistency if frontend returns before webhook arrival.
 5. **No Client Trust:** The frontend client NEVER decides payment success. Only authoritative provider settlement updates rank.
 
@@ -123,8 +124,8 @@ All compliance pages are complete, live, mobile-responsive, and prominently link
 ## 6. Refund, Reversal & Rank Debit Policy
 
 - **Initiation:** Customer submits refund inquiry via [support@lazyproof.online](mailto:support@lazyproof.online) or [https://lazyproof.online/contact](https://lazyproof.online/contact).
-- **Processing Time:** Validated refunds are processed internally within 5–7 business days and credited back through the original payment method by the banking gateway.
-- **Rank Debit Enforcement:** A refunded or reversed payment immediately ceases to count as verified sponsorship. The platform's `reverseRefund` engine deducts the refunded amount from the profile's verified cumulative total and recalculates the leaderboard positions atomically in PostgreSQL.
+- **Processing Time:** Validated refunds are processed internally within 5–7 business days (estimate) and credited back through the original payment method by the banking gateway.
+- **Rank Debit Enforcement:** A refunded or reversed payment immediately ceases to count as verified sponsorship. The platform's `reverseRefund` engine deducts the confirmed refunded amount from the profile's verified cumulative total and recalculates the leaderboard positions atomically in PostgreSQL. Partial refunds only deduct confirmed partial amounts, and total refunds never exceed the original captured payment.
 
 ---
 
@@ -141,13 +142,21 @@ When completing payment gateway onboarding forms, select the category that best 
 
 | Checkpoint | Status | Notes |
 |---|---|---|
-| **Domain & DNS** | **Active & Configured** | `https://lazyproof.online` serving application |
-| **HTTPS SSL/TLS** | **Active** | Valid certificate |
-| **All Compliance Pages** | **Live & Linked** | Terms, Privacy, Refund, Delivery, Contact, Rules, About |
-| **Operator Details** | **Consistent** | Adabhra Group (Sole Proprietorship) across all pages |
-| **Pricing Transparency** | **Active** | Clear breakdown and terms checkbox before payment |
-| **Simulated Payment UI** | **Eradicated** | Zero fake QR, zero manual UTR submission |
-| **Review Mode** | **Active** | Truthful onboarding notice displayed while review is pending |
-| **Cashfree PG Integration** | **Engineered** | API v2023-08-01 client, HMAC verification, status polling |
-| **Merchant Approval** | **Pending Review** | Awaiting Cashfree merchant underwriting approval |
-| **Live Payments** | **Safely Disabled** | `PAYMENT_MODE=disabled` until live credentials are provisioned |
+| **Public Deployment & Domain** | **UNVERIFIED — PUBLIC DEPLOYMENT CHECK REQUIRED** | Domain currently parked on Hostinger DNS; web server DNS pointing required before final public audit |
+| **HTTPS SSL/TLS** | **UNVERIFIED — PUBLIC DEPLOYMENT CHECK REQUIRED** | Requires live production host certificate validation |
+| **All Compliance Pages** | **Source Complete & Ready** | Terms, Privacy, Refund, Delivery, Contact, Rules, About implemented in repository |
+| **Operator Details** | **Consistent** | Adabhra Group (Sole Proprietorship) across all pages and schemas |
+| **Pricing Transparency** | **Active** | Clear breakdown and affirmative terms & privacy checkbox before checkout |
+| **Cashfree PG Integration** | **Engineered** | API v2026-01-01 client, HMAC verification, retry-safe idempotency, refund state machine |
+| **Cashfree Sandbox E2E** | **UNVERIFIED — CASHFREE TEST CREDENTIALS REQUIRED** | Requires developer test credentials to perform end-to-end sandbox transaction |
+| **Merchant Approval** | **Pending Review** | Ready for submission to Cashfree merchant onboarding review |
+| **Live Payments** | **Safely Disabled** | `PAYMENT_MODE=disabled` until live credentials and merchant approval are granted |
+
+---
+
+## 9. Razorpay Status & Business Model Policy
+
+- **Current Architecture:** Cashfree Payments India Pvt Ltd is the sole active payment provider.
+- **No Active Razorpay Integration:** Razorpay settlement handling has been removed/disabled to prevent unverified payment routes.
+- **Compliance Policy:** Razorpay terms list "Bidding/Auction houses" under restricted categories. While LazyProof operates a deterministic cumulative sponsorship ranking and not an auction, Razorpay requires explicit business-model pre-clearance before any future integration or application reliance.
+- **Current Target:** Cashfree is the designated primary payment gateway partner.

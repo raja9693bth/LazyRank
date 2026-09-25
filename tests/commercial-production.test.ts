@@ -181,7 +181,7 @@ async function runCommercialTests() {
   });
   assert(missingHeaderRes.isValid === false, 'Webhook missing timestamp header is rejected');
 
-  // Replay attack rejection: timestamp 20 minutes in the past
+  // Delayed valid webhook (legitimate Cashfree retry): valid signature with older timestamp is accepted per Requirement 13
   const oldTimestamp = String(Date.now() - 20 * 60 * 1000);
   const oldSignature = crypto
     .createHmac('sha256', dummySecret)
@@ -192,8 +192,8 @@ async function runCommercialTests() {
     'x-webhook-timestamp': oldTimestamp,
     'x-webhook-signature': oldSignature
   });
-  assert(replayRes.isValid === false, 'Replay attack with stale timestamp (>10 min) is rejected');
-  assert(replayRes.error?.includes('10-minute window'), 'Explicit replay window error returned');
+  assert(replayRes.isValid === true, 'Delayed valid webhook with authentic Cashfree HMAC signature is accepted');
+  assert(replayRes.status === 'SUCCESS', 'Delayed webhook parsed correctly');
 
   // ----------------------------------------------------
   // SUITE 4: PAYMENT MODES & PRODUCTION SAFETY
@@ -347,7 +347,7 @@ async function runCommercialTests() {
   assert(resReceipt.body.amount === 750, 'Receipt amount matches order amount');
   assert(resReceipt.body.currency === 'INR', 'Receipt currency is INR');
   assert(
-    resReceipt.body.taxTreatment.includes('Standard GST invoicing is not applicable'),
+    resReceipt.body.taxTreatment.includes('not a GST tax invoice'),
     'Receipt contains truthful tax disclosure (no fake GST invoice)'
   );
 
@@ -395,7 +395,9 @@ async function runCommercialTests() {
       headers: { 'Content-Type': 'application/json' },
       body: {
         name: 'Upgrade Target User',
-        amount: 150.75
+        amount: 150.75,
+        customerPhone: '9876543210',
+        consentAccepted: true
       }
     });
     assert(resFloatAmount.status === 400, 'Non-integer amount rejected with 400');
@@ -406,7 +408,9 @@ async function runCommercialTests() {
       headers: { 'Content-Type': 'application/json' },
       body: {
         name: 'Upgrade Target User',
-        amount: 1000001
+        amount: 1000001,
+        customerPhone: '9876543210',
+        consentAccepted: true
       }
     });
     assert(resOverMax.status === 400, 'Amount over ₹10,00,000 limit rejected with 400');

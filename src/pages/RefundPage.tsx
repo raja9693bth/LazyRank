@@ -56,7 +56,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
           <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200 space-y-1 text-amber-900">
             <div className="font-bold">Scenario C: Money Debited But Payment Not Confirmed (Technical Timeout)</div>
             <p className="text-xs sm:text-sm leading-relaxed">
-              If funds are debited from your account or UPI wallet but the order on {LEGAL_CONFIG.BRAND_NAME} is not confirmed due to network timeouts, the funds remain in the inter-bank settlement clearing pool.
+              If funds are debited from your account or UPI wallet but the order on {LEGAL_CONFIG.BRAND_NAME} is not confirmed due to network timeouts, the transaction may remain pending with the bank/gateway and may be automatically reversed or reconciled.
             </p>
             <ul className="list-disc list-inside space-y-1 pl-1 pt-1 text-xs">
               <li><strong>Automated Bank Reversal:</strong> In most cases, the payment gateway or your issuing bank automatically reverses unconfirmed debits within <strong>3 to 7 business days</strong>.</li>
@@ -71,7 +71,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
               If your bank account was debited multiple times due to a browser glitch or rapid double-clicks, the duplicate payment is 100% eligible for a full refund.
             </p>
             <p className="text-zinc-600 text-[11px]">
-              <strong>Action Required:</strong> Contact support within 48 hours with both transaction reference IDs. Once verified against gateway logs, the duplicate amount will be refunded in full.
+              <strong>Action Required:</strong> Contact customer support at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="font-bold underline text-stone-900">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> with both transaction reference IDs or UTR numbers. Once verified against gateway records, the duplicate payment will be refunded in full.
             </p>
           </div>
 
@@ -90,7 +90,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
           <div className="p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1">
             <div className="font-bold text-zinc-950">Scenario F: Successfully Delivered Digital Placement</div>
             <p className="text-zinc-600">
-              Once your placement has been successfully published to the live public leaderboard, rank assigned, and assets rendered, the digital service has been completely fulfilled. As clearly stated in our pricing transparency disclaimers, delivered placements are strictly non-refundable. Rank displacement by a subsequent participant does NOT constitute grounds for a refund.
+              Once your placement has been successfully published to the live public leaderboard, rank assigned, and assets rendered, the digital service has been completely fulfilled. Fulfilled digital placements are generally non-refundable, except where required by applicable law or where an eligible duplicate charge, failed fulfillment, reversal, or other stated exception applies. Rank displacement by a subsequent participant does NOT constitute grounds for a refund.
             </p>
           </div>
         </div>

@@ -40,6 +40,36 @@ export interface CreateOrderParams {
   idempotencyKey?: string;
   customerEmail?: string;
   customerPhone?: string;
+  consentAccepted?: boolean;
+  consentTimestamp?: string;
+  consentVersion?: string;
+}
+
+export function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token.trim()).digest('hex');
+}
+
+export function constantTimeMatch(a?: string, b?: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const trimmedA = a.trim();
+  const trimmedB = b.trim();
+  if (trimmedA.length === 0 || trimmedB.length === 0) return false;
+  const bufA = Buffer.from(trimmedA);
+  const bufB = Buffer.from(trimmedB);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+export function verifyOwnerToken(stored: string | undefined | null, provided: string | undefined | null): boolean {
+  if (!stored || !provided) return false;
+  const cleanProvided = provided.trim();
+  if (!cleanProvided) return false;
+  const providedHash = hashToken(cleanProvided);
+  if (stored.length === 64 && /^[0-9a-f]{64}$/i.test(stored)) {
+    return constantTimeMatch(stored, providedHash);
+  }
+  // Safe migration fallback for legacy plaintext token in dev/test records
+  return constantTimeMatch(stored, cleanProvided);
 }
 
 export class PostgresDatabase {
@@ -96,12 +126,15 @@ export class PostgresDatabase {
    */
   public async createOrder(order: CreateOrderParams): Promise<void> {
     if (!this.pool) throw new Error('Database unavailable.');
+    const tokenHash = order.ownerToken ? hashToken(order.ownerToken) : null;
     const query = `
       INSERT INTO payment_orders (
-        order_id, profile_id, owner_token, name, amount, currency, status,
+        order_id, profile_id, owner_token_hash, name, amount, currency, status,
         payment_mode, provider, idempotency_key, customer_email, customer_phone,
-        instagram, linkedin, website, reason, lazy_reason, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW(), NOW())
+        instagram, linkedin, website, reason, lazy_reason,
+        consent_accepted, consent_timestamp, consent_version,
+        created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW())
       ON CONFLICT (order_id) DO UPDATE SET
         name = EXCLUDED.name,
         amount = EXCLUDED.amount,
@@ -113,12 +146,15 @@ export class PostgresDatabase {
         reason = COALESCE(EXCLUDED.reason, payment_orders.reason),
         lazy_reason = COALESCE(EXCLUDED.lazy_reason, payment_orders.lazy_reason),
         idempotency_key = COALESCE(EXCLUDED.idempotency_key, payment_orders.idempotency_key),
+        consent_accepted = COALESCE(EXCLUDED.consent_accepted, payment_orders.consent_accepted),
+        consent_timestamp = COALESCE(EXCLUDED.consent_timestamp, payment_orders.consent_timestamp),
+        consent_version = COALESCE(EXCLUDED.consent_version, payment_orders.consent_version),
         updated_at = NOW()
     `;
     await this.pool.query(query, [
       order.orderId,
       order.profileId || null,
-      order.ownerToken || null,
+      tokenHash,
       order.name,
       order.amount,
       order.currency || 'INR',
@@ -133,21 +169,17 @@ export class PostgresDatabase {
       order.website || null,
       order.reason || null,
       order.lazyReason || null,
+      Boolean(order.consentAccepted),
+      order.consentTimestamp ? new Date(order.consentTimestamp) : null,
+      order.consentVersion || null
     ]);
   }
 
-  /**
-   * Fetch an authoritative payment order from PostgreSQL
-   */
-  public async getOrder(orderId: string): Promise<any | null> {
-    if (!this.pool) return null;
-    const res = await this.pool.query('SELECT * FROM payment_orders WHERE order_id = $1', [orderId]);
-    if (res.rows.length === 0) return null;
-    const r = res.rows[0];
+  public mapOrder(r: any): any {
     return {
       orderId: r.order_id,
       profileId: r.profile_id || undefined,
-      ownerToken: r.owner_token || undefined,
+      ownerTokenHash: r.owner_token_hash || r.owner_token || undefined,
       name: r.name,
       amount: Number(r.amount),
       currency: r.currency,
@@ -165,9 +197,47 @@ export class PostgresDatabase {
       website: r.website || undefined,
       reason: r.reason || undefined,
       lazyReason: r.lazy_reason || undefined,
+      consentAccepted: Boolean(r.consent_accepted),
+      consentTimestamp: r.consent_timestamp ? new Date(r.consent_timestamp).toISOString() : undefined,
+      consentVersion: r.consent_version || undefined,
       createdAt: new Date(r.created_at).toISOString(),
       updatedAt: new Date(r.updated_at).toISOString()
     };
+  }
+
+  /**
+   * Fetch an authoritative payment order from PostgreSQL
+   */
+  public async getOrder(orderId: string): Promise<any | null> {
+    if (!this.pool) return null;
+    const res = await this.pool.query('SELECT * FROM payment_orders WHERE order_id = $1', [orderId]);
+    if (res.rows.length === 0) return null;
+    return this.mapOrder(res.rows[0]);
+  }
+
+  /**
+   * Fetch an authoritative payment order by idempotency key
+   */
+  public async getOrderByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
+    if (!this.pool || !idempotencyKey) return null;
+    const res = await this.pool.query('SELECT * FROM payment_orders WHERE idempotency_key = $1 LIMIT 1', [idempotencyKey]);
+    if (res.rows.length === 0) return null;
+    return this.mapOrder(res.rows[0]);
+  }
+
+  /**
+   * Update provider session details on order
+   */
+  public async updateOrderProviderSession(orderId: string, paymentSessionId?: string, providerOrderId?: string, checkoutUrl?: string): Promise<void> {
+    if (!this.pool) return;
+    await this.pool.query(
+      `UPDATE payment_orders SET
+        payment_session_id = COALESCE($1, payment_session_id),
+        provider_order_id = COALESCE($2, provider_order_id),
+        updated_at = NOW()
+       WHERE order_id = $3`,
+      [paymentSessionId || null, providerOrderId || null, orderId]
+    );
   }
 
   /**
@@ -265,7 +335,8 @@ export class PostgresDatabase {
 
       // 3. Update or Create Profile
       let targetProfileId = order.profile_id;
-      let ownerToken = order.owner_token || crypto.randomUUID();
+      let rawOwnerToken: string | undefined;
+      let ownerTokenHash: string | undefined;
 
       if (targetProfileId) {
         // Existing profile upgrade: accumulate verified sponsorship amount
@@ -294,10 +365,13 @@ export class PostgresDatabase {
         // Create new profile
         targetProfileId = 'p-' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
         const userId = 'u-' + crypto.randomUUID().replace(/-/g, '').slice(0, 8);
+        rawOwnerToken = 'lazy_' + crypto.randomUUID().replace(/-/g, '') + crypto.randomBytes(16).toString('hex');
+        ownerTokenHash = hashToken(rawOwnerToken);
+
         await client.query(
           `INSERT INTO profiles (
             id, user_id, name, amount, rank, instagram, linkedin, website, reason, lazy_reason,
-            is_verified, owner_token, moderation_status, created_at, updated_at
+            is_verified, owner_token_hash, moderation_status, created_at, updated_at
           ) VALUES ($1, $2, $3, $4, 999999, $5, $6, $7, $8, $9, TRUE, $10, 'active', NOW(), NOW())`,
           [
             targetProfileId,
@@ -309,7 +383,7 @@ export class PostgresDatabase {
             order.website,
             order.reason,
             order.lazy_reason,
-            ownerToken
+            ownerTokenHash
           ]
         );
       }
@@ -320,10 +394,10 @@ export class PostgresDatabase {
           status = 'PAID',
           cf_payment_id = $1,
           profile_id = $2,
-          owner_token = $3,
+          owner_token_hash = COALESCE($3, owner_token_hash),
           updated_at = NOW()
         WHERE order_id = $4`,
-        [params.providerPaymentId, targetProfileId, ownerToken, params.orderId]
+        [params.providerPaymentId, targetProfileId, ownerTokenHash || null, params.orderId]
       );
 
       // 5. Insert Rank Ledger Entry (Double-entry balance)
@@ -374,7 +448,7 @@ export class PostgresDatabase {
         success: true,
         message: 'Payment verified and claimed.',
         profile: finalProfile,
-        ownerToken,
+        ownerToken: rawOwnerToken,
         previousTop
       };
     } catch (err: any) {
@@ -387,8 +461,45 @@ export class PostgresDatabase {
   }
 
   /**
+   * Record a refund attempt as PENDING before provider confirmation
+   */
+  public async recordRefundPending(params: {
+    orderId: string;
+    refundId: string;
+    amount: number;
+    reason: string;
+  }): Promise<boolean> {
+    if (!this.pool) return false;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const orderRes = await client.query('SELECT * FROM payment_orders WHERE order_id = $1 FOR UPDATE', [params.orderId]);
+      if (orderRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+      // Insert or update refund_reversals record with status PENDING
+      await client.query(
+        `INSERT INTO refund_reversals (id, order_id, provider_refund_id, amount, currency, reason, status, created_at)
+         VALUES ($1, $2, $3, $4, 'INR', $5, 'PENDING', NOW())
+         ON CONFLICT (id) DO UPDATE SET status = 'PENDING'`,
+        [params.refundId, params.orderId, params.refundId, params.amount, params.reason]
+      );
+      await client.query("UPDATE payment_orders SET status = 'REFUND_PENDING', updated_at = NOW() WHERE order_id = $1", [params.orderId]);
+      await client.query('COMMIT');
+      return true;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error('[PostgreSQL] recordRefundPending error:', err);
+      return false;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
    * Atomic Refund & Reversal Transaction
-   * Debits rank ledger, updates profile amount, and recalculates leaderboard ranks atomically.
+   * Debits rank ledger, updates profile amount, and recalculates leaderboard ranks atomically ONLY upon confirmed refund SUCCESS.
    */
   public async reverseRefundAtomic(params: RefundParams): Promise<{
     success: boolean;
@@ -412,20 +523,49 @@ export class PostgresDatabase {
       }
 
       const order = orderRes.rows[0];
+      const orderAmount = Number(order.amount);
       const profileId = order.profile_id;
 
-      // Insert refund reversal record
-      const refId = 'ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      // Idempotency: If providerRefundId is supplied and already settled with SUCCESS, return immediately
+      if (params.providerRefundId) {
+        const existingRef = await client.query(
+          "SELECT 1 FROM refund_reversals WHERE (provider_refund_id = $1 OR id = $1) AND status = 'SUCCESS' LIMIT 1",
+          [params.providerRefundId]
+        );
+        if (existingRef.rows.length > 0) {
+          await client.query('COMMIT');
+          return { success: true, message: 'Refund reversal already settled.' };
+        }
+      }
+
+      // Check total settled refunds so far
+      const totalRefundedRes = await client.query(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM refund_reversals WHERE order_id = $1 AND status = 'SUCCESS'",
+        [params.orderId]
+      );
+      const alreadyRefunded = Number(totalRefundedRes.rows[0].total);
+
+      if (alreadyRefunded + params.amount > orderAmount + 0.01) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Total refund amount exceeds original successfully captured payment.' };
+      }
+
+      // Record refund reversal with status SUCCESS
+      const refId = params.providerRefundId || ('ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12));
       await client.query(
         `INSERT INTO refund_reversals (id, order_id, provider_refund_id, amount, currency, reason, status, created_at)
-         VALUES ($1, $2, $3, $4, 'INR', $5, 'SUCCESS', NOW())`,
+         VALUES ($1, $2, $3, $4, 'INR', $5, 'SUCCESS', NOW())
+         ON CONFLICT (id) DO UPDATE SET status = 'SUCCESS', amount = EXCLUDED.amount, updated_at = NOW()`,
         [refId, params.orderId, params.providerRefundId || null, params.amount, params.reason]
       );
 
-      // Update order status to REFUNDED
+      const newTotalRefunded = alreadyRefunded + params.amount;
+      const finalOrderStatus = newTotalRefunded >= orderAmount - 0.01 ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+
+      // Update order status
       await client.query(
-        "UPDATE payment_orders SET status = 'REFUNDED', updated_at = NOW() WHERE order_id = $1",
-        [params.orderId]
+        'UPDATE payment_orders SET status = $1, updated_at = NOW() WHERE order_id = $2',
+        [finalOrderStatus, params.orderId]
       );
 
       if (profileId) {
@@ -599,13 +739,18 @@ export class PostgresDatabase {
   }
 
   /**
-   * Look up raw profile including owner token (internal / admin only)
+   * Look up raw profile including owner token hash (internal / auth verification only)
    */
-  public async getRawProfile(id: string): Promise<UserProfile | null> {
+  public async getRawProfile(id: string): Promise<any | null> {
     if (!this.pool) return null;
     const res = await this.pool.query('SELECT * FROM profiles WHERE id = $1 LIMIT 1', [id]);
     if (res.rows.length === 0) return null;
-    return this.mapProfile(res.rows[0]);
+    const r = res.rows[0];
+    return {
+      ...this.mapProfile(r),
+      ownerTokenHash: r.owner_token_hash || r.owner_token || undefined,
+      ownerToken: r.owner_token || undefined
+    };
   }
 
   /**
@@ -635,7 +780,6 @@ export class PostgresDatabase {
       lazyReason: row.lazy_reason || undefined,
       lazyStreakDays: row.lazy_streak_days || 0,
       isVerified: Boolean(row.is_verified),
-      ownerToken: row.owner_token,
       moderationStatus: row.moderation_status || 'active',
       votesCount: row.votes_count || 0,
       createdAt: new Date(row.created_at).toISOString(),

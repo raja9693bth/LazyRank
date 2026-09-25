@@ -54,7 +54,7 @@ export const LEGAL_CONFIG = {
 
   // Tax Disclosure
   TAX_DISCLOSURE:
-    'Prices are displayed in Indian Rupees (INR) and are inclusive of applicable taxes, if any. Tax invoices are not issued under threshold exemption unless GST registration is activated.'
+    'Amounts are displayed in INR. Applicable taxes, if any, will be handled in accordance with applicable law.'
 } as const;
 
 export type LegalConfig = typeof LEGAL_CONFIG;

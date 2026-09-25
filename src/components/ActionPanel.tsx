@@ -12,12 +12,17 @@ interface ActionPanelProps {
   onStartPayment: (data: {
     name: string;
     amount: number;
+    customerPhone: string;
+    customerEmail?: string;
     instagram?: string;
     linkedin?: string;
     website?: string;
     reason?: string;
     profileId?: string;
     ownerToken?: string;
+    consentAccepted: boolean;
+    consentTimestamp: string;
+    consentVersion: string;
   }) => void;
   isLoading?: boolean;
   errorMessage?: string | null;
@@ -36,13 +41,15 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
 }) => {
   const [name, setName] = useState('');
   const [amount, setAmount] = useState<number>(initialAmount || minAmountToBeatTop);
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [instagram, setInstagram] = useState('');
   const [linkedin, setLinkedin] = useState('');
   const [website, setWebsite] = useState('');
   const [reason, setReason] = useState('');
   const [showOptionalLinks, setShowOptionalLinks] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [termsAccepted, setTermsAccepted] = useState(true);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
     if (initialAmount && initialAmount > 0) {
@@ -101,8 +108,23 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       setLocalError('Minimum payment is ₹1.');
       return;
     }
+
+    const cleanedPhone = customerPhone.replace(/\D/g, '');
+    if (!cleanedPhone || cleanedPhone.length !== 10 || !/^[6-9]\d{9}$/.test(cleanedPhone)) {
+      setLocalError('Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).');
+      return;
+    }
+
+    if (customerEmail.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(customerEmail.trim())) {
+        setLocalError('Please enter a valid email address or leave it blank.');
+        return;
+      }
+    }
+
     if (!termsAccepted) {
-      setLocalError('Please accept the Terms & Conditions and Refund Policy to proceed.');
+      setLocalError('Please read and agree to the Terms & Conditions and Privacy Policy, and acknowledge the Refund Policy.');
       return;
     }
 
@@ -117,12 +139,17 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
     onStartPayment({
       name: trimmedName,
       amount: Math.round(amount),
+      customerPhone: cleanedPhone,
+      customerEmail: customerEmail.trim() || undefined,
       instagram: instagram.trim() || undefined,
       linkedin: linkedin.trim() || undefined,
       website: website.trim() || undefined,
       reason: reason.trim() || undefined,
       profileId: upgradingProfile?.id,
-      ownerToken: storedOwnerToken
+      ownerToken: storedOwnerToken,
+      consentAccepted: true,
+      consentTimestamp: new Date().toISOString(),
+      consentVersion: '2026-09-24'
     });
   };
 
@@ -232,6 +259,49 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
+            </div>
+          </div>
+
+          {/* Row 2: Customer Mobile (Required) and Email (Optional) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
+            <div>
+              <label htmlFor="claim-phone-input" className="block text-[11px] font-bold text-stone-700 mb-1">
+                Mobile Number (for Payment Gateway) <span className="text-rose-500">*</span>
+              </label>
+              <div className="flex items-center rounded-xl border border-[#ede5da] bg-[#faf8f4]/80 overflow-hidden focus-within:border-stone-800 focus-within:bg-white transition-all">
+                <span className="pl-3 pr-1 text-xs font-bold text-stone-500 select-none">+91</span>
+                <input
+                  id="claim-phone-input"
+                  type="tel"
+                  placeholder="9876543210"
+                  value={customerPhone}
+                  onChange={(e) => {
+                    setCustomerPhone(e.target.value.replace(/\D/g, '').slice(0, 10));
+                    if (localError) setLocalError(null);
+                  }}
+                  maxLength={10}
+                  required
+                  className="w-full py-2 pr-3 text-xs sm:text-sm font-semibold text-stone-900 bg-transparent focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="claim-email-input" className="block text-[11px] font-bold text-stone-700 mb-1">
+                Email Address <span className="text-stone-400 font-normal">(optional, for digital receipt)</span>
+              </label>
+              <input
+                id="claim-email-input"
+                type="email"
+                placeholder="name@example.com"
+                value={customerEmail}
+                onChange={(e) => {
+                  setCustomerEmail(e.target.value);
+                  if (localError) setLocalError(null);
+                }}
+                maxLength={80}
+                className="w-full rounded-xl border border-[#ede5da] bg-[#faf8f4]/80 px-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-all"
+              />
             </div>
           </div>
 
@@ -439,15 +509,19 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                 className="mt-0.5 rounded border-stone-300 text-stone-900 focus:ring-stone-800"
               />
               <span>
-                I agree to the{' '}
+                I have read and agree to the{' '}
                 <a href="/terms" target="_blank" rel="noopener noreferrer" className="font-bold underline text-stone-900 hover:text-[#9c3a16]">
-                  Terms & Conditions
+                  Terms &amp; Conditions
                 </a>{' '}
                 and{' '}
-                <a href="/refund-cancellation" target="_blank" rel="noopener noreferrer" className="font-bold underline text-stone-900 hover:text-[#9c3a16]">
-                  Refund Policy
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="font-bold underline text-stone-900 hover:text-[#9c3a16]">
+                  Privacy Policy
                 </a>
-                . I acknowledge that ranking is dynamic and that delivered placements are non-refundable.
+                , and I acknowledge the{' '}
+                <a href="/refund-cancellation" target="_blank" rel="noopener noreferrer" className="font-bold underline text-stone-900 hover:text-[#9c3a16]">
+                  Refund &amp; Cancellation Policy
+                </a>
+                . I understand ranking is dynamic and based deterministically on cumulative verified sponsorship.
               </span>
             </label>
           </div>
@@ -456,7 +530,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
           <button
             id="prove-your-laziness-btn"
             type="submit"
-            disabled={isLoading || !name.trim() || amount < 1 || !termsAccepted}
+            disabled={isLoading || !name.trim() || amount < 1 || !termsAccepted || customerPhone.replace(/\D/g, '').length !== 10}
             aria-label={`Prove your laziness - pay ₹${amount.toLocaleString('en-IN')}`}
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] py-3 px-5 text-xs sm:text-sm font-black text-white shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-2"
           >

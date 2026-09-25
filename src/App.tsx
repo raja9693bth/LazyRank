@@ -320,14 +320,21 @@ export default function App() {
   };
 
   // Initiates Checkout Order with Server
+  const [currentIdempotencyKey, setCurrentIdempotencyKey] = useState<string | null>(null);
+
   const handleStartPayment = async (claimData: {
     name: string;
     amount: number;
+    customerPhone?: string;
+    customerEmail?: string;
     instagram?: string;
     linkedin?: string;
     website?: string;
     reason?: string;
     profileId?: string;
+    consentAccepted?: boolean;
+    consentTimestamp?: string;
+    consentVersion?: string;
   }) => {
     setIsCreatingOrder(true);
     setOrderError(null);
@@ -348,16 +355,24 @@ export default function App() {
         } catch {}
       }
 
+      // Generate or reuse stable idempotency key for this checkout attempt
+      const idempotencyKey = currentIdempotencyKey || `idem_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+      if (!currentIdempotencyKey) {
+        setCurrentIdempotencyKey(idempotencyKey);
+      }
+
       const res = await fetch('/api/payment/create-order', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-idempotency-key': idempotencyKey,
           ...(storedToken ? { 'x-profile-token': storedToken } : {})
         },
         body: JSON.stringify({
           ...claimData,
           profileId: targetProfileId,
-          ownerToken: storedToken
+          ownerToken: storedToken,
+          idempotencyKey
         })
       });
 

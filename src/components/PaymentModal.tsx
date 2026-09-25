@@ -126,7 +126,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   const handleLaunchCashfreeCheckout = () => {
-    setStep('polling');
     setErrorMessage(null);
 
     // If Cashfree Web SDK is loaded and paymentSessionId is available, launch official checkout modal
@@ -136,6 +135,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         const cashfree = w.Cashfree({
           mode: orderData.paymentMode === 'sandbox' ? 'sandbox' : 'production'
         });
+        setStep('polling');
         cashfree.checkout({
           paymentSessionId: orderData.paymentSessionId,
           redirectTarget: '_modal'
@@ -148,20 +148,26 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           console.warn('[Cashfree SDK] Modal checkout invocation error, falling back:', err);
           if (orderData.checkoutUrl) {
             window.location.href = orderData.checkoutUrl;
+            startStatusPolling(orderData.orderId);
+          } else {
+            setStep('checkout');
+            setErrorMessage('Payment checkout could not load. Please retry.');
           }
-          startStatusPolling(orderData.orderId);
         });
         return;
       } catch (err) {
-        console.warn('[Cashfree SDK] Initialization error, falling back to direct URL:', err);
+        console.warn('[Cashfree SDK] Initialization error, falling back:', err);
       }
     }
 
     if (orderData.checkoutUrl) {
+      setStep('polling');
       window.location.href = orderData.checkoutUrl;
       startStatusPolling(orderData.orderId);
     } else {
-      startStatusPolling(orderData.orderId);
+      // Do NOT start fake polling if checkout failed to launch
+      setStep('checkout');
+      setErrorMessage('Payment checkout could not load. Please retry.');
     }
   };
 
@@ -351,6 +357,22 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <span className="font-bold text-emerald-700">Cashfree PG (Secured)</span>
                 </div>
               </div>
+
+              {errorMessage && (
+                <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 space-y-2">
+                  <div className="flex items-center gap-2 font-bold">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{errorMessage}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLaunchCashfreeCheckout}
+                    className="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs cursor-pointer"
+                  >
+                    Retry Checkout
+                  </button>
+                </div>
+              )}
 
               <div className="pt-2 space-y-2">
                 <button

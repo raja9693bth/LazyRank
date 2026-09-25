@@ -90,7 +90,7 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
           </div>
           <div className="p-3 rounded-lg bg-zinc-100 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">Rule 6: Server-Authoritative Verification Only</strong>
-            Client-side scripts, local storage, or browser modifications possess zero authority over rank. Only transactions verified by our backend through certified payment gateway webhooks are credited.
+            Client-side scripts, local storage, or browser modifications possess zero authority over rank. Only transactions verified authoritatively by our backend through payment gateway webhooks or direct provider status verification are credited.
           </div>
         </div>
       </section>

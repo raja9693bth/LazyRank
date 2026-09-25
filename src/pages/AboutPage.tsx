@@ -62,7 +62,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
               <span>Server-Authoritative Settlement</span>
             </div>
             <p className="text-zinc-600">
-              Zero client authority. Ranks are committed atomically on our backend only after cryptographic webhook settlement from our certified payment gateway.
+              Zero client authority. Ranks are committed atomically on our backend only after cryptographic webhook settlement or direct verification from the payment gateway.
             </p>
           </div>
 

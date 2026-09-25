@@ -43,7 +43,7 @@ export const AboutModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
         </div>
         <div className="mt-4 space-y-3 text-sm text-zinc-700 leading-relaxed">
           <p>
-            <strong>LAZY</strong> is a public pay-to-rank internet game built around one absurd question:
+            <strong>LAZY</strong> is a digital sponsored showcase and public ranking social experiment built around one absurd question:
           </p>
           <p className="text-base font-extrabold text-zinc-950 py-1">
             "How much are you willing to pay to prove you are the laziest?"

@@ -32,6 +32,16 @@ export interface ProviderPaymentStatus {
   raw?: any;
 }
 
+export interface RefundWebhookDetails {
+  refundId: string;
+  providerRefundId?: string;
+  orderId: string;
+  amount: number;
+  currency: string;
+  status: 'SUCCESS' | 'FAILED' | 'PENDING';
+  arn?: string;
+}
+
 export interface WebhookVerificationResult {
   isValid: boolean;
   event?: string;
@@ -41,6 +51,7 @@ export interface WebhookVerificationResult {
   currency?: string;
   paymentMethod?: string;
   status?: 'SUCCESS' | 'FAILED' | 'USER_DROPPED' | 'REFUNDED';
+  refund?: RefundWebhookDetails;
   rawPayload?: any;
   error?: string;
 }

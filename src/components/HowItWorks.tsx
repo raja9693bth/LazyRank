@@ -13,13 +13,13 @@ export const HowItWorks: React.FC = () => {
       icon: TrendingUp,
       step: '02',
       title: 'Higher Pay = Higher Rank',
-      desc: 'Your verified amount dictates your rank. Outbid the current #1 to claim the top spot.'
+      desc: 'Your verified amount dictates your rank. Sponsor above the current #1 verified total to claim the top spot.'
     },
     {
       icon: ShieldCheck,
       step: '03',
       title: 'Permanent Legitimacy',
-      desc: '100% server-verified. Every rupee is authenticated before ranking updates.'
+      desc: 'Server-authoritative verification. Every rupee is authenticated before ranking updates.'
     }
   ];
 

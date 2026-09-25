@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { UserProfile, Nomination, ActivityEvent, PurchaseRecord, ReportRecord, AnalyticsSummary, LiveStats, ContactMessage, NotificationSubscription, ClaimHistoryRecord, GlobalActivityData, HourlyActivityBucket, DayActivityBucket, LazyDilemma } from '../src/types.ts';
-import { PostgresDatabase } from './db/postgres.ts';
+import { PostgresDatabase, hashToken, verifyOwnerToken } from './db/postgres.ts';
 
 const DATA_FILE = path.join(process.cwd(), 'server-data.json');
 
@@ -319,6 +319,14 @@ interface DatabaseState {
       paymentRef?: string;
       createdAt: string;
       status: string;
+      idempotencyKey?: string;
+      paymentSessionId?: string;
+      providerOrderId?: string;
+      checkoutUrl?: string;
+      refundedAmount?: number;
+      customerPhone?: string;
+      customerEmail?: string;
+      consentAccepted?: boolean;
     };
   };
   analytics: AnalyticsSummary;
@@ -784,6 +792,34 @@ export class LazyDatabase {
     return safe as UserProfile;
   }
 
+  public async getOrderByIdempotencyKey(idempotencyKey: string): Promise<any | null> {
+    if (!idempotencyKey) return null;
+    if (this.isPostgresAuthoritative()) {
+      return await this.pg.getOrderByIdempotencyKey(idempotencyKey);
+    }
+    if (!this.state.orders) return null;
+    for (const key of Object.keys(this.state.orders)) {
+      const ord = this.state.orders[key];
+      if (ord.idempotencyKey === idempotencyKey) {
+        return ord;
+      }
+    }
+    return null;
+  }
+
+  public async updateOrderProviderSession(orderId: string, paymentSessionId?: string, providerOrderId?: string, checkoutUrl?: string): Promise<void> {
+    if (this.isPostgresAuthoritative()) {
+      await this.pg.updateOrderProviderSession(orderId, paymentSessionId, providerOrderId, checkoutUrl);
+      return;
+    }
+    if (this.state.orders && this.state.orders[orderId]) {
+      this.state.orders[orderId].paymentSessionId = paymentSessionId;
+      this.state.orders[orderId].providerOrderId = providerOrderId;
+      this.state.orders[orderId].checkoutUrl = checkoutUrl;
+      this.saveData();
+    }
+  }
+
   public async createOrder(order: {
     orderId: string;
     name: string;
@@ -799,6 +835,9 @@ export class LazyDatabase {
     customerEmail?: string;
     customerPhone?: string;
     paymentMode?: string;
+    consentAccepted?: boolean;
+    consentTimestamp?: string;
+    consentVersion?: string;
   }) {
     if (this.isPostgresAuthoritative()) {
       await this.pg.createOrder({
@@ -818,7 +857,7 @@ export class LazyDatabase {
       if (!existing) {
         throw new Error('Profile not found.');
       }
-      if (!order.ownerToken || !this.constantTimeMatch(existing.ownerToken, order.ownerToken)) {
+      if (!order.ownerToken || !verifyOwnerToken(existing.ownerTokenHash || existing.ownerToken, order.ownerToken)) {
         throw new Error('Unauthorized: Valid owner token is required to upgrade this profile.');
       }
     }
@@ -901,7 +940,7 @@ export class LazyDatabase {
     if (!ownerToken || typeof ownerToken !== 'string' || !ownerToken.trim()) {
       throw new Error('Unauthorized: Owner token is required to modify this profile.');
     }
-    if (!p.ownerToken || !constantTimeMatch(p.ownerToken, ownerToken.trim())) {
+    if (!verifyOwnerToken(p.ownerTokenHash || p.ownerToken, ownerToken.trim())) {
       throw new Error('Unauthorized: Invalid owner token for this profile.');
     }
 
@@ -1042,7 +1081,7 @@ export class LazyDatabase {
           message: 'Unauthorized: Owner token required to upgrade an existing profile.'
         };
       }
-      if (!targetProfile.ownerToken || !constantTimeMatch(targetProfile.ownerToken, ownerToken.trim())) {
+      if (!verifyOwnerToken(targetProfile.ownerTokenHash || targetProfile.ownerToken, ownerToken.trim())) {
         return {
           success: false,
           message: "Unauthorized: Invalid profile credentials. You cannot modify another participant's profile."
@@ -1182,10 +1221,10 @@ export class LazyDatabase {
     };
   }
 
-  public async reverseRefund(orderId: string, amount: number, reason: string): Promise<boolean> {
+  public async reverseRefund(orderId: string, amount: number, reason: string, providerRefundId?: string): Promise<boolean> {
     if (this.isPostgresAuthoritative()) {
       try {
-        const res = await this.pg.reverseRefundAtomic({ orderId, amount, reason });
+        const res = await this.pg.reverseRefundAtomic({ orderId, amount, reason, providerRefundId });
         return res.success;
       } catch (pgErr) {
         console.error('[PostgreSQL] Reverse refund error:', pgErr);
@@ -1194,7 +1233,12 @@ export class LazyDatabase {
     }
     if (this.state.orders && this.state.orders[orderId]) {
       const ord = this.state.orders[orderId];
-      ord.status = 'REFUNDED';
+      if (!ord.refundedAmount) ord.refundedAmount = 0;
+      if (ord.refundedAmount + amount > ord.amount + 0.01) {
+        return false;
+      }
+      ord.refundedAmount += amount;
+      ord.status = ord.refundedAmount >= ord.amount - 0.01 ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
       if (ord.profileId) {
         const prof = this.getRawProfile(ord.profileId);
         if (prof) {
@@ -1205,6 +1249,8 @@ export class LazyDatabase {
           return true;
         }
       }
+      this.saveData();
+      return true;
     }
     return false;
   }

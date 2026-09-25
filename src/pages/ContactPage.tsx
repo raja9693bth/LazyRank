@@ -152,7 +152,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
             Send an On-Site Message
           </h2>
           <p className="text-xs text-zinc-600">
-            Fill out the form below and our support desk will respond via email within 24 to 48 hours.
+            Fill out the form below. We review support inquiries during published business hours and aim to respond as soon as reasonably possible.
           </p>
         </div>
 
@@ -163,7 +163,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
               <span>Inquiry Received Successfully!</span>
             </div>
             <p className="leading-relaxed">
-              Thank you for reaching out. We have received your message. Our support desk ({LEGAL_CONFIG.SUPPORT_EMAIL}) will review your query and respond via email within 24–48 hours.
+              Thank you for reaching out. We have received your message. Our support desk ({LEGAL_CONFIG.SUPPORT_EMAIL}) reviews inquiries during published business hours and aims to respond as soon as reasonably possible.
             </p>
             <button
               type="button"

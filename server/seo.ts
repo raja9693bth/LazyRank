@@ -1,4 +1,5 @@
 import { UserProfile } from '../src/types.ts';
+import { SERVER_LEGAL_CONFIG } from './config/legal.ts';
 
 const DEFAULT_APP_URL = process.env.NODE_ENV === 'production' ? 'https://lazyproof.online' : 'http://localhost:3000';
 export const BASE_URL = (process.env.APP_URL || DEFAULT_APP_URL).replace(/\/+$/, '');
@@ -293,7 +294,7 @@ export const ROUTE_SEO: Record<string, RouteSeoMeta> = {
   },
   '/rules': {
     title: "Official Rules & Ranking Mechanics — How LAZY Works",
-    description: "Comprehensive breakdown of the LAZY rules: verified monetary bids, strict tie-breaking by timestamp, position displacement, and tamper-proof claim permanence.",
+    description: "Comprehensive breakdown of the LAZY rules: verified cumulative sponsorship, strict tie-breaking by timestamp, position displacement, and tamper-proof claim permanence.",
     canonicalPath: '/rules',
     ogType: 'website',
     breadcrumbName: 'Rules'
@@ -408,11 +409,11 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
     extraProps = {
       mainEntity: {
         '@type': 'Organization',
-        name: 'LAZY Project',
+        name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
         url: baseUrl,
         contactPoint: {
           '@type': 'ContactPoint',
-          email: 'contact@lazyproof.online',
+          email: SERVER_LEGAL_CONFIG.SUPPORT_EMAIL,
           contactType: 'customer service',
           availableLanguage: ['English', 'Hindi']
         }

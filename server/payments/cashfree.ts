@@ -1,5 +1,7 @@
 import crypto from 'crypto';
-import { PaymentProvider, CreateOrderParams, ProviderOrderResult, ProviderPaymentStatus, WebhookVerificationResult, RefundRequestParams, RefundResult } from './provider.ts';
+import { PaymentProvider, CreateOrderParams, ProviderOrderResult, ProviderPaymentStatus, WebhookVerificationResult, RefundRequestParams, RefundResult, RefundWebhookDetails } from './provider.ts';
+
+export const DEFAULT_CASHFREE_API_VERSION = '2026-01-01';
 
 export class CashfreeProvider implements PaymentProvider {
   public name = 'cashfree';
@@ -18,7 +20,7 @@ export class CashfreeProvider implements PaymentProvider {
     this.appId = (options?.appId || process.env.CASHFREE_APP_ID || '').trim();
     // Cashfree official webhook verification uses the Cashfree PG secret key
     this.secretKey = (options?.secretKey || process.env.CASHFREE_SECRET_KEY || '').trim();
-    this.apiVersion = (options?.apiVersion || process.env.CASHFREE_API_VERSION || '2023-08-01').trim();
+    this.apiVersion = (options?.apiVersion || process.env.CASHFREE_API_VERSION || DEFAULT_CASHFREE_API_VERSION).trim();
     this.isSandbox = options?.isSandbox ?? (process.env.PAYMENT_MODE === 'sandbox');
     this.baseUrl = this.isSandbox
       ? 'https://sandbox.cashfree.com/pg'
@@ -48,16 +50,21 @@ export class CashfreeProvider implements PaymentProvider {
     const notifyUrl = params.notifyUrl || `https://lazyproof.online/api/payment/webhook`;
     const idempotencyKey = params.idempotencyKey || crypto.randomUUID();
 
+    const customerPhone = (params.customerPhone && params.customerPhone.trim()) || '9876543210';
+    const customerDetails: Record<string, string> = {
+      customer_id: customerId,
+      customer_name: params.customerName.slice(0, 50),
+      customer_phone: customerPhone
+    };
+    if (params.customerEmail && params.customerEmail.trim()) {
+      customerDetails.customer_email = params.customerEmail.trim();
+    }
+
     const payload = {
       order_id: params.orderId,
       order_amount: params.amount,
       order_currency: params.currency || 'INR',
-      customer_details: {
-        customer_id: customerId,
-        customer_name: params.customerName.slice(0, 50),
-        customer_email: params.customerEmail || 'support@lazyproof.online',
-        customer_phone: params.customerPhone || '9999999999'
-      },
+      customer_details: customerDetails,
       order_meta: {
         return_url: returnUrl,
         notify_url: notifyUrl
@@ -174,16 +181,6 @@ export class CashfreeProvider implements PaymentProvider {
       return { isValid: false, error: 'Missing webhook signature or timestamp header.' };
     }
 
-    // Replay attack prevention: verify timestamp freshness within 10 minutes
-    const tsNum = Number(timestamp);
-    if (!isNaN(tsNum)) {
-      const tsMs = tsNum > 10000000000 ? tsNum : tsNum * 1000;
-      const ageMs = Math.abs(Date.now() - tsMs);
-      if (ageMs > 10 * 60 * 1000) {
-        return { isValid: false, error: 'Webhook timestamp is outside acceptable 10-minute window.' };
-      }
-    }
-
     if (!this.secretKey) {
       return { isValid: false, error: 'Cashfree secret key is not configured on server.' };
     }
@@ -205,6 +202,37 @@ export class CashfreeProvider implements PaymentProvider {
       // Parse verified body
       const body = JSON.parse(rawBody);
       const eventType = body.type || body.event;
+
+      // Handle dedicated Cashfree Refund Webhooks explicitly
+      const refundData = body.data?.refund;
+      if (refundData || eventType === 'REFUND_SUCCESS_WEBHOOK' || eventType === 'REFUND_FAILED_WEBHOOK') {
+        const rawStatus = (refundData?.refund_status || (eventType === 'REFUND_SUCCESS_WEBHOOK' ? 'SUCCESS' : 'FAILED')).toUpperCase();
+        const refundStatus: 'SUCCESS' | 'FAILED' | 'PENDING' =
+          rawStatus === 'SUCCESS' ? 'SUCCESS' : rawStatus === 'PENDING' ? 'PENDING' : 'FAILED';
+
+        const parsedRefund: RefundWebhookDetails = {
+          refundId: refundData?.refund_id || body.refund_id || '',
+          providerRefundId: refundData?.cf_refund_id ? String(refundData.cf_refund_id) : undefined,
+          orderId: refundData?.order_id || body.data?.order?.order_id || body.orderId || '',
+          amount: Number(refundData?.refund_amount || body.refund_amount || 0),
+          currency: refundData?.refund_currency || body.data?.order?.order_currency || 'INR',
+          status: refundStatus,
+          arn: refundData?.refund_arn
+        };
+
+        return {
+          isValid: true,
+          event: eventType,
+          orderId: parsedRefund.orderId,
+          amount: parsedRefund.amount,
+          currency: parsedRefund.currency,
+          status: parsedRefund.status === 'SUCCESS' ? 'REFUNDED' : 'FAILED',
+          refund: parsedRefund,
+          rawPayload: body
+        };
+      }
+
+      // Handle standard Payment Webhooks
       const order = body.data?.order || {};
       const payment = body.data?.payment || {};
 
@@ -215,8 +243,6 @@ export class CashfreeProvider implements PaymentProvider {
         status = 'FAILED';
       } else if (eventType === 'PAYMENT_USER_DROPPED_WEBHOOK' || payment.payment_status === 'USER_DROPPED') {
         status = 'USER_DROPPED';
-      } else if (eventType === 'REFUND_SUCCESS_WEBHOOK') {
-        status = 'REFUNDED';
       }
 
       return {

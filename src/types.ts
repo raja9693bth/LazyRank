@@ -29,6 +29,7 @@ export interface UserProfile {
   updatedAt: string;
   votesCount?: number; // Social +1 laziness votes
   ownerToken?: string; // Private authorization token for profile updates (stripped from public responses)
+  ownerTokenHash?: string; // Cryptographic SHA-256 hash representation of ownerToken
   isNomination?: boolean;
   nominatorName?: string;
   isReported?: boolean;

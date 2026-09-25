@@ -36,8 +36,8 @@ export default function App() {
 
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [allTimeTop3, setAllTimeTop3] = useState<UserProfile[]>([]);
-  const [topAmount, setTopAmount] = useState<number>(5001);
-  const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(5002);
+  const [topAmount, setTopAmount] = useState<number>(0);
+  const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(1);
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentPeriod, setCurrentPeriod] = useState<RankPeriod>('today');
   const [selectedProfile, setSelectedProfile] = useState<UserProfile | null>(null);

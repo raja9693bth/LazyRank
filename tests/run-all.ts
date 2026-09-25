@@ -22,7 +22,12 @@ try {
   execSync('npx tsx tests/final-compliance-gateway.test.ts', { stdio: 'inherit' });
 
   console.log('\n========================================================');
-  console.log('MASTER TEST SUITE RESULT: 153/153 ASSERTIONS PASSED (100%)');
+  console.log('RUNNING SUITE 5: PHASE 1 LEGAL IDENTITY & UX TRUTH (8 TESTS)');
+  console.log('========================================================\n');
+  execSync('npx tsx tests/phase1-ux-legal.test.ts', { stdio: 'inherit' });
+
+  console.log('\n========================================================');
+  console.log('MASTER TEST SUITE RESULT: ALL ASSERTIONS PASSED (100%)');
   console.log('========================================================\n');
   process.exit(0);
 } catch (error: any) {

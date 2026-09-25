@@ -118,6 +118,9 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
         </h2>
         <ul className="list-disc list-inside space-y-2 text-xs sm:text-sm text-zinc-700 pl-1">
           <li>
+            <strong>7-Calendar-Day Claim Window:</strong> Any claim for an eligible refund (such as a verified duplicate debit or unfulfilled placement due to technical failure) must be submitted within <strong>7 calendar days</strong> of the transaction timestamp. Requests received after 7 calendar days cannot be reconciled against real-time gateway records.
+          </li>
+          <li>
             <strong>Internal Review & Approval:</strong> Validated refund requests are reviewed and approved by {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} within <strong>1 to 2 business days</strong>.
           </li>
           <li>
@@ -143,7 +146,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
           6. How to Submit a Refund Request
         </h2>
         <p>
-          To submit a refund request for an eligible transaction, please email us with:
+          To submit a refund request for an eligible transaction, please email us within the 7-calendar-day claim window with:
         </p>
         <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
           <li>Your registered display name and order ID</li>
@@ -153,8 +156,10 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
         </ul>
         <div className="mt-3 p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-xs sm:text-sm space-y-1">
           <div><strong>Support Desk:</strong> <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a></div>
-          <div><strong>Support Phone:</strong> {LEGAL_CONFIG.SUPPORT_PHONE}</div>
+          <div><strong>Support Phone:</strong> <a href={LEGAL_CONFIG.SUPPORT_PHONE_HREF} className="hover:underline">{LEGAL_CONFIG.SUPPORT_PHONE}</a></div>
           <div><strong>Operating Entity:</strong> {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} ({LEGAL_CONFIG.ENTITY_TYPE})</div>
+          <div><strong>Proprietor:</strong> {LEGAL_CONFIG.PROPRIETOR_NAME}</div>
+          <div><strong>Address:</strong> {LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS}</div>
           <div><strong>Business Hours:</strong> {LEGAL_CONFIG.BUSINESS_HOURS}</div>
         </div>
       </section>

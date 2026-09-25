@@ -7,7 +7,7 @@ export const HowItWorks: React.FC = () => {
       icon: CreditCard,
       step: '01',
       title: 'Pay What You Want',
-      desc: 'Enter your name and any amount from ₹1 upwards. Instant UPI & card checkout.'
+      desc: 'Enter your name and any amount from ₹1 upwards. Secure checkout when payment processing is active.'
     },
     {
       icon: TrendingUp,
@@ -18,8 +18,8 @@ export const HowItWorks: React.FC = () => {
     {
       icon: ShieldCheck,
       step: '03',
-      title: 'Permanent Legitimacy',
-      desc: 'Server-authoritative verification. Every rupee is authenticated before ranking updates.'
+      title: 'Deterministic Placement',
+      desc: 'Server-authoritative verification. Every rupee is authenticated before ranking updates; rank moves dynamically as participants sponsor.'
     }
   ];
 

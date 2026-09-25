@@ -25,8 +25,13 @@ export const DeliveryPage: React.FC<DeliveryPageProps> = ({ onNavigate }) => {
         </p>
         <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs sm:text-sm text-amber-900 flex items-start gap-2.5">
           <Globe className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <strong>No Physical Goods or Shipping:</strong> There are no tangible, physical items, parcels, or postal shipments associated with this product. All service fulfillment takes place digitally through our web servers.
+          <div className="space-y-1">
+            <div>
+              <strong>No Physical Goods or Shipping:</strong> There are no tangible, physical items, parcels, or postal shipments associated with this product. All service fulfillment takes place digitally through our web servers.
+            </div>
+            <div>
+              <strong>Deliverables & Ranking Dynamic:</strong> Your purchase delivers immediate verified public showcase placement, a verified badge, downloadable proof cards, and initial ranking computed from your verified sponsorship amount. Rank positions are dynamic and deterministic; if another participant contributes a higher verified amount, your rank will move accordingly. Digital placement does not guarantee permanent top tenure or financial returns.
+            </div>
           </div>
         </div>
       </section>
@@ -126,10 +131,11 @@ export const DeliveryPage: React.FC<DeliveryPageProps> = ({ onNavigate }) => {
         </h2>
         <div className="text-xs sm:text-sm text-zinc-700 space-y-1">
           <div><strong>Operating Entity:</strong> {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} ({LEGAL_CONFIG.ENTITY_TYPE})</div>
+          <div><strong>Proprietor:</strong> {LEGAL_CONFIG.PROPRIETOR_NAME}</div>
           <div><strong>Product / Brand:</strong> {LEGAL_CONFIG.PRODUCT_NAME}</div>
           <div><strong>Platform URL:</strong> <a href={LEGAL_CONFIG.APP_URL} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.APP_URL}</a></div>
           <div><strong>Support Email:</strong> <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a></div>
-          <div><strong>Support Phone:</strong> {LEGAL_CONFIG.SUPPORT_PHONE}</div>
+          <div><strong>Support Phone:</strong> <a href={LEGAL_CONFIG.SUPPORT_PHONE_HREF} className="hover:underline">{LEGAL_CONFIG.SUPPORT_PHONE}</a></div>
           <div><strong>Address:</strong> {LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS}</div>
           <div><strong>Business Hours:</strong> {LEGAL_CONFIG.BUSINESS_HOURS}</div>
         </div>

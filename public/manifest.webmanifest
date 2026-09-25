@@ -1,0 +1,16 @@
+{
+  "name": "LazyProof",
+  "short_name": "LazyProof",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#faf8f5",
+  "theme_color": "#18181b",
+  "description": "Digital Sponsored Profile Placement & Public Leaderboard Showcase",
+  "icons": [
+    {
+      "src": "/brand/lazy-favicon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -66,9 +66,9 @@ async function runCommercialTests() {
   // ----------------------------------------------------
   console.log('--- 1. Legal Entity & Centralized Identity Invariants ---');
   assert(
-    LEGAL_CONFIG.LEGAL_BUSINESS_NAME === 'Adabhra Group' &&
-    SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME === 'Adabhra Group',
-    'Legal business name is strictly Adabhra Group across client and server'
+    LEGAL_CONFIG.LEGAL_BUSINESS_NAME === 'ADABHRA GROUP' &&
+    SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME === 'ADABHRA GROUP',
+    'Legal business name is strictly ADABHRA GROUP across client and server'
   );
 
   assert(
@@ -103,10 +103,10 @@ async function runCommercialTests() {
   );
 
   assert(
-    LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('Bettiah') &&
+    LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('West Champaran') &&
     LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('Bihar') &&
     LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS.includes('845454'),
-    'Public business address is registered in Bettiah, Bihar with PIN 845454'
+    'Public business address is registered in West Champaran, Bihar with PIN 845454'
   );
 
   // ----------------------------------------------------
@@ -326,7 +326,7 @@ async function runCommercialTests() {
   // 6.1 /api/payment/config
   const resConfig = await fetchJson(`${BASE}/api/payment/config`);
   assert(resConfig.status === 200, '/api/payment/config returns 200');
-  assert(resConfig.body.legalBusinessName === 'Adabhra Group', 'Config exposes Adabhra Group as operator');
+  assert(resConfig.body.legalBusinessName === 'ADABHRA GROUP', 'Config exposes ADABHRA GROUP as operator');
   assert(resConfig.body.currency === 'INR', 'Config specifies INR currency');
   assert(resConfig.body.provider === 'cashfree', 'Config specifies Cashfree as provider');
 
@@ -349,7 +349,7 @@ async function runCommercialTests() {
 
   const resReceipt = await fetchJson(`${BASE}/api/payment/receipt/${dummyReceiptOrderId}`);
   assert(resReceipt.status === 200, '/api/payment/receipt/:orderId returns 200');
-  assert(resReceipt.body.operator === 'Adabhra Group', 'Receipt operator is Adabhra Group');
+  assert(resReceipt.body.operator === 'ADABHRA GROUP', 'Receipt operator is ADABHRA GROUP');
   assert(resReceipt.body.amount === 750, 'Receipt amount matches order amount');
   assert(resReceipt.body.currency === 'INR', 'Receipt currency is INR');
   assert(

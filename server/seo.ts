@@ -357,7 +357,7 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
-      name: 'Adabhra Group',
+      name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
       url: baseUrl
     }
   };

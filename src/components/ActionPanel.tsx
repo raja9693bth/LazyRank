@@ -39,8 +39,9 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   isLoading = false,
   errorMessage
 }) => {
+  const [amount, setAmount] = useState<number>(initialAmount ?? minAmountToBeatTop);
+  const [amountTouched, setAmountTouched] = useState<boolean>(false);
   const [name, setName] = useState('');
-  const [amount, setAmount] = useState<number>(initialAmount || minAmountToBeatTop);
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [instagram, setInstagram] = useState('');
@@ -52,13 +53,14 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
-    if (initialAmount && initialAmount > 0) {
-      setAmount(initialAmount);
+    if (!amountTouched) {
+      setAmount(initialAmount ?? minAmountToBeatTop);
     }
-  }, [initialAmount]);
+  }, [initialAmount, minAmountToBeatTop, amountTouched]);
 
   useEffect(() => {
     if (upgradingProfile) {
+      setAmountTouched(false);
       setName(upgradingProfile.name);
       setInstagram(upgradingProfile.instagram || '');
       setLinkedin(upgradingProfile.linkedin || '');
@@ -88,6 +90,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   const willTakeTop = amount >= minAmountToBeatTop;
 
   const handleAdjustAmount = (delta: number) => {
+    setAmountTouched(true);
     setAmount(prev => Math.max(1, prev + delta));
   };
 
@@ -241,6 +244,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                     value={amount || ''}
                     onChange={(e) => {
                       const val = parseInt(e.target.value, 10);
+                      setAmountTouched(true);
                       setAmount(isNaN(val) ? 0 : val);
                       if (localError) setLocalError(null);
                     }}
@@ -312,7 +316,10 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             <button
               type="button"
               aria-pressed={amount === minAmountToBeatTop}
-              onClick={() => setAmount(minAmountToBeatTop)}
+              onClick={() => {
+                setAmountTouched(true);
+                setAmount(minAmountToBeatTop);
+              }}
               className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono-numbers transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-1 ${
                 amount === minAmountToBeatTop
                   ? 'bg-[#e86638] text-white shadow-2xs'
@@ -327,7 +334,10 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                 key={chipVal}
                 type="button"
                 aria-pressed={amount === chipVal}
-                onClick={() => setAmount(chipVal)}
+                onClick={() => {
+                  setAmountTouched(true);
+                  setAmount(chipVal);
+                }}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold font-mono-numbers transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-1 ${
                   amount === chipVal
                     ? 'bg-stone-800 text-white'

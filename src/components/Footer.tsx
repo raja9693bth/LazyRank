@@ -50,62 +50,90 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
 
         {/* Link row: About, Rules, Terms, Privacy, Refund, Delivery, Contact */}
         <nav aria-label="Footer Navigation" className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-zinc-600 font-medium text-xs">
-          <button
+          <a
             id="footer-link-about"
-            type="button"
-            onClick={() => onNavigate('/about')}
+            href="/about"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/about');
+            }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
             About
-          </button>
-          <button
+          </a>
+          <a
             id="footer-link-rules"
-            type="button"
-            onClick={() => onNavigate('/rules')}
+            href="/rules"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/rules');
+            }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
             Rules
-          </button>
-          <button
+          </a>
+          <a
             id="footer-link-terms"
-            type="button"
-            onClick={() => onNavigate('/terms')}
+            href="/terms"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/terms');
+            }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
             Terms of Service
-          </button>
-          <button
+          </a>
+          <a
             id="footer-link-privacy"
-            type="button"
-            onClick={() => onNavigate('/privacy')}
+            href="/privacy"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/privacy');
+            }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
             Privacy Policy
-          </button>
-          <button
+          </a>
+          <a
             id="footer-link-refund"
-            type="button"
-            onClick={() => onNavigate('/refund-cancellation')}
+            href="/refund-cancellation"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/refund-cancellation');
+            }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
             Refund & Cancellation
-          </button>
-          <button
+          </a>
+          <a
             id="footer-link-delivery"
-            type="button"
-            onClick={() => onNavigate('/delivery')}
+            href="/delivery"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/delivery');
+            }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
             Delivery Policy
-          </button>
-          <button
+          </a>
+          <a
             id="footer-link-contact"
-            type="button"
-            onClick={() => onNavigate('/contact')}
+            href="/contact"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/contact');
+            }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
             Contact
-          </button>
+          </a>
           {onOpenSettings && (
             <button
               id="footer-link-settings"
@@ -135,14 +163,20 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
         {/* Copyright, entity, & support email */}
         <div className="pt-3 border-t border-zinc-100 text-[11px] text-zinc-400 space-y-1">
           <div>
-            © {new Date().getFullYear()} {LEGAL_CONFIG.BRAND_NAME}. Operated by {LEGAL_CONFIG.LEGAL_BUSINESS_NAME}, a sole proprietorship registered in India.
+            © {new Date().getFullYear()} {LEGAL_CONFIG.BRAND_NAME}. Operated by {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} (Proprietor: {LEGAL_CONFIG.PROPRIETOR_NAME}), a sole proprietorship registered in India.
+          </div>
+          <div>
+            Address: {LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS}
           </div>
           <div>
             Support:{' '}
             <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="font-semibold text-zinc-600 hover:underline">
               {LEGAL_CONFIG.SUPPORT_EMAIL}
             </a>{' '}
-            | {LEGAL_CONFIG.SUPPORT_PHONE}
+            |{' '}
+            <a href={LEGAL_CONFIG.SUPPORT_PHONE_HREF} className="font-semibold text-zinc-600 hover:underline">
+              {LEGAL_CONFIG.SUPPORT_PHONE}
+            </a>
           </div>
           <div className="text-[10px] text-zinc-400 max-w-lg mx-auto">
             {LEGAL_CONFIG.DISCLAIMER}

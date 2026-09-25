@@ -7,12 +7,14 @@
 
 export const LEGAL_CONFIG = {
   // Operating Legal Entity
-  LEGAL_BUSINESS_NAME: 'Adabhra Group',
+  LEGAL_BUSINESS_NAME: 'ADABHRA GROUP',
   ENTITY_TYPE: 'Sole Proprietorship',
+  PROPRIETOR_NAME: 'Raja Babu',
   ORGANISATION_TYPE: 'Sole Proprietorship / Proprietary enterprise',
   REGISTRATION_COUNTRY: 'India',
   REGISTRATION_STATE: 'Bihar',
-  PUBLIC_BUSINESS_ADDRESS: 'Bettiah, West Champaran, Bihar, India - 845454',
+  PUBLIC_BUSINESS_ADDRESS:
+    'Ward No. 13, Mahodipur, Majhaulia, West Champaran, Bihar - 845454, India',
   BUSINESS_HOURS: 'Monday to Saturday, 10:00 AM – 6:00 PM IST',
   UDYAM_REGISTRATION_NUMBER: '', // Optional public display when configured
 
@@ -25,10 +27,11 @@ export const LEGAL_CONFIG = {
   // Customer Support Channels (Operational during business hours)
   SUPPORT_EMAIL: 'support@lazyproof.online',
   SUPPORT_PHONE: '+91 95211 90205',
+  SUPPORT_PHONE_HREF: 'tel:+919521190205',
 
   // Official Legal Statement
   OPERATING_STATEMENT:
-    'LazyProof is a digital product operated by Adabhra Group, a sole proprietorship registered in India.',
+    'LazyProof is a digital product operated by ADABHRA GROUP, a sole proprietorship registered in India.',
 
   // Product Positioning & Core Mechanics
   POSITIONING_TITLE: 'Digital Sponsored Profile Showcase & Leaderboard',

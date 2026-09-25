@@ -90,7 +90,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
             </div>
             <div>
               <span className="text-zinc-500">Phone:</span>{' '}
-              <a href={`tel:${LEGAL_CONFIG.SUPPORT_PHONE}`} className="font-semibold text-zinc-900 hover:underline">
+              <a href={LEGAL_CONFIG.SUPPORT_PHONE_HREF} className="font-semibold text-zinc-900 hover:underline">
                 {LEGAL_CONFIG.SUPPORT_PHONE}
               </a>
             </div>
@@ -112,6 +112,9 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
             </div>
             <div>
               <strong>Entity Type:</strong> {LEGAL_CONFIG.ENTITY_TYPE}
+            </div>
+            <div>
+              <strong>Proprietor:</strong> {LEGAL_CONFIG.PROPRIETOR_NAME}
             </div>
             <div className="flex items-start gap-1 text-[11px] text-zinc-500 pt-0.5">
               <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-zinc-400" />

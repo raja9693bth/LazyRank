@@ -10,18 +10,19 @@
 
 | Field | Detail |
 |---|---|
-| **Legal Business Name** | **Adabhra Group** |
+| **Legal Business Name** | **ADABHRA GROUP** |
 | **Organisation Structure** | **Sole Proprietorship / Proprietary Enterprise** (Registered in India) |
+| **Proprietor Name** | **Raja Babu** |
 | **Product / Brand Name** | **LazyProof / LAZY** |
 | **Official Website URL** | [https://lazyproof.online](https://lazyproof.online) |
-| **Public Business Address** | Bettiah, West Champaran, Bihar, India - 845454 |
+| **Public Business Address** | Ward No. 13, Mahodipur, Majhaulia, West Champaran, Bihar - 845454, India |
 | **Customer Support Email** | [support@lazyproof.online](mailto:support@lazyproof.online) |
-| **Support Phone** | +91 95211 90205 |
+| **Support Phone** | +91 95211 90205 ([tel:+919521190205](tel:+919521190205)) |
 | **Operational Support Hours** | Monday to Saturday, 10:00 AM – 6:00 PM IST |
 | **Industry / Merchant Category** | **Advertising / Digital Visibility / Web Portal** |
 
 > **IMPORTANT LEGAL DECLARATION:**  
-> Adabhra Group is a sole proprietorship registered in India. It is NOT a Private Limited company, LLP, corporation, holding company, or incorporated entity. No sensitive KYC documents (PAN, Aadhaar, bank credentials) are exposed publicly.
+> ADABHRA GROUP is a sole proprietorship registered in India (Proprietor: Raja Babu). It is NOT a Private Limited company, LLP, corporation, holding company, or incorporated entity. No sensitive KYC documents (PAN, Aadhaar, bank credentials) are exposed publicly.
 
 ---
 

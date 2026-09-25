@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -9,6 +9,7 @@ import { generateRoast, generateFallbackRoast } from './server/roast.ts';
 import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE_SEO } from './server/seo.ts';
 import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
 import { paymentManager } from './server/payments/index.ts';
+import { prerenderRoute } from './server/prerender.tsx';
 
 const BANNED_WORDS = [
   'kill', 'suicide', 'die', 'murder', 'bitch', 'asshole', 'bastard', 'slut', 'whore', 'nigger', 'faggot', 'chutiya', 'madarchod', 'bhenchod', 'gaand'
@@ -634,7 +635,8 @@ async function startServer() {
     res.json({
       receiptId: 'REC-' + order.orderId.toUpperCase(),
       operator: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
-      entityType: SERVER_LEGAL_CONFIG.ORGANISATION_TYPE,
+      entityType: SERVER_LEGAL_CONFIG.ENTITY_TYPE,
+      proprietor: SERVER_LEGAL_CONFIG.PROPRIETOR_NAME,
       brand: SERVER_LEGAL_CONFIG.BRAND_NAME,
       website: SERVER_LEGAL_CONFIG.APP_URL,
       supportEmail: SERVER_LEGAL_CONFIG.SUPPORT_EMAIL,
@@ -1549,6 +1551,11 @@ async function startServer() {
           template = fs.readFileSync(path.join(distPath || path.join(process.cwd(), 'dist'), 'index.html'), 'utf-8');
         }
 
+        const prerenderContent = prerenderRoute(cleanPath);
+        if (prerenderContent) {
+          template = template.replace('<div id="root"></div>', `<div id="root">${prerenderContent}</div>`);
+        }
+
         const transformedHtml = injectRouteMetadata(template, cleanPath, baseUrl);
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
         return res.send(transformedHtml);
@@ -1561,10 +1568,21 @@ async function startServer() {
     }
   };
 
-  // Global error handler
-  app.use((err: any, req: Request, res: Response, next: any) => {
-    console.error('Server error:', err?.message || err);
-    res.status(500).json({ error: 'Internal server error.' });
+  const staticPagePaths: ReadonlySet<string> = new Set([
+    '/', '/terms', '/privacy', '/refund-cancellation',
+    '/delivery', '/contact', '/about', '/rules', '/refund'
+  ]);
+
+  const isKnownSpaPath = (pathname: string): boolean => {
+    const clean = pathname.replace(/\/+$/, '') || '/';
+    if (staticPagePaths.has(clean)) return true;
+    if (clean.startsWith('/profile/')) return true;
+    return false;
+  };
+
+  // Catch any unmatched /api/* route before SPA routing
+  app.all('/api/*', (_req: Request, res: Response) => {
+    res.status(404).json({ error: 'Endpoint not found' });
   });
 
   // Vite middleware in dev or static files in production
@@ -1575,8 +1593,15 @@ async function startServer() {
     });
 
     // Intercept page visits before Vite SPA fallback to serve unique server-injected metadata & JSON-LD
-    app.use(async (req: Request, res: Response, next: any) => {
+    app.use(async (req: Request, res: Response, next: NextFunction) => {
       if (req.method === 'GET') {
+        const hasExtension = path.extname(req.path) !== '';
+        if (hasExtension) {
+          return next();
+        }
+        if (!isKnownSpaPath(req.path)) {
+          return res.status(404).type('text/plain').send('Not found');
+        }
         return handlePageRequest(req, res, next, false, undefined, vite);
       }
       next();
@@ -1585,13 +1610,24 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req: Request, res: Response, next: any) => {
-      handlePageRequest(req, res, () => {
+    app.use(express.static(distPath, { fallthrough: true }));
+
+    app.get('*', (req: Request, res: Response, next: NextFunction) => {
+      if (!isKnownSpaPath(req.path)) {
+        return res.status(404).type('text/plain').send('Not found');
+      }
+      return handlePageRequest(req, res, () => {
         res.sendFile(path.join(distPath, 'index.html'));
       }, true, distPath);
     });
   }
+
+  // Global error handler - placed AFTER all routes and middleware
+  app.use((err: any, req: Request, res: Response, _next: NextFunction) => {
+    console.error('Server error:', err?.message || err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'Internal server error.' });
+  });
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`LAZY v2.0 server running on http://0.0.0.0:${PORT}`);

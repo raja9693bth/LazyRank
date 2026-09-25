@@ -38,11 +38,23 @@ export const GlobalActivityHeatmap: React.FC<GlobalActivityHeatmapProps> = ({
     return () => clearInterval(interval);
   }, [fetchGlobalActivity, refreshTrigger]);
 
-  // Fallback defaults while loading
-  const claimsToday = data ? data.claimsToday : 14;
-  const totalAmountToday = data ? data.totalAmountToday : 14200;
-  const peakHour = data?.peakHour || '2:00 PM – 4:00 PM';
-  const latestMinutesAgo = data?.latestClaimMinutesAgo || 5;
+  // Strictly truthful zero-defaults (no simulated claims or fake amounts)
+  const formatHour = (hour: number): string =>
+    hour === 0 ? '12 AM' : hour < 12 ? `${hour} AM` : hour === 12 ? '12 PM' : `${hour - 12} PM`;
+
+  const claimsToday: number = data?.claimsToday ?? 0;
+  const totalAmountToday: number = data?.totalAmountToday ?? 0;
+  const peakHour: string | null = data?.peakHour ?? null;
+  const latestMinutesAgo: number | null = data?.latestClaimMinutesAgo ?? null;
+  const hourlyActivity: GlobalActivityData['hourlyActivity'] =
+    data?.hourlyActivity ?? Array.from({ length: 24 }, (_, hour) => ({
+      hour,
+      label: formatHour(hour),
+      claimsCount: 0,
+      amount: 0,
+      intensity: 0,
+      isCurrentHour: hour === new Date().getHours(),
+    }));
 
   return (
     <section
@@ -96,7 +108,7 @@ export const GlobalActivityHeatmap: React.FC<GlobalActivityHeatmapProps> = ({
               <div className="h-6 w-px bg-stone-200" />
               <div className="text-left">
                 <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">Peak Hour</div>
-                <div className="text-xs font-black text-amber-700 whitespace-nowrap">{peakHour}</div>
+                <div className="text-xs font-black text-amber-700 whitespace-nowrap">{peakHour || 'None yet'}</div>
               </div>
             </div>
 
@@ -147,20 +159,15 @@ export const GlobalActivityHeatmap: React.FC<GlobalActivityHeatmapProps> = ({
                   <span>Hourly distribution for today (00:00 – 23:59)</span>
                 </span>
                 <span className="text-[10px] text-stone-400">
-                  Last claim: {latestMinutesAgo} {latestMinutesAgo === 1 ? 'min' : 'mins'} ago
+                  {latestMinutesAgo === null
+                    ? 'No claims yet'
+                    : `Last claim: ${latestMinutesAgo} ${latestMinutesAgo === 1 ? 'min' : 'mins'} ago`}
                 </span>
               </div>
 
               {/* 24 Heat Map Blocks Grid */}
               <div className="grid grid-cols-12 sm:grid-cols-24 gap-1 sm:gap-1.5 py-1">
-                {(data?.hourlyActivity || Array.from({ length: 24 }).map((_, i) => ({
-                  hour: i,
-                  label: i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`,
-                  claimsCount: i >= 10 && i <= 18 ? 2 : 0,
-                  amount: i >= 10 && i <= 18 ? 1200 : 0,
-                  intensity: i >= 10 && i <= 18 ? 2 : 0,
-                  isCurrentHour: i === new Date().getHours()
-                }))).map((bucket) => {
+                {hourlyActivity.map((bucket) => {
                   const getIntensityClasses = (lvl: number) => {
                     switch (lvl) {
                       case 4:

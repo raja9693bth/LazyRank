@@ -62,7 +62,7 @@ export function generateFallbackRoast(profile: UserProfile): string {
 
   // General Rank Roasts
   const generalRoasts = [
-    `${name} invested ${formattedAmount} into Rank #${rank}. Productivity has officially left the chat.`,
+    `${name} spent ${formattedAmount} on sponsored placement for Rank #${rank}. Productivity has officially left the chat.`,
     `Rank #${rank} secured. ${formattedAmount} down the drain with zero intention of doing anything about it.`,
     `${name} paid ${formattedAmount} to formally register as non-functional today.`
   ];

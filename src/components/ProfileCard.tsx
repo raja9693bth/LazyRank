@@ -25,6 +25,7 @@ interface ProfileCardProps {
   onReport?: (id: string) => void;
   onBeatRank?: (targetAmount: number) => void;
   isTop1?: boolean;
+  period?: 'all' | 'today';
 }
 
 function getInitials(name: string): string {
@@ -124,9 +125,17 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
   onSelect,
   onVote,
   onBeatRank,
-  isTop1 = false
+  isTop1 = false,
+  period = 'all'
 }) => {
-  const formattedAmount = formatDisplayCurrency(profile.amount, currencyMode);
+  const displayAmount = period === 'today' && profile.periodAmountINR !== undefined
+    ? profile.periodAmountINR
+    : profile.amount;
+  const displayRank = period === 'today' && profile.periodRank !== undefined
+    ? profile.periodRank
+    : profile.rank;
+
+  const formattedAmount = formatDisplayCurrency(displayAmount, currencyMode);
   const initials = getInitials(profile.name);
   const avatarStyle = getAvatarColor(profile.name);
 
@@ -136,9 +145,9 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
 
   return (
     <article
-      aria-label={`Profile of ${profile.name}, rank ${profile.rank}`}
+      aria-label={`Profile of ${profile.name}, rank ${displayRank}`}
       className={`rounded-2xl border p-4 sm:p-5 transition-all shadow-2xs ${
-        isTop1 || profile.rank === 1
+        isTop1 || displayRank === 1
           ? 'border-amber-300 bg-[#fff8f3] hover:border-amber-400'
           : 'border-[#ede5db] bg-white hover:border-stone-300'
       }`}
@@ -150,16 +159,16 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
           <div className="flex flex-col items-center shrink-0">
             <span
               className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs font-mono-numbers shrink-0 shadow-2xs ${
-                profile.rank === 1
+                displayRank === 1
                   ? 'bg-[#e86638] text-white'
-                  : profile.rank === 2
+                  : displayRank === 2
                   ? 'bg-stone-300 text-stone-900'
-                  : profile.rank === 3
+                  : displayRank === 3
                   ? 'bg-amber-100 text-amber-900'
                   : 'bg-stone-100 text-stone-700'
               }`}
             >
-              #{profile.rank}
+              #{displayRank}
             </span>
           </div>
 
@@ -279,7 +288,9 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
               {formattedAmount}
             </div>
             <div className="text-[10px] text-stone-400 font-bold uppercase tracking-wider">
-              {currencyMode === 'USD' ? 'USD (Approx)' : 'INR Verified'}
+              {currencyMode === 'USD'
+                ? (period === 'today' ? 'USD (Approx Today)' : 'USD (Approx)')
+                : (period === 'today' ? 'Today IST Verified' : 'INR Verified')}
             </div>
           </div>
 

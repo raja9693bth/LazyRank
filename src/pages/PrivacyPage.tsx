@@ -73,7 +73,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
           </p>
           <ul className="list-disc list-inside space-y-1 pl-1 text-xs">
             <li>
-              <strong>Profile Ownership Credential:</strong> Upon claiming a profile, a private owner token is stored locally on your device (in <code>localStorage.lazy_tokens</code>). Our server stores only a secure one-way cryptographic hash (SHA-256) of this credential. This authorizes you to update or upgrade your profile without requiring a password account. <em>Note: Clearing your browser cache or site data will remove this credential from your device unless you preserve your original token or order reference.</em>
+              <strong>Profile Ownership Credential:</strong> Upon claiming a profile, a private owner token is stored locally on your device (in <code>localStorage.lazy_tokens</code>). Our server stores only a secure one-way cryptographic hash (SHA-256) of this credential. This authorizes you to update or upgrade your profile without requiring a password account. <em>Note: Clearing your browser cache or site data will remove this credential from your device. Because our servers store only a one-way cryptographic hash, raw tokens cannot be retrieved from an order reference alone. If you lose device access, contact support@lazyproof.online with payment verification for manual profile re-authentication.</em>
             </li>
             <li>
               <strong>UI Preferences:</strong> We store client interface preferences (such as audio sound mute settings).

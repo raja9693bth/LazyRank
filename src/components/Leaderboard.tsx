@@ -30,6 +30,8 @@ interface LeaderboardProps {
   onSelectFilter?: (filter: 'verified' | 'all') => void;
   currencyMode?: 'INR' | 'USD';
   minAmountToBeatTop?: number;
+  period?: 'all' | 'today';
+  canClaim?: boolean;
 }
 
 export const Leaderboard: React.FC<LeaderboardProps> = ({
@@ -48,7 +50,9 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
   currentFilter = 'verified',
   onSelectFilter,
   currencyMode = 'INR',
-  minAmountToBeatTop = 1
+  minAmountToBeatTop = 1,
+  period = 'all',
+  canClaim = true
 }) => {
   const [activeCategory, setActiveCategory] = useState<ShowcaseCategory>('All');
 
@@ -66,10 +70,12 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
         <div>
           <h2 className="text-sm sm:text-base font-black uppercase tracking-wider text-stone-900 flex items-center gap-2">
             <Trophy className="w-4 h-4 text-[#b44b1c]" />
-            <span>Leaderboard Showcase</span>
+            <span>{period === 'today' ? 'Leaderboard Showcase · Today (IST)' : 'Leaderboard Showcase'}</span>
           </h2>
           <p className="text-xs text-stone-500 mt-0.5">
-            Ranked deterministically by cumulative verified sponsorship.
+            {period === 'today'
+              ? 'Verified sponsorship added since 12:00 AM IST.'
+              : 'Ranked deterministically by cumulative verified sponsorship.'}
           </p>
         </div>
 
@@ -87,17 +93,19 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
             >
               Verified Only
             </button>
-            <button
-              type="button"
-              onClick={() => onSelectFilter('all')}
-              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                currentFilter === 'all'
-                  ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              All Claims
-            </button>
+            {period !== 'today' && (
+              <button
+                type="button"
+                onClick={() => onSelectFilter('all')}
+                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
+                  currentFilter === 'all'
+                    ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+              >
+                All Claims
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -200,28 +208,38 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm sm:text-base font-black text-stone-900">
-                      Spot #1 is Unclaimed
+                      {period === 'today' ? 'No Claims Recorded Today' : 'Spot #1 is Unclaimed'}
                     </h3>
                     <span className="px-2 py-0.5 rounded-full bg-white text-[#9c3a16] text-[10px] font-extrabold border border-amber-200">
-                      Open for Claim
+                      {period === 'today' ? 'Today (IST)' : 'Open for Claim'}
                     </span>
                   </div>
                   <p className="text-xs text-stone-600 mt-1 max-w-md leading-relaxed">
-                    Dynamic sponsored placement · Rank adjusts as new bids are verified
+                    {period === 'today'
+                      ? 'No verified sponsorships have been recorded since 12:00 AM IST today. The all-time leaderboard remains active.'
+                      : 'Dynamic sponsored placement · Rank adjusts as new sponsored payments are verified'}
                   </p>
                 </div>
               </div>
 
               {onClaimSpecificRank && (
-                <button
-                  type="button"
-                  onClick={() => onClaimSpecificRank(minAmountToBeatTop)}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Claim #1 for {formattedMinPrice}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex flex-col items-center sm:items-end gap-1 shrink-0 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    disabled={!canClaim}
+                    onClick={() => onClaimSpecificRank(minAmountToBeatTop)}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>{period === 'today' ? `Claim All-time #1 for ${formattedMinPrice}` : `Claim #1 for ${formattedMinPrice}`}</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                  {!canClaim && (
+                    <span className="text-[11px] text-amber-800 font-medium">
+                      Checkout is temporarily unavailable while payment setup is being verified.
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -237,10 +255,12 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
               </div>
               <div>
                 <h4 className="text-xs sm:text-sm font-bold text-stone-700">
-                  Future Spot #2
+                  {period === 'today' ? 'Today Spot #2' : 'Future Spot #2'}
                 </h4>
                 <p className="text-[11px] text-stone-500 mt-0.5">
-                  Assigned automatically to the second highest cumulative verified sponsorship.
+                  {period === 'today'
+                    ? 'Assigned automatically to the second highest verified sponsorship today.'
+                    : 'Assigned automatically to the second highest cumulative verified sponsorship.'}
                 </p>
               </div>
             </div>
@@ -305,7 +325,8 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                   onVote={onVoteProfile}
                   onReport={onReportProfile}
                   onBeatRank={onClaimSpecificRank}
-                  isTop1={p.rank === 1}
+                  isTop1={period === 'today' ? (p.periodRank ?? p.rank) === 1 : p.rank === 1}
+                  period={period}
                 />
               ))}
             </div>

@@ -240,7 +240,7 @@ export const Header: React.FC<HeaderProps> = ({
           {currencyMode === 'USD' ? (
             <span>*USD display calculated at fixed illustrative rate ₹85/$1. All checkout processed in INR.</span>
           ) : (
-            <span>Authoritative placement verified via Cashfree INR payment.</span>
+            <span>Public ranking verified via secure INR payment.</span>
           )}
         </div>
       </div>

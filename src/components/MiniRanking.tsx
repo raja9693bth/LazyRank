@@ -8,6 +8,7 @@ interface MiniRankingProps {
   claimsToday: number | null;
   onSelectProfile: (profile: UserProfile) => void;
   currencyMode?: 'INR' | 'USD';
+  period?: 'all' | 'today';
 }
 
 function getInitials(name: string): string {
@@ -20,25 +21,30 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
   topProfiles,
   claimsToday,
   onSelectProfile,
-  currencyMode = 'INR'
+  currencyMode = 'INR',
+  period = 'all'
 }) => {
-  const displayProfiles = topProfiles.filter(p => p.isVerified && p.amount > 0).slice(0, 5);
+  const displayProfiles = topProfiles
+    .filter(p => p.isVerified && ((period === 'today' ? (p.periodAmountINR ?? p.amount) : p.amount) > 0))
+    .slice(0, 5);
 
   return (
-    <aside aria-label="Top spots all-time summary" className="w-full rounded-2xl border border-[#ede5db] bg-white p-4 shadow-2xs">
-      {/* Header: Strictly Truthful All-Time Label */}
+    <aside aria-label={period === 'today' ? "Top spots today summary" : "Top spots all-time summary"} className="w-full rounded-2xl border border-[#ede5db] bg-white p-4 shadow-2xs">
+      {/* Header: All-Time vs Today Label */}
       <div className="border-b border-[#f0eae1] pb-3 mb-3">
         <div className="flex items-center justify-between gap-1">
           <h3 className="text-xs font-black uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
             <Trophy className="w-4 h-4 text-[#b44b1c]" />
-            <span>Top spots · All time</span>
+            <span>{period === 'today' ? 'Top spots · Today (IST)' : 'Top spots · All time'}</span>
           </h3>
           <span className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-[#9c3a16] text-[10px] font-extrabold">
-            Hall of Fame
+            {period === 'today' ? "Today's Claims" : 'Hall of Fame'}
           </span>
         </div>
         <p className="text-[11px] text-stone-500 mt-1 leading-snug">
-          Highest verified payments in platform history.
+          {period === 'today'
+            ? 'Verified sponsorship added since 12:00 AM IST.'
+            : 'Highest verified payments in platform history.'}
         </p>
       </div>
 
@@ -57,11 +63,12 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
       <div className="space-y-2">
         {displayProfiles.length === 0 ? (
           <div className="p-4 text-center text-xs text-stone-400">
-            No verified profiles recorded yet.
+            {period === 'today' ? 'No verified claims recorded today yet.' : 'No verified profiles recorded yet.'}
           </div>
         ) : (
           displayProfiles.map((p, idx) => {
-            const rank = idx + 1;
+            const rank = period === 'today' && p.periodRank !== undefined ? p.periodRank : idx + 1;
+            const amount = period === 'today' && p.periodAmountINR !== undefined ? p.periodAmountINR : p.amount;
             const isFirst = rank === 1;
             return (
               <button
@@ -111,10 +118,10 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
 
                 <div className="text-right shrink-0 ml-2">
                   <div className="text-xs font-black text-stone-900 font-mono-numbers">
-                    {formatDisplayCurrency(p.amount, currencyMode)}
+                    {formatDisplayCurrency(amount, currencyMode)}
                   </div>
                   <div className="text-[9px] text-stone-400 uppercase font-bold">
-                    Verified
+                    {period === 'today' ? 'Today IST' : 'Verified'}
                   </div>
                 </div>
               </button>

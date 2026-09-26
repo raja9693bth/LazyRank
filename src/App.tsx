@@ -48,7 +48,9 @@ export default function App() {
   const [topAmount, setTopAmount] = useState<number>(0);
   const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(1);
   const [_activities, setActivities] = useState<ActivityEvent[]>([]);
-  const currentPeriod: RankPeriod = 'all';
+  const [currentPeriod, setCurrentPeriod] = useState<RankPeriod>('all');
+  const [allTimeTopProfile, setAllTimeTopProfile] = useState<UserProfile | null>(null);
+  const leaderboardAbortControllerRef = useRef<AbortController | null>(null);
   const [paymentConfig, setPaymentConfig] = useState<PublicPaymentConfig>({
     enabled: false,
     taxReady: false,
@@ -135,15 +137,24 @@ export default function App() {
     pageOffset = 0,
     pageSize = 20,
     filter = filterMode,
-    isAppend = false
+    isAppend = false,
+    targetPeriod: RankPeriod = currentPeriod
   ) => {
     if (!isAppend) {
       setIsLoadingLeaderboard(true);
       setLeaderboardError(false);
+      if (leaderboardAbortControllerRef.current) {
+        leaderboardAbortControllerRef.current.abort();
+      }
     }
+    const controller = new AbortController();
+    leaderboardAbortControllerRef.current = controller;
+
     try {
+      const filterParam = targetPeriod === 'today' ? 'verified' : filter;
       const res = await fetch(
-        `/api/leaderboard?period=${currentPeriod}&offset=${pageOffset}&limit=${pageSize}&filter=${filter}`
+        `/api/leaderboard?period=${targetPeriod}&offset=${pageOffset}&limit=${pageSize}&filter=${filterParam}`,
+        { signal: controller.signal }
       );
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
@@ -159,16 +170,20 @@ export default function App() {
             setTopAmount(data.topAmount);
             setMinAmountToBeatTop(data.topAmount + 1);
           }
+          if (targetPeriod === 'all' && data.profiles && data.profiles.length > 0 && filterParam === 'verified') {
+            setAllTimeTopProfile(data.profiles[0]);
+          }
         }
         setTotalCount(data.totalCount || 0);
-        if (filter === 'verified') {
+        if (filterParam === 'verified') {
           setVerifiedTotalCount(data.totalCount || 0);
         }
         setHasMore(data.hasMore || false);
       } else {
         if (!isAppend) setLeaderboardError(true);
       }
-    } catch {
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       if (!isAppend) setLeaderboardError(true);
     } finally {
       setIsLoadingLeaderboard(false);
@@ -176,10 +191,20 @@ export default function App() {
     }
   };
 
+  const handlePeriodChange = (newPeriod: RankPeriod) => {
+    if (newPeriod === currentPeriod) return;
+    setCurrentPeriod(newPeriod);
+    setCurrentPage(1);
+    setProfiles([]);
+    const effectiveFilter = newPeriod === 'today' ? 'verified' : filterMode;
+    loadLeaderboard(0, 20, effectiveFilter, false, newPeriod);
+  };
+
   const handleFilterChange = (newFilter: 'verified' | 'all') => {
+    if (currentPeriod === 'today') return;
     setFilterMode(newFilter);
     setCurrentPage(1);
-    loadLeaderboard(0, 20, newFilter, false);
+    loadLeaderboard(0, 20, newFilter, false, currentPeriod);
   };
 
   const handleLoadMore = () => {
@@ -187,17 +212,21 @@ export default function App() {
     setIsLoadingMore(true);
     const nextPage = currentPage + 1;
     setCurrentPage(nextPage);
-    loadLeaderboard((nextPage - 1) * 20, 20, filterMode, true);
+    loadLeaderboard((nextPage - 1) * 20, 20, currentPeriod === 'today' ? 'verified' : filterMode, true, currentPeriod);
   };
 
-  // Load Permanent All-Time Top 3
+  // Load Permanent All-Time Top 3 & Top Profile
   const loadAllTimeTop3 = async () => {
     try {
       const res = await fetch('/api/leaderboard?period=all&limit=3&filter=verified');
       if (res.ok) {
         const data: LeaderboardResponse = await res.json();
-        setAllTimeTop3(data.profiles || []);
-        if (data.topAmount !== undefined && filterMode !== 'verified') {
+        const topList = data.profiles || [];
+        setAllTimeTop3(topList);
+        if (topList.length > 0) {
+          setAllTimeTopProfile(topList[0]);
+        }
+        if (data.topAmount !== undefined) {
           setTopAmount(data.topAmount);
           setMinAmountToBeatTop(data.topAmount + 1);
         }
@@ -353,6 +382,24 @@ export default function App() {
       updatePageSeo(currentPath);
     }
   }, [selectedProfile, currentPath]);
+
+  // Midnight IST Refresh Timer (Refetches when the IST day rolls over)
+  useEffect(() => {
+    const nowMs = Date.now();
+    const istOffsetMs = 5.5 * 3600 * 1000;
+    const nowIst = new Date(nowMs + istOffsetMs);
+    const nextMidnightIstUtc = new Date(Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate() + 1, 0, 0, 0));
+    const nextMidnightUtcMs = nextMidnightIstUtc.getTime() - istOffsetMs;
+    const delayMs = Math.max(1000, nextMidnightUtcMs - nowMs + 1000);
+
+    const timer = setTimeout(() => {
+      loadGlobalActivity();
+      loadAllTimeTop3();
+      loadLeaderboard(0, 20, currentPeriod === 'today' ? 'verified' : filterMode, false, currentPeriod);
+    }, delayMs);
+
+    return () => clearTimeout(timer);
+  }, [currentPeriod, filterMode]);
 
   const navigate = (path: string) => {
     window.history.pushState({}, '', path);
@@ -549,8 +596,7 @@ export default function App() {
     }, 60);
   };
 
-  const verifiedTop1 = profiles.find(p => p.rank === 1 && p.isVerified);
-  const topProfile = verifiedTop1 || (topAmount > 0 ? { name: 'Current #1', amount: topAmount } : undefined);
+  const topProfile = allTimeTopProfile || (topAmount > 0 ? { name: 'Current #1', amount: topAmount } : undefined);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#faf7f2] text-stone-900">
@@ -646,10 +692,12 @@ export default function App() {
                   minAmountToBeatTop={minAmountToBeatTop}
                   isLoadingMinAmount={isLoadingLeaderboard && profiles.length === 0}
                   hasLeaderboardError={leaderboardError}
-                  onRetryLeaderboard={() => loadLeaderboard()}
+                  onRetryLeaderboard={() => loadLeaderboard(0, 20, currentPeriod === 'today' ? 'verified' : filterMode, false, currentPeriod)}
                   onClaimAmount={handleHeroClaim}
                   currencyMode={currencyMode}
                   canClaim={paymentConfig.enabled && paymentConfig.taxReady}
+                  period={currentPeriod}
+                  onPeriodChange={handlePeriodChange}
                 />
 
                 {/* 2. One QuickClaimBar directly underneath */}
@@ -676,7 +724,7 @@ export default function App() {
                       onClaimSpecificRank={(target) => handleOpenDrawerWithClaim(target)}
                       isLoading={isLoadingLeaderboard}
                       hasError={leaderboardError}
-                      onRetry={() => loadLeaderboard()}
+                      onRetry={() => loadLeaderboard(0, 20, currentPeriod === 'today' ? 'verified' : filterMode, false, currentPeriod)}
                       totalCount={totalCount}
                       hasMore={hasMore}
                       onLoadMore={handleLoadMore}
@@ -685,13 +733,15 @@ export default function App() {
                       onSelectFilter={handleFilterChange}
                       currencyMode={currencyMode}
                       minAmountToBeatTop={minAmountToBeatTop}
+                      period={currentPeriod}
+                      canClaim={paymentConfig.enabled && paymentConfig.taxReady}
                     />
                   </div>
 
-                  {/* Right Column: All-Time Top Spots Sidebar */}
+                  {/* Right Column: Top Spots Sidebar (Matches selected period) */}
                   <div className="lg:col-span-1">
                     <MiniRanking
-                      topProfiles={allTimeTop3.length > 0 ? allTimeTop3 : profiles.filter(p => p.isVerified)}
+                      topProfiles={currentPeriod === 'today' ? profiles : (allTimeTop3.length > 0 ? allTimeTop3 : profiles.filter(p => p.isVerified))}
                       claimsToday={claimsToday}
                       onSelectProfile={(p) => {
                         setIsJustClaimed(false);
@@ -699,6 +749,7 @@ export default function App() {
                         window.history.pushState({}, '', `/?rank=${p.id}`);
                       }}
                       currencyMode={currencyMode}
+                      period={currentPeriod}
                     />
                   </div>
                 </div>

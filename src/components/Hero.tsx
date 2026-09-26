@@ -12,6 +12,8 @@ interface HeroProps {
   onClaimAmount: (amount: number) => void;
   currencyMode?: 'INR' | 'USD';
   canClaim?: boolean;
+  period?: 'all' | 'today';
+  onPeriodChange?: (period: 'all' | 'today') => void;
 }
 
 export const Hero: React.FC<HeroProps> = ({
@@ -23,7 +25,9 @@ export const Hero: React.FC<HeroProps> = ({
   onRetryLeaderboard,
   onClaimAmount,
   currencyMode = 'INR',
-  canClaim = true
+  canClaim = true,
+  period = 'all',
+  onPeriodChange
 }) => {
   const hasTopHolder = topAmount > 0 && Boolean(topProfileName);
   const formattedTopAmount = formatDisplayCurrency(topAmount, currencyMode);
@@ -32,8 +36,52 @@ export const Hero: React.FC<HeroProps> = ({
   return (
     <section className="pt-4 sm:pt-8 pb-4 max-w-5xl mx-auto px-3 sm:px-6">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 lg:gap-8 items-center">
-        {/* Left Column: Headline, Price Callout, and Primary Action (Desktop col-span-7) */}
+        {/* Left Column: Period Switch, Headline, Price Callout, and Primary Action (Desktop col-span-7) */}
         <div className="md:col-span-7 text-center md:text-left space-y-3.5 sm:space-y-4">
+
+          {/* Period Toggle Pill: All-time | Today */}
+          {onPeriodChange && (
+            <div className="flex flex-col items-center md:items-start gap-1">
+              <div
+                role="group"
+                aria-label="Leaderboard timeframe selection"
+                className="inline-flex items-center p-1 rounded-full bg-[#f4ebe1] border border-[#e8ded2] shadow-2xs"
+              >
+                <button
+                  type="button"
+                  id="hero-period-toggle-all"
+                  onClick={() => onPeriodChange('all')}
+                  aria-pressed={period === 'all'}
+                  className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    period === 'all'
+                      ? 'bg-white text-stone-900 shadow-2xs font-black'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  All-time
+                </button>
+                <button
+                  type="button"
+                  id="hero-period-toggle-today"
+                  onClick={() => onPeriodChange('today')}
+                  aria-pressed={period === 'today'}
+                  className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    period === 'today'
+                      ? 'bg-white text-stone-900 shadow-2xs font-black'
+                      : 'text-stone-600 hover:text-stone-900'
+                  }`}
+                >
+                  Today
+                </button>
+              </div>
+              {period === 'today' && (
+                <p className="text-[11px] text-stone-500 font-medium max-w-md">
+                  Verified sponsorship added since 12:00 AM IST. Your all-time profile and checkout price are unchanged.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Dynamic #1 Price Callout */}
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#faeee5] border border-[#f2ded0] text-[#7c2d12] text-xs font-semibold shadow-2xs">
             <Trophy className="w-3.5 h-3.5 text-[#b44b1c] shrink-0" />
@@ -58,10 +106,10 @@ export const Hero: React.FC<HeroProps> = ({
               </span>
             ) : hasTopHolder ? (
               <span>
-                Current #1: <strong className="font-extrabold text-stone-900">{topProfileName}</strong> with{' '}
+                Current {period === 'today' ? 'all-time ' : ''}#1: <strong className="font-extrabold text-stone-900">{topProfileName}</strong> with{' '}
                 <strong className="font-mono-numbers font-extrabold text-[#9c3a16]">{formattedTopAmount}</strong>
                 <span className="text-stone-300 mx-1.5">·</span>
-                <span>Take #1 for <strong className="text-stone-900 font-mono-numbers">{formattedBeatAmount}</strong></span>
+                <span>{period === 'today' ? 'Take all-time #1 for ' : 'Take #1 for '}<strong className="text-stone-900 font-mono-numbers">{formattedBeatAmount}</strong></span>
               </span>
             ) : (
               <span>
@@ -81,8 +129,8 @@ export const Hero: React.FC<HeroProps> = ({
             Pay to prove it. The more you pay, the higher you rank.
           </p>
 
-          {/* ONE Main CTA Button */}
-          <div className="pt-1 flex justify-center md:justify-start">
+          {/* ONE Main CTA Button & Explanation */}
+          <div className="pt-1 flex flex-col items-center md:items-start gap-2">
             <button
               id="hero-take-rank1-btn"
               type="button"
@@ -94,7 +142,11 @@ export const Hero: React.FC<HeroProps> = ({
                   : hasLeaderboardError
                   ? 'Rank price currently unavailable'
                   : hasTopHolder
-                  ? `Take #1 for ${formattedBeatAmount}`
+                  ? period === 'today'
+                    ? `Take All-time #1 for ${formattedBeatAmount}`
+                    : `Take #1 for ${formattedBeatAmount}`
+                  : period === 'today'
+                  ? `Claim All-time #1 for ${formattedBeatAmount}`
                   : `Claim #1 for ${formattedBeatAmount}`
               }
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs sm:text-sm font-black shadow-xs transition-all active:scale-95 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-2"
@@ -106,18 +158,46 @@ export const Hero: React.FC<HeroProps> = ({
                 ) : hasLeaderboardError ? (
                   'Price unavailable'
                 ) : hasTopHolder ? (
-                  `Take #1 for ${formattedBeatAmount}`
+                  period === 'today' ? `Take All-time #1 for ${formattedBeatAmount}` : `Take #1 for ${formattedBeatAmount}`
                 ) : (
-                  `Claim #1 for ${formattedBeatAmount}`
+                  period === 'today' ? `Claim All-time #1 for ${formattedBeatAmount}` : `Claim #1 for ${formattedBeatAmount}`
                 )}
               </span>
             </button>
+            {!canClaim && (
+              <p className="text-xs text-amber-800 bg-amber-50/90 border border-amber-200/80 px-3 py-1.5 rounded-lg text-center md:text-left font-medium">
+                Checkout is temporarily unavailable while payment setup is being verified.
+              </p>
+            )}
           </div>
         </div>
 
-        {/* Right Column: Contained Sloth Mascot (Desktop col-span-5, hidden on mobile) */}
-        <div className="hidden md:flex md:col-span-5 justify-center lg:justify-end items-center">
-          <div className="w-[300px] lg:w-[350px] max-w-full">
+        {/* Right Column: Contained Sloth Mascot + Restrained Handwritten Annotation (Desktop col-span-5, hidden on mobile) */}
+        <div className="hidden md:flex md:col-span-5 justify-center lg:justify-end items-center relative">
+          {/* Handwritten Annotation near mascot with curved arrow */}
+          <div className="absolute -top-3 left-4 lg:left-0 flex items-center gap-1.5 select-none pointer-events-none z-10">
+            <span
+              className="text-xs lg:text-sm font-medium italic text-[#8c5a45] tracking-wide whitespace-nowrap"
+              style={{ fontFamily: '"Caveat", "Comic Sans MS", "Chalkboard SE", "Segoe Print", cursive, serif' }}
+            >
+              Maximum effort in doing nothing
+            </span>
+            <svg
+              className="w-7 h-7 lg:w-8 lg:h-8 text-[#a36b53] shrink-0 transform translate-y-1"
+              viewBox="0 0 36 36"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M 6 8 Q 20 6 24 22" />
+              <path d="M 18 19 L 24 22 L 26 15" />
+            </svg>
+          </div>
+
+          <div className="w-[300px] lg:w-[350px] max-w-full pt-4">
             <img
               src="/mascot/lazyproof-sloth.png"
               alt="LazyProof Sloth Mascot on orange beanbag with laptop"

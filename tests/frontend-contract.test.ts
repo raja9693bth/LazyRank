@@ -552,7 +552,7 @@ async function runFrontendContractTests() {
   console.log('\n--- 9. Leaderboard Truthful Wording ---');
   const lbContent = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'Leaderboard.tsx'), 'utf-8');
   assert.ok(
-    lbContent.includes('Dynamic sponsored placement · Rank adjusts as new bids are verified'),
+    lbContent.includes('Dynamic sponsored placement · Rank adjusts as new sponsored payments are verified'),
     'Leaderboard empty state uses truthful dynamic ranking description'
   );
   assert.ok(

@@ -45,12 +45,16 @@ export class CashfreeProvider implements PaymentProvider {
       throw new Error('Cashfree credentials are not configured.');
     }
 
-    const customerId = 'cust_' + crypto.createHash('sha256').update(`${params.customerPhone || '9876543210'}:${params.orderId}`).digest('hex').slice(0, 16);
+    if (!params.customerPhone || typeof params.customerPhone !== 'string' || !/^[6-9]\d{9}$/.test(params.customerPhone.trim())) {
+      throw new Error('Valid 10-digit Indian mobile number is required for Cashfree checkout.');
+    }
+
+    const customerPhone = params.customerPhone.trim();
+    const customerId = 'cust_' + crypto.createHash('sha256').update(`${customerPhone}:${params.orderId}`).digest('hex').slice(0, 16);
     const returnUrl = params.returnUrl || `https://lazyproof.online/?order_id=${params.orderId}&status=return`;
     const notifyUrl = params.notifyUrl || `https://lazyproof.online/api/payment/webhook`;
     const idempotencyKey = params.idempotencyKey || crypto.randomUUID();
 
-    const customerPhone = (params.customerPhone && params.customerPhone.trim()) || '9876543210';
     const customerDetails: Record<string, string> = {
       customer_id: customerId,
       customer_name: params.customerName.slice(0, 50),
@@ -81,7 +85,8 @@ export class CashfreeProvider implements PaymentProvider {
         'x-idempotency-key': idempotencyKey,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000)
     });
 
     const data: any = await res.json();
@@ -118,7 +123,8 @@ export class CashfreeProvider implements PaymentProvider {
         'x-client-id': this.appId,
         'x-client-secret': this.secretKey,
         'x-api-version': this.apiVersion
-      }
+      },
+      signal: AbortSignal.timeout(8000)
     });
 
     if (!res.ok) {
@@ -219,15 +225,27 @@ export class CashfreeProvider implements PaymentProvider {
       const refundData = body.data?.refund;
       if (refundData || eventType === 'REFUND_SUCCESS_WEBHOOK' || eventType === 'REFUND_FAILED_WEBHOOK') {
         const rawStatus = (refundData?.refund_status || (eventType === 'REFUND_SUCCESS_WEBHOOK' ? 'SUCCESS' : 'FAILED')).toUpperCase();
-        const refundStatus: 'SUCCESS' | 'FAILED' | 'PENDING' =
-          rawStatus === 'SUCCESS' ? 'SUCCESS' : rawStatus === 'PENDING' ? 'PENDING' : 'FAILED';
+        let refundStatus: 'SUCCESS' | 'FAILED' | 'PENDING';
+        if (rawStatus === 'SUCCESS') {
+          refundStatus = 'SUCCESS';
+        } else if (['FAILED', 'CANCELLED', 'REJECTED'].includes(rawStatus)) {
+          refundStatus = 'FAILED';
+        } else if (['PENDING', 'ONHOLD', 'PENDING_APPROVAL'].includes(rawStatus)) {
+          refundStatus = 'PENDING';
+        } else {
+          refundStatus = 'PENDING';
+        }
+
+        const refundCurrency = typeof refundData?.refund_currency === 'string'
+          ? refundData.refund_currency.trim()
+          : '';
 
         const parsedRefund: RefundWebhookDetails = {
           refundId: refundData?.refund_id || body.refund_id || '',
           providerRefundId: refundData?.cf_refund_id ? String(refundData.cf_refund_id) : undefined,
           orderId: refundData?.order_id || body.data?.order?.order_id || body.orderId || '',
           amount: Number(refundData?.refund_amount || body.refund_amount || 0),
-          currency: refundData?.refund_currency || body.data?.order?.order_currency || 'INR',
+          currency: refundCurrency,
           status: refundStatus,
           arn: refundData?.refund_arn
         };
@@ -297,7 +315,8 @@ export class CashfreeProvider implements PaymentProvider {
         'x-api-version': this.apiVersion,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(8000)
     });
 
     const data: any = await res.json();
@@ -310,10 +329,20 @@ export class CashfreeProvider implements PaymentProvider {
       };
     }
 
+    const rawStatus = String(data.refund_status || '').toUpperCase();
+    let status: 'SUCCESS' | 'FAILED' | 'PENDING';
+    if (rawStatus === 'SUCCESS') {
+      status = 'SUCCESS';
+    } else if (['FAILED', 'CANCELLED', 'REJECTED'].includes(rawStatus)) {
+      status = 'FAILED';
+    } else {
+      status = 'PENDING';
+    }
+
     return {
-      success: true,
+      success: status !== 'FAILED',
       refundId: params.refundId,
-      status: data.refund_status === 'SUCCESS' ? 'SUCCESS' : 'PENDING',
+      status,
       raw: data
     };
   }
@@ -333,7 +362,8 @@ export class CashfreeProvider implements PaymentProvider {
         'x-client-id': this.appId,
         'x-client-secret': this.secretKey,
         'x-api-version': this.apiVersion
-      }
+      },
+      signal: AbortSignal.timeout(8000)
     });
 
     if (!res.ok) {

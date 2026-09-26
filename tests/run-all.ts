@@ -15,7 +15,8 @@ const suites: SuiteDef[] = [
   { name: 'Suite 7: Phase 3 Payment Security & Settlement', file: 'tests/phase3-payment-security.test.ts' },
   { name: 'Suite 8: Frontend Contract Smoke Tests', file: 'tests/frontend-contract.test.ts' },
   { name: 'Suite 9: Phase 4 Operational Workflows & Durable Data', file: 'tests/phase4-operational-workflows.test.ts' },
-  { name: 'Suite 10: Phase 5 Reconciliation Safeguards & Final Remediation', file: 'tests/phase5-reconciliation-safeguards.test.ts' }
+  { name: 'Suite 10: Phase 5 Reconciliation Safeguards & Final Remediation', file: 'tests/phase5-reconciliation-safeguards.test.ts' },
+  { name: 'Suite 11: Phase 6 Payment & Reconciliation Hardening', file: 'tests/phase6-payment-reconciliation-hardening.test.ts' }
 ];
 
 console.log('\n========================================================');

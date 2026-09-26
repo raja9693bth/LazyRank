@@ -288,6 +288,20 @@ export class PostgresDatabase {
           console.log('[PostgreSQL] Migration 006_outbox_delivery applied successfully.');
         }
 
+        // 8. Check and apply migration 007_reconciliation_retries if not already recorded
+        const mig007Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '007_reconciliation_retries'"
+        );
+        if (mig007Res.rows.length === 0) {
+          const mig007Path = path.join(process.cwd(), 'server', 'db', 'migrations', '007_reconciliation_retries.sql');
+          if (!fs.existsSync(mig007Path)) {
+            throw new Error('Required migration 007_reconciliation_retries.sql is missing.');
+          }
+          const mig007Sql = fs.readFileSync(mig007Path, 'utf-8');
+          await client.query(mig007Sql);
+          console.log('[PostgreSQL] Migration 007_reconciliation_retries applied successfully.');
+        }
+
         this.isInitialized = true;
         console.log('[PostgreSQL] Database schema verified and up to date.');
         return true;
@@ -824,7 +838,7 @@ export class PostgresDatabase {
     try {
       await client.query('BEGIN');
       await client.query(
-        "UPDATE refund_reversals SET status = 'FAILED', updated_at = NOW() WHERE id = $1 AND order_id = $2",
+        "UPDATE refund_reversals SET status = 'FAILED', updated_at = NOW() WHERE (merchant_refund_id = $1 OR id = $1) AND order_id = $2",
         [merchantRefundId, orderId]
       );
       const pendingRes = await client.query(
@@ -894,6 +908,7 @@ export class PostgresDatabase {
    */
   public async reverseRefundAtomic(params: RefundParams): Promise<{
     success: boolean;
+    alreadyReversed?: boolean;
     message?: string;
   }> {
     if (!this.pool) throw new Error('Database unavailable.');
@@ -958,7 +973,7 @@ export class PostgresDatabase {
       if (reservation.status === 'SUCCESS') {
         if (!params.providerRefundId || reservation.provider_refund_id === params.providerRefundId) {
           await client.query('COMMIT');
-          return { success: true, message: 'Refund already settled.' };
+          return { success: true, alreadyReversed: true, message: 'Refund already settled.' };
         }
         await client.query('ROLLBACK');
         return { success: false, message: 'Conflict: Refund already settled with different provider refund ID.' };
@@ -2204,17 +2219,21 @@ export class PostgresDatabase {
       }
 
       try {
-        // Query up to 20 PENDING / CREATED orders between 5 minutes and 24 hours old
+        // Query up to 20 PENDING / CREATED orders without 24-hour starvation
         const pendingOrdersRes = await client.query(
-          `SELECT order_id, amount, currency, status FROM payment_orders
+          `SELECT order_id, amount, currency, status, reconciliation_attempts, created_at FROM payment_orders
            WHERE status IN ('PENDING', 'CREATED')
              AND created_at <= NOW() - INTERVAL '5 minutes'
-             AND created_at >= NOW() - INTERVAL '24 hours'
-           ORDER BY created_at ASC
+             AND (next_reconcile_at IS NULL OR next_reconcile_at <= NOW())
+           ORDER BY COALESCE(next_reconcile_at, created_at) ASC, created_at ASC
            LIMIT 20`
         );
 
         for (const order of pendingOrdersRes.rows) {
+          const currentAttempts = (order.reconciliation_attempts || 0);
+          const nextAttempts = currentAttempts + 1;
+          const backoffMinutes = Math.min(360, Math.pow(2, Math.min(nextAttempts, 6)) * 5);
+
           try {
             const providerStatus = await provider.getPaymentStatus(order.order_id);
             // Require provider status PAID, nonempty providerPaymentId, provider currency exactly INR, stored order currency INR
@@ -2238,32 +2257,84 @@ export class PostgresDatabase {
                   paymentMethod: providerStatus.paymentMethod || 'UPI',
                   signatureVerified: false
                 });
-                if (res.success) reconciledOrders++;
+                if (res.success) {
+                  reconciledOrders++;
+                  continue;
+                }
               }
             }
-          } catch (orderErr) {
-            console.warn(`[Reconciliation] Order ${order.order_id} check failed:`, orderErr);
+
+            // If not settled, schedule next attempt with exponential backoff
+            await client.query(
+              `UPDATE payment_orders
+               SET reconciliation_attempts = $1,
+                   next_reconcile_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                   reconciliation_error = $3,
+                   updated_at = NOW()
+               WHERE order_id = $4`,
+              [nextAttempts, String(backoffMinutes), `Provider status: ${providerStatus?.status || 'UNKNOWN'}`, order.order_id]
+            );
+
+            // Alert founder outbox if aged or stalled (no customer PII)
+            const ageMs = Date.now() - new Date(order.created_at).getTime();
+            if (nextAttempts >= 10 || ageMs > 48 * 3600 * 1000) {
+              await this.enqueueOperationalOutbox(
+                'ORDER_RECONCILIATION_STALLED',
+                {
+                  orderId: order.order_id,
+                  amountINR: Number(order.amount),
+                  status: order.status,
+                  attempts: nextAttempts,
+                  ageHours: Math.round(ageMs / 3600000)
+                },
+                `reconcile_order_stall_${order.order_id}_${nextAttempts}`
+              );
+            }
+          } catch (orderErr: any) {
+            console.warn(`[Reconciliation] Order ${order.order_id} check failed:`, orderErr?.message || orderErr);
+            await client.query(
+              `UPDATE payment_orders
+               SET reconciliation_attempts = $1,
+                   next_reconcile_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                   reconciliation_error = $3,
+                   updated_at = NOW()
+               WHERE order_id = $4`,
+              [nextAttempts, String(backoffMinutes), orderErr?.message || 'Check failed', order.order_id]
+            );
           }
         }
 
-        // Query up to 20 PENDING refunds between 5 minutes and 24 hours old
+        // Query up to 20 PENDING refunds without 24-hour starvation
         const pendingRefundsRes = await client.query(
-          `SELECT order_id, merchant_refund_id, id, amount, currency, reason FROM refund_reversals
+          `SELECT order_id, merchant_refund_id, id, amount, currency, reason, reconciliation_attempts, created_at FROM refund_reversals
            WHERE status = 'PENDING'
              AND created_at <= NOW() - INTERVAL '5 minutes'
-             AND created_at >= NOW() - INTERVAL '24 hours'
-           ORDER BY created_at ASC
+             AND (next_reconcile_at IS NULL OR next_reconcile_at <= NOW())
+           ORDER BY COALESCE(next_reconcile_at, created_at) ASC, created_at ASC
            LIMIT 20`
         );
 
         for (const ref of pendingRefundsRes.rows) {
           const merchantRefId = ref.merchant_refund_id || ref.id;
+          const currentAttempts = (ref.reconciliation_attempts || 0);
+          const nextAttempts = currentAttempts + 1;
+          const backoffMinutes = Math.min(360, Math.pow(2, Math.min(nextAttempts, 6)) * 5);
+
           try {
             const refundStatus = await provider.getRefundStatus(ref.order_id, merchantRefId);
 
             // Validate returned order ID and merchant refund ID against locked reservation
             if (refundStatus.orderId !== ref.order_id || refundStatus.merchantRefundId !== merchantRefId) {
               console.warn(`[Reconciliation] Refund metadata mismatch for ${merchantRefId}`);
+              await client.query(
+                `UPDATE refund_reversals
+                 SET reconciliation_attempts = $1,
+                     next_reconcile_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                     reconciliation_error = $3,
+                     updated_at = NOW()
+                 WHERE id = $4`,
+                [nextAttempts, String(backoffMinutes), 'Metadata mismatch', ref.id]
+              );
               continue;
             }
 
@@ -2275,12 +2346,30 @@ export class PostgresDatabase {
                 refundStatus.providerRefundId.trim().length === 0
               ) {
                 console.warn(`[Reconciliation] Invalid currency or missing providerRefundId for ${merchantRefId}`);
+                await client.query(
+                  `UPDATE refund_reversals
+                   SET reconciliation_attempts = $1,
+                       next_reconcile_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                       reconciliation_error = $3,
+                       updated_at = NOW()
+                   WHERE id = $4`,
+                  [nextAttempts, String(backoffMinutes), 'Invalid currency or missing providerRefundId', ref.id]
+                );
                 continue;
               }
               const providerPaise = toSafePaise(refundStatus.amount);
               const refPaise = toSafePaise(Number(ref.amount));
               if (providerPaise === null || refPaise === null || providerPaise !== refPaise) {
                 console.warn(`[Reconciliation] Refund amount mismatch for ${merchantRefId}`);
+                await client.query(
+                  `UPDATE refund_reversals
+                   SET reconciliation_attempts = $1,
+                       next_reconcile_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                       reconciliation_error = $3,
+                       updated_at = NOW()
+                   WHERE id = $4`,
+                  [nextAttempts, String(backoffMinutes), 'Amount mismatch', ref.id]
+                );
                 continue;
               }
 
@@ -2300,9 +2389,43 @@ export class PostgresDatabase {
             } else {
               // Intermediate / unresolved (PENDING, PENDING_APPROVAL, ONHOLD, etc.): preserve reservation
               console.log(`[Reconciliation] Refund ${merchantRefId} is in intermediate state: ${refundStatus.status}. Reservation preserved.`);
+              await client.query(
+                `UPDATE refund_reversals
+                 SET reconciliation_attempts = $1,
+                     next_reconcile_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                     reconciliation_error = $3,
+                     updated_at = NOW()
+                 WHERE id = $4`,
+                [nextAttempts, String(backoffMinutes), `Intermediate status: ${refundStatus.status}`, ref.id]
+              );
+
+              const ageMs = Date.now() - new Date(ref.created_at).getTime();
+              if (nextAttempts >= 10 || ageMs > 48 * 3600 * 1000) {
+                await this.enqueueOperationalOutbox(
+                  'REFUND_RECONCILIATION_STALLED',
+                  {
+                    orderId: ref.order_id,
+                    merchantRefundId: merchantRefId,
+                    amountINR: Number(ref.amount),
+                    status: refundStatus.status,
+                    attempts: nextAttempts,
+                    ageHours: Math.round(ageMs / 3600000)
+                  },
+                  `reconcile_refund_stall_${merchantRefId}_${nextAttempts}`
+                );
+              }
             }
-          } catch (refErr) {
-            console.warn(`[Reconciliation] Refund ${merchantRefId} check failed:`, refErr);
+          } catch (refErr: any) {
+            console.warn(`[Reconciliation] Refund ${merchantRefId} check failed:`, refErr?.message || refErr);
+            await client.query(
+              `UPDATE refund_reversals
+               SET reconciliation_attempts = $1,
+                   next_reconcile_at = NOW() + ($2 || ' minutes')::INTERVAL,
+                   reconciliation_error = $3,
+                   updated_at = NOW()
+               WHERE id = $4`,
+              [nextAttempts, String(backoffMinutes), refErr?.message || 'Check failed', ref.id]
+            );
           }
         }
       } finally {

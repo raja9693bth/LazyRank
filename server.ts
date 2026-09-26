@@ -117,6 +117,9 @@ async function startServer() {
     } else {
       app.set('trust proxy', tp);
     }
+  } else if (process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_STATIC_URL) {
+    // Railway routes traffic through 1 reverse proxy hop
+    app.set('trust proxy', 1);
   } else {
     // In production without an explicit TRUST_PROXY setting, default to false
     app.set('trust proxy', false);
@@ -157,9 +160,23 @@ async function startServer() {
 
   // API ROUTES
 
-  // Health check
+  const buildSha = (
+    process.env.RAILWAY_GIT_COMMIT_SHA ||
+    process.env.VERCEL_GIT_COMMIT_SHA ||
+    process.env.GIT_COMMIT_SHA ||
+    process.env.COMMIT_SHA ||
+    'c947a52'
+  ).slice(0, 40);
+
+  // Health check with safe public build SHA
   app.get('/api/health', (req: Request, res: Response) => {
-    res.json({ status: 'ok', product: 'LAZY', version: '2.0', storage: db.isPostgresAuthoritative() ? 'postgresql' : 'json' });
+    res.json({
+      status: 'ok',
+      product: 'LAZY',
+      version: '2.0',
+      storage: db.isPostgresAuthoritative() ? 'postgresql' : 'json',
+      commitSha: buildSha
+    });
   });
 
   // Leaderboard endpoint (Canonical source of paid ranks with server pagination & period filtering)
@@ -192,28 +209,10 @@ async function startServer() {
     });
   }));
 
-  // Create unverified participant claim (Section 5)
-  app.post('/api/participant/create', (req: Request, res: Response) => {
-    const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 15, 60000)) {
-      return res.status(429).json({ error: 'Too many participant claims created. Please wait.' });
-    }
-
-    const { name, instagram, website, reason } = req.body;
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-      return res.status(400).json({ error: 'Display name is required.' });
-    }
-    if (name.trim().length > 30) {
-      return res.status(400).json({ error: 'Display name cannot exceed 30 characters.' });
-    }
-    if (containsProfanity(name) || (reason && containsProfanity(reason))) {
-      return res.status(400).json({ error: 'Please keep name and reason respectful.' });
-    }
-    const profile = db.createParticipant({ name, instagram, website, reason });
-    res.json({
-      success: true,
-      profile: db.sanitizeProfile(profile),
-      ownerToken: profile.ownerToken
+  // Create unverified participant claim (Section 5) - RETIRED WITH HTTP 410
+  app.post('/api/participant/create', (_req: Request, res: Response) => {
+    return res.status(410).json({
+      error: 'Endpoint retired. Unverified participant creation has been discontinued in favour of authoritative checkout.'
     });
   });
 
@@ -829,25 +828,38 @@ async function startServer() {
         const refundAmount = refundDetails?.amount ?? verification.amount ?? 0;
         const refundStatus = refundDetails?.status || (verification.status === 'REFUNDED' ? 'SUCCESS' : 'FAILED');
 
-        if (!merchantRefundId && providerRefundId && paymentManager.isEnabled()) {
-          try {
-            const providerRefund = await paymentManager.getProvider().getRefundStatus(orderId, providerRefundId);
-            merchantRefundId = providerRefund.merchantRefundId;
-          } catch {
-            // provider lookup fallback
-          }
-        }
-
         if (!merchantRefundId) {
-          return res.status(503).json({ error: 'Cannot reconcile refund without merchant refund ID.' });
+          return res.status(400).json({ error: 'Cannot reconcile refund without merchant refund ID.' });
         }
 
-        const refundCurrency = refundDetails?.currency || verification.currency || 'INR';
+        const refundCurrency = refundDetails?.currency || verification.currency || '';
         if (refundCurrency !== 'INR') {
           return res.status(400).json({ error: 'Refund currency mismatch against INR.' });
         }
 
         if (refundStatus === 'SUCCESS') {
+          // Authoritative server-to-server verification before reversing
+          if (paymentManager.isEnabled() && paymentManager.getProvider()?.isConfigured()) {
+            try {
+              const authStatus = await paymentManager.getProvider().getRefundStatus(orderId, merchantRefundId);
+              if (
+                authStatus.status !== 'SUCCESS' ||
+                authStatus.orderId !== orderId ||
+                authStatus.merchantRefundId !== merchantRefundId ||
+                authStatus.currency !== 'INR' ||
+                toSafePaise(authStatus.amount) !== toSafePaise(refundAmount)
+              ) {
+                console.warn(`[Webhook Refund] Authoritative verification mismatch for order ${orderId} / refund ${merchantRefundId}. Reservation preserved as PENDING.`);
+                await db.recordWebhookEvent(eventId, verification.event || 'REFUND_STATUS_MISMATCH', orderId, providerRefundId, verification.rawPayload);
+                return res.status(409).json({ error: 'Authoritative refund verification mismatch. Reservation preserved as PENDING.' });
+              }
+              providerRefundId = authStatus.providerRefundId || providerRefundId;
+            } catch (authErr: any) {
+              console.warn(`[Webhook Refund] Server-to-server verification failed for order ${orderId}:`, authErr?.message || authErr);
+              return res.status(503).json({ error: 'Server-to-server refund verification unavailable. Retry later.' });
+            }
+          }
+
           const reversed = await db.reverseRefund(
             orderId,
             refundAmount,
@@ -861,9 +873,17 @@ async function startServer() {
           }
           await db.recordWebhookEvent(eventId, verification.event || 'REFUND_SUCCESS_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
           return res.json({ received: true, processed: true, status: 'REFUNDED' });
-        } else {
+        } else if (refundStatus === 'FAILED') {
+          // Terminal failure: safely release reservation
+          if (db.isPostgresAuthoritative()) {
+            await db.pg.failRefundReservation(merchantRefundId, orderId);
+          }
           await db.recordWebhookEvent(eventId, verification.event || 'REFUND_FAILED_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
-          return res.json({ received: true, processed: true, status: refundStatus });
+          return res.json({ received: true, processed: true, status: 'FAILED' });
+        } else {
+          // PENDING / ONHOLD / PENDING_APPROVAL: preserve reservation
+          await db.recordWebhookEvent(eventId, verification.event || 'REFUND_PENDING_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
+          return res.json({ received: true, processed: true, status: 'PENDING' });
         }
       }
 
@@ -1164,8 +1184,21 @@ async function startServer() {
           });
         }
 
+        if (providerRes.status === 'FAILED') {
+          if (db.isPostgresAuthoritative()) {
+            await db.pg.failRefundReservation(merchantRefundId, orderId);
+          }
+          return res.status(400).json({
+            success: false,
+            status: 'FAILED',
+            orderId,
+            refundId: merchantRefundId,
+            error: providerRes.error || 'Payment gateway rejected refund request.'
+          });
+        }
+
         if (providerRes.status === 'SUCCESS') {
-          const providerRefundId = providerRes.raw?.cf_refund_id ? String(providerRes.raw.cf_refund_id) : merchantRefundId;
+          let providerRefundId = providerRes.raw?.cf_refund_id ? String(providerRes.raw.cf_refund_id) : merchantRefundId;
           const providerCurrency = providerRes.raw?.refund_currency || providerRes.raw?.currency;
           if (providerCurrency !== undefined && providerCurrency !== 'INR') {
             return res.status(400).json({
@@ -1174,23 +1207,56 @@ async function startServer() {
               refundId: merchantRefundId
             });
           }
-          const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, providerRefundId, 'INR');
-          if (!reversed) {
-            return res.status(500).json({
-              error: 'Refund succeeded at gateway but database reconciliation is pending.',
+
+          // Authoritative server-to-server check before reversing
+          try {
+            const authStatus = await paymentManager.getProvider().getRefundStatus(orderId, merchantRefundId);
+            if (
+              authStatus.status === 'SUCCESS' &&
+              authStatus.orderId === orderId &&
+              authStatus.merchantRefundId === merchantRefundId &&
+              authStatus.currency === 'INR' &&
+              toSafePaise(authStatus.amount) === toSafePaise(amountINR)
+            ) {
+              providerRefundId = authStatus.providerRefundId || providerRefundId;
+              const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, providerRefundId, 'INR');
+              if (!reversed) {
+                return res.status(500).json({
+                  error: 'Refund succeeded at gateway but database reconciliation is pending.',
+                  orderId,
+                  refundId: merchantRefundId,
+                  status: 'RECONCILIATION_PENDING'
+                });
+              }
+              const updatedOrder = await db.getOrderAsync(orderId);
+              return res.json({
+                success: true,
+                status: updatedOrder?.status || 'REFUNDED',
+                orderId,
+                refundId: merchantRefundId,
+                amount: amountINR
+              });
+            } else {
+              return res.json({
+                success: true,
+                status: 'REFUND_PENDING',
+                orderId,
+                refundId: merchantRefundId,
+                amount: amountINR,
+                message: 'Refund submitted to gateway and is awaiting final settlement confirmation.'
+              });
+            }
+          } catch (authErr: any) {
+            console.warn('[Refund] Server-to-server verification check deferred:', authErr?.message);
+            return res.json({
+              success: true,
+              status: 'REFUND_PENDING',
               orderId,
               refundId: merchantRefundId,
-              status: 'RECONCILIATION_PENDING'
+              amount: amountINR,
+              message: 'Refund submitted to gateway; reconciliation worker will confirm status.'
             });
           }
-          const updatedOrder = await db.getOrderAsync(orderId);
-          return res.json({
-            success: true,
-            status: updatedOrder?.status || 'REFUNDED',
-            orderId,
-            refundId: merchantRefundId,
-            amount: amountINR
-          });
         }
       } catch (err: any) {
         console.warn('[Refund] Provider refund error:', err?.message);
@@ -1428,8 +1494,17 @@ async function startServer() {
 
     if (db.isPostgresAuthoritative()) {
       const result = await db.pg.voteProfile(profileId.trim(), clientIp, userAgent);
-      if (!result.success && result.message === 'Profile not found') {
-        return res.status(404).json({ error: 'Profile not found.' });
+      if (!result.success) {
+        if (result.message === 'Profile not found') {
+          return res.status(404).json({ error: 'Profile not found.' });
+        }
+        if (result.message === 'Voting feature is temporarily unavailable.') {
+          return res.status(503).json({ error: result.message, code: 'VOTING_UNAVAILABLE' });
+        }
+        if (result.message === 'You already voted for this person!') {
+          return res.status(409).json({ error: result.message, code: 'ALREADY_VOTED' });
+        }
+        return res.status(400).json({ error: result.message });
       }
       return res.json(result);
     }

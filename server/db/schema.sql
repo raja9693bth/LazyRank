@@ -71,12 +71,16 @@ CREATE TABLE IF NOT EXISTS payment_orders (
   twitter VARCHAR(255),
   reason VARCHAR(255),
   lazy_reason VARCHAR(120),
+  reconciliation_attempts INT NOT NULL DEFAULT 0,
+  next_reconcile_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reconciliation_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_orders_status ON payment_orders (status);
 CREATE INDEX IF NOT EXISTS idx_payment_orders_status_created ON payment_orders (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_payment_orders_reconcile ON payment_orders (status, next_reconcile_at, created_at) WHERE status IN ('PENDING', 'CREATED');
 CREATE INDEX IF NOT EXISTS idx_payment_orders_provider_order_id ON payment_orders (provider_order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_orders_idempotency_unique ON payment_orders (idempotency_key) WHERE idempotency_key IS NOT NULL;
 
@@ -141,11 +145,15 @@ CREATE TABLE IF NOT EXISTS refund_reversals (
   currency VARCHAR(10) NOT NULL DEFAULT 'INR',
   reason VARCHAR(255) NOT NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'SUCCESS' CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED')),
+  reconciliation_attempts INT NOT NULL DEFAULT 0,
+  next_reconcile_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reconciliation_error TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_refund_reversals_order_id ON refund_reversals (order_id);
+CREATE INDEX IF NOT EXISTS idx_refund_reversals_reconcile ON refund_reversals (status, next_reconcile_at, created_at) WHERE status = 'PENDING';
 CREATE UNIQUE INDEX IF NOT EXISTS refund_reversals_provider_refund_id_unique ON refund_reversals(provider_refund_id) WHERE provider_refund_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS refund_reversals_merchant_refund_id_unique ON refund_reversals(merchant_refund_id) WHERE merchant_refund_id IS NOT NULL;
 

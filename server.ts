@@ -7,11 +7,37 @@ import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.ts';
 import { generateRoast, generateFallbackRoast } from './server/roast.ts';
 import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE_SEO } from './server/seo.ts';
+import { stripTrailingSlash } from './src/utils/seo.ts';
 import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
 import { paymentManager } from './server/payments/index.ts';
 import { prerenderRoute } from './server/prerender.tsx';
 import { validateContact, ContactInput, hashToken, verifyOwnerToken, constantTimeMatch } from './server/db/postgres.ts';
 import { toSafePaise } from './server/payments/provider.ts';
+
+function sanitizeLog(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+  return str.replace(/[\r\n\t]/g, '_').slice(0, 500);
+}
+
+function verifyOrderReadAccess(order: any, req: Request): { allowed: boolean; error?: string; status?: number } {
+  const orderAccessToken = (req.headers['x-order-access-token'] as string | undefined)?.trim();
+  const profileToken = (req.headers['x-profile-token'] as string | undefined)?.trim();
+  if (order.orderAccessTokenHash) {
+    if (!orderAccessToken || !constantTimeMatch(order.orderAccessTokenHash, hashToken(orderAccessToken))) {
+      return { allowed: false, error: 'Unauthorized: Valid order access token required.', status: 403 };
+    }
+  } else {
+    // Historical orders with NULL order_access_token_hash: require verifiable owner authentication
+    const ownerHash = order.ownerTokenHash || order.ownerToken;
+    if (ownerHash) {
+      if (!profileToken || !verifyOwnerToken(ownerHash, profileToken)) {
+        return { allowed: false, error: 'Unauthorized: Valid profile token required for historical order.', status: 403 };
+      }
+    }
+  }
+  return { allowed: true };
+}
 
 function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -100,7 +126,7 @@ async function startServer() {
   }
 
   const app = express();
-  const PORT = parseInt(process.env.PORT || '3000', 10);
+  const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 
   // Disable server technology fingerprinting
   app.disable('x-powered-by');
@@ -112,7 +138,7 @@ async function startServer() {
       app.set('trust proxy', true);
     } else if (tp === 'false') {
       app.set('trust proxy', false);
-    } else if (!isNaN(Number(tp))) {
+    } else if (!Number.isNaN(Number(tp))) {
       app.set('trust proxy', Number(tp));
     } else {
       app.set('trust proxy', tp);
@@ -188,10 +214,10 @@ async function startServer() {
       });
     }
     const period = rawPeriod as 'all' | 'today';
-    const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
-    const pageSize = req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : undefined;
-    const offset = req.query.offset !== undefined ? parseInt(req.query.offset as string, 10) : undefined;
-    const limit = req.query.limit !== undefined ? parseInt(req.query.limit as string, 10) : undefined;
+    const page = req.query.page ? Number.parseInt(req.query.page as string, 10) : undefined;
+    const pageSize = req.query.pageSize ? Number.parseInt(req.query.pageSize as string, 10) : undefined;
+    const offset = req.query.offset !== undefined ? Number.parseInt(req.query.offset as string, 10) : undefined;
+    const limit = req.query.limit !== undefined ? Number.parseInt(req.query.limit as string, 10) : undefined;
     const filter = (req.query.filter as 'verified' | 'all') || 'verified';
 
     if (db.isPostgresAuthoritative()) {
@@ -329,8 +355,8 @@ async function startServer() {
     const clientOrderAccessToken = (req.headers['x-order-access-token'] as string) || orderAccessToken;
 
     const num = Number(amount);
-    const parsedAmount = parseInt(amount, 10);
-    if (isNaN(parsedAmount) || !Number.isInteger(num) || parsedAmount < 1 || parsedAmount > 1000000) {
+    const parsedAmount = Number.parseInt(amount, 10);
+    if (Number.isNaN(parsedAmount) || !Number.isInteger(num) || parsedAmount < 1 || parsedAmount > 1000000) {
       return res.status(400).json({ error: 'Payment amount must be a whole integer between ₹1 and ₹10,00,000.' });
     }
 
@@ -640,21 +666,10 @@ async function startServer() {
       return res.status(404).json({ error: 'Order not found.' });
     }
 
-    // Require valid x-order-access-token if order has an access token hash
-    const orderAccessToken = (req.headers['x-order-access-token'] as string | undefined)?.trim();
-    const profileToken = (req.headers['x-profile-token'] as string | undefined)?.trim();
-    if (order.orderAccessTokenHash) {
-      if (!orderAccessToken || !constantTimeMatch(order.orderAccessTokenHash, hashToken(orderAccessToken))) {
-        return res.status(403).json({ error: 'Unauthorized: Valid order access token required.' });
-      }
-    } else {
-      // Historical orders with NULL order_access_token_hash: require verifiable owner authentication
-      const ownerHash = order.ownerTokenHash || order.ownerToken;
-      if (ownerHash) {
-        if (!profileToken || !verifyOwnerToken(ownerHash, profileToken)) {
-          return res.status(403).json({ error: 'Unauthorized: Valid profile token required for historical order.' });
-        }
-      }
+    // Require valid access credentials
+    const access = verifyOrderReadAccess(order, req);
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.error });
     }
     res.setHeader('Cache-Control', 'no-store');
 
@@ -747,21 +762,10 @@ async function startServer() {
       return res.status(404).json({ error: 'Order not found.' });
     }
 
-    // Require valid x-order-access-token if order has an access token hash
-    const orderAccessToken = (req.headers['x-order-access-token'] as string | undefined)?.trim();
-    const profileToken = (req.headers['x-profile-token'] as string | undefined)?.trim();
-    if (order.orderAccessTokenHash) {
-      if (!orderAccessToken || !constantTimeMatch(order.orderAccessTokenHash, hashToken(orderAccessToken))) {
-        return res.status(403).json({ error: 'Unauthorized: Valid order access token required.' });
-      }
-    } else {
-      // Historical orders with NULL order_access_token_hash: require verifiable owner authentication
-      const ownerHash = order.ownerTokenHash || order.ownerToken;
-      if (ownerHash) {
-        if (!profileToken || !verifyOwnerToken(ownerHash, profileToken)) {
-          return res.status(403).json({ error: 'Unauthorized: Valid profile token required for historical order.' });
-        }
-      }
+    // Require valid access credentials
+    const access = verifyOrderReadAccess(order, req);
+    if (!access.allowed) {
+      return res.status(access.status || 403).json({ error: access.error });
     }
     res.setHeader('Cache-Control', 'no-store');
 
@@ -856,13 +860,13 @@ async function startServer() {
                 authStatus.currency !== 'INR' ||
                 toSafePaise(authStatus.amount) !== toSafePaise(refundAmount)
               ) {
-                console.warn(`[Webhook Refund] Authoritative verification mismatch for order ${orderId} / refund ${merchantRefundId}. Reservation preserved as PENDING.`);
+                console.warn(`[Webhook Refund] Authoritative verification mismatch for order ${sanitizeLog(orderId)} / refund ${sanitizeLog(merchantRefundId)}. Reservation preserved as PENDING.`);
                 await db.recordWebhookEvent(eventId, verification.event || 'REFUND_STATUS_MISMATCH', orderId, providerRefundId, verification.rawPayload);
                 return res.status(409).json({ error: 'Authoritative refund verification mismatch. Reservation preserved as PENDING.' });
               }
               providerRefundId = authStatus.providerRefundId || providerRefundId;
             } catch (authErr: any) {
-              console.warn(`[Webhook Refund] Server-to-server verification failed for order ${orderId}:`, authErr?.message || authErr);
+              console.warn('[Webhook Refund] Server-to-server verification failed for order %s: %s', sanitizeLog(orderId), sanitizeLog(authErr?.message || authErr));
               return res.status(503).json({ error: 'Server-to-server refund verification unavailable. Retry later.' });
             }
           }
@@ -1127,7 +1131,7 @@ async function startServer() {
               });
             }
           } catch (authErr: any) {
-            console.warn('[Refund] Server-to-server verification check deferred:', authErr?.message);
+            console.warn('[Refund] Server-to-server verification check deferred: %s', sanitizeLog(authErr?.message));
             return res.json({
               success: true,
               status: 'REFUND_PENDING',
@@ -1139,7 +1143,7 @@ async function startServer() {
           }
         }
       } catch (err: any) {
-        console.warn('[Refund] Provider refund error:', err?.message);
+        console.warn('[Refund] Provider refund error: %s', sanitizeLog(err?.message));
         return res.status(502).json({
           success: false,
           status: 'RECONCILIATION_PENDING',
@@ -1186,7 +1190,7 @@ async function startServer() {
         nomineeName: nomineeName.trim(),
         reason: reason || 'Too lazy to even defend themselves.',
         nominatorName: nominatorName?.trim(),
-        targetAmount: targetAmount ? parseInt(targetAmount, 10) : undefined,
+        targetAmount: targetAmount ? Number.parseInt(targetAmount, 10) : undefined,
         lazyReason: lazyReason?.trim()
       });
       return res.json({ success: true, nomination });
@@ -1196,7 +1200,7 @@ async function startServer() {
       nomineeName,
       reason || 'Too lazy to even defend themselves.',
       nominatorName,
-      targetAmount ? parseInt(targetAmount, 10) : undefined,
+      targetAmount ? Number.parseInt(targetAmount, 10) : undefined,
       lazyReason
     );
 
@@ -1629,8 +1633,8 @@ async function startServer() {
       }
 
       if (db.isPostgresAuthoritative()) {
-        const limit = Math.min(parseInt(req.query.limit as string, 10) || 50, 100);
-        const offset = Math.max(parseInt(req.query.offset as string, 10) || 0, 0);
+        const limit = Math.min(Number.parseInt(req.query.limit as string, 10) || 50, 100);
+        const offset = Math.max(Number.parseInt(req.query.offset as string, 10) || 0, 0);
         const data = await db.pg.getAdminData(limit, offset);
         return res.json(data);
       }
@@ -1782,13 +1786,13 @@ async function startServer() {
         return next();
       }
 
-      const configuredAppUrl = process.env.APP_URL?.trim().replace(/\/+$/, '');
+      const configuredAppUrl = process.env.APP_URL?.trim() ? stripTrailingSlash(process.env.APP_URL.trim()) : undefined;
       const defaultOrigin = process.env.NODE_ENV === 'production' ? 'https://lazyproof.online' : `http://localhost:${process.env.PORT || 3000}`;
       const baseUrl = configuredAppUrl || defaultOrigin;
       let rankId = (req.query.rank as string) || (req.query.profile as string);
       const isProfilePath = req.path.startsWith('/profile/') || req.path === '/profile';
       if (!rankId && req.path.startsWith('/profile/')) {
-        rankId = req.path.replace(/^\/profile\//, '').replace(/\/+$/, '').trim();
+        rankId = stripTrailingSlash(req.path.replace(/^\/profile\//, '')).trim();
       }
 
       // 1. Dynamic Profile Page (/?rank=:id or /profile/:id)
@@ -1822,7 +1826,7 @@ async function startServer() {
       }
 
       // 2. Specific Named Routes (/, /about, /rules, /terms, /privacy, /refund-cancellation, /refund, /contact)
-      const cleanPath = req.path.replace(/\/+$/, '') || '/';
+      const cleanPath = stripTrailingSlash(req.path) || '/';
       if (ROUTE_SEO[cleanPath] || cleanPath === '/') {
         let template: string;
         if (!isProd && viteInstance) {
@@ -1855,7 +1859,7 @@ async function startServer() {
   ]);
 
   const isKnownSpaPath = (pathname: string): boolean => {
-    const clean = pathname.replace(/\/+$/, '') || '/';
+    const clean = stripTrailingSlash(pathname) || '/';
     if (staticPagePaths.has(clean)) return true;
     if (clean === '/profile' || clean.startsWith('/profile/')) return true;
     return false;

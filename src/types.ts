@@ -98,116 +98,31 @@ export interface LazyReasonMeta {
   badgeText: string;
 }
 
-export const LAZY_REASONS_CATALOG: LazyReasonMeta[] = [
-  {
-    id: 'procrastination-master',
-    name: 'Procrastination Master',
-    tagline: 'Why do today what you can delay indefinitely?',
-    emoji: '⏳',
-    badgeBg: 'bg-amber-50',
-    badgeBorder: 'border-amber-300',
-    badgeText: 'text-amber-900'
-  },
-  {
-    id: 'bed-connoisseur',
-    name: 'Bed Connoisseur',
-    tagline: 'Mattress enthusiast, pillow sommelier, blanket architect.',
-    emoji: '🛏️',
-    badgeBg: 'bg-indigo-50',
-    badgeBorder: 'border-indigo-300',
-    badgeText: 'text-indigo-900'
-  },
-  {
-    id: 'professional-couch-potato',
-    name: 'Professional Couch Potato',
-    tagline: 'Living room fixture with zero intention of standing up.',
-    emoji: '🛋️',
-    badgeBg: 'bg-orange-50',
-    badgeBorder: 'border-orange-300',
-    badgeText: 'text-orange-900'
-  },
-  {
-    id: 'nap-enthusiast',
-    name: 'Nap Enthusiast',
-    tagline: 'Can power nap in any orientation at any time of day.',
-    emoji: '💤',
-    badgeBg: 'bg-sky-50',
-    badgeBorder: 'border-sky-300',
-    badgeText: 'text-sky-900'
-  },
-  {
-    id: 'horizontal-living-specialist',
-    name: 'Horizontal Living Specialist',
-    tagline: 'Gravity is meant to be shared with furniture.',
-    emoji: '🛌',
-    badgeBg: 'bg-purple-50',
-    badgeBorder: 'border-purple-300',
-    badgeText: 'text-purple-900'
-  },
-  {
-    id: 'snooze-button-champion',
-    name: 'Snooze Button Champion',
-    tagline: '7 alarms set. Swiped all 7 without opening eyes.',
-    emoji: '⏰',
-    badgeBg: 'bg-rose-50',
-    badgeBorder: 'border-rose-300',
-    badgeText: 'text-rose-900'
-  },
-  {
-    id: 'will-do-it-tomorrow',
-    name: 'Will Do It Tomorrow',
-    tagline: 'Tomorrow has endless possibilities. Today is booked for rest.',
-    emoji: '📅',
-    badgeBg: 'bg-teal-50',
-    badgeBorder: 'border-teal-300',
-    badgeText: 'text-teal-900'
-  },
-  {
-    id: 'chief-sloth-officer',
-    name: 'Chief Sloth Officer',
-    tagline: 'Executive leadership in doing the absolute minimum.',
-    emoji: '🦥',
-    badgeBg: 'bg-emerald-50',
-    badgeBorder: 'border-emerald-300',
-    badgeText: 'text-emerald-900'
-  },
-  {
-    id: 'energy-conservation-expert',
-    name: 'Energy Conservation Expert',
-    tagline: 'Preserving precious calories for the future.',
-    emoji: '🔋',
-    badgeBg: 'bg-yellow-50',
-    badgeBorder: 'border-yellow-300',
-    badgeText: 'text-yellow-900'
-  },
-  {
-    id: 'remote-control-archaeologist',
-    name: 'Remote Control Archaeologist',
-    tagline: 'Will reach between cushions before walking to the TV.',
-    emoji: '📺',
-    badgeBg: 'bg-blue-50',
-    badgeBorder: 'border-blue-300',
-    badgeText: 'text-blue-900'
-  },
-  {
-    id: 'master-of-minimum-effort',
-    name: 'Master of Minimum Effort',
-    tagline: 'Finding the mathematically shortest path to lying down.',
-    emoji: '📐',
-    badgeBg: 'bg-stone-100',
-    badgeBorder: 'border-stone-300',
-    badgeText: 'text-stone-900'
-  },
-  {
-    id: 'serial-tab-accumulator',
-    name: 'Serial Tab Accumulator',
-    tagline: '47 browser tabs open: "I will read them later."',
-    emoji: '📑',
-    badgeBg: 'bg-cyan-50',
-    badgeBorder: 'border-cyan-300',
-    badgeText: 'text-cyan-900'
-  }
+type RawReason = [id: string, name: PredefinedLazyReason, tagline: string, emoji: string, color: string];
+const REASONS_DATA: RawReason[] = [
+  ['procrastination-master', 'Procrastination Master', 'Why do today what you can delay indefinitely?', '⏳', 'amber'],
+  ['bed-connoisseur', 'Bed Connoisseur', 'Mattress enthusiast, pillow sommelier, blanket architect.', '🛏️', 'indigo'],
+  ['professional-couch-potato', 'Professional Couch Potato', 'Living room fixture with zero intention of standing up.', '🛋️', 'orange'],
+  ['nap-enthusiast', 'Nap Enthusiast', 'Can power nap in any orientation at any time of day.', '💤', 'sky'],
+  ['horizontal-living-specialist', 'Horizontal Living Specialist', 'Gravity is meant to be shared with furniture.', '🛌', 'purple'],
+  ['snooze-button-champion', 'Snooze Button Champion', '7 alarms set. Swiped all 7 without opening eyes.', '⏰', 'rose'],
+  ['will-do-it-tomorrow', 'Will Do It Tomorrow', 'Tomorrow has endless possibilities. Today is booked for rest.', '📅', 'teal'],
+  ['chief-sloth-officer', 'Chief Sloth Officer', 'Executive leadership in doing the absolute minimum.', '🦥', 'emerald'],
+  ['energy-conservation-expert', 'Energy Conservation Expert', 'Preserving precious calories for the future.', '🔋', 'yellow'],
+  ['remote-control-archaeologist', 'Remote Control Archaeologist', 'Will reach between cushions before walking to the TV.', '📺', 'blue'],
+  ['master-of-minimum-effort', 'Master of Minimum Effort', 'Finding the mathematically shortest path to lying down.', '📐', 'stone'],
+  ['serial-tab-accumulator', 'Serial Tab Accumulator', '47 browser tabs open: "I will read them later."', '📑', 'cyan']
 ];
+
+export const LAZY_REASONS_CATALOG: LazyReasonMeta[] = REASONS_DATA.map(([id, name, tagline, emoji, color]) => ({
+  id,
+  name,
+  tagline,
+  emoji,
+  badgeBg: color === 'stone' ? 'bg-stone-100' : `bg-${color}-50`,
+  badgeBorder: `border-${color}-300`,
+  badgeText: `text-${color}-900`
+}));
 
 export function getLazyReasonEmoji(reason?: string): string {
   if (!reason) return '🏷️';

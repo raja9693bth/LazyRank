@@ -9,6 +9,16 @@ export interface PageSeoConfig {
   breadcrumbName?: string;
 }
 
+export type RouteSeoMeta = PageSeoConfig;
+
+export function stripTrailingSlash(p: string): string {
+  let res = p;
+  while (res.length > 1 && res.endsWith('/')) {
+    res = res.slice(0, -1);
+  }
+  return res;
+}
+
 export const BASE_URL = 'https://lazyproof.online';
 
 export const PAGE_SEO: Record<string, PageSeoConfig> = {
@@ -69,7 +79,7 @@ export const PAGE_SEO: Record<string, PageSeoConfig> = {
     breadcrumbName: 'Refund Policy'
   },
   '/delivery': {
-    title: "Delivery & Fulfillment Policy — LazyProof Digital Services",
+    title: "Digital Delivery & Fulfillment Policy — LazyProof Digital Services",
     description: "Official Delivery and Fulfillment Policy for LazyProof by Adabhra Group: transparent details on digital delivery timelines and automated server verification.",
     canonicalPath: '/delivery',
     ogType: 'website',
@@ -85,7 +95,7 @@ export const PAGE_SEO: Record<string, PageSeoConfig> = {
 };
 
 export function generateClientRouteJsonLd(route: string): object[] {
-  const normalized = route.replace(/\/+$/, '') || '/';
+  const normalized = stripTrailingSlash(route) || '/';
   const config = PAGE_SEO[normalized] || PAGE_SEO['/'];
   const canonicalUrl = `${BASE_URL}${config.canonicalPath}`;
 
@@ -182,7 +192,7 @@ export function generateClientRouteJsonLd(route: string): object[] {
 export function updatePageSeo(path: string) {
   if (typeof document === 'undefined') return;
 
-  const normalized = path.replace(/\/+$/, '') || '/';
+  const normalized = stripTrailingSlash(path) || '/';
   const config = PAGE_SEO[normalized] || PAGE_SEO['/'];
 
   // Update Title

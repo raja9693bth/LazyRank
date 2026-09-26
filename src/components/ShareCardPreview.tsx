@@ -14,6 +14,122 @@ interface ShareCardPreviewProps {
   onToggleIncludeRoast?: (include: boolean) => void;
 }
 
+function wrapText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number
+) {
+  const words = text.split(' ');
+  let line = '';
+  let currentY = y;
+
+  for (let n = 0; n < words.length; n++) {
+    const testLine = line + words[n] + ' ';
+    const metrics = ctx.measureText(testLine);
+    const testWidth = metrics.width;
+    if (testWidth > maxWidth && n > 0) {
+      ctx.fillText(line.trim(), x, currentY);
+      line = words[n] + ' ';
+      currentY += lineHeight;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line.trim(), x, currentY);
+}
+
+interface LazyReasonBadgeColors {
+  bg: string;
+  border: string;
+  text: string;
+}
+
+function drawLazyReasonBadge(
+  ctx: CanvasRenderingContext2D,
+  lazyReason: string | undefined,
+  width: number,
+  colors: LazyReasonBadgeColors
+) {
+  if (!lazyReason) return;
+  ctx.save();
+  ctx.font = 'bold 28px sans-serif';
+  const emoji = getLazyReasonEmoji(lazyReason);
+  const reasonText = `${emoji} REASON: ${lazyReason.toUpperCase()}`;
+  const pillW = Math.min(width - 320, ctx.measureText(reasonText).width + 50);
+  ctx.fillStyle = colors.bg;
+  ctx.beginPath();
+  ctx.roundRect((width - pillW) / 2, 1276, pillW, 46, 23);
+  ctx.fill();
+  ctx.strokeStyle = colors.border;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.fillStyle = colors.text;
+  ctx.textAlign = 'center';
+  ctx.fillText(reasonText, width / 2, 1308);
+  ctx.restore();
+}
+
+interface RoastColors {
+  header: string;
+  text: string;
+}
+
+function drawRoastOrReason(
+  ctx: CanvasRenderingContext2D,
+  profile: UserProfile,
+  roast: string | null | undefined,
+  includeRoast: boolean,
+  width: number,
+  colors: RoastColors
+) {
+  if (includeRoast && roast) {
+    ctx.fillStyle = colors.header;
+    ctx.font = '900 28px sans-serif';
+    ctx.fillText('🔥 AI LAZY ROAST', width / 2, 1420);
+    ctx.fillStyle = colors.text;
+    ctx.font = 'italic 36px sans-serif';
+    wrapText(ctx, `"${roast}"`, width / 2, 1480, width - 260, 48);
+  } else if (profile.reason) {
+    ctx.fillStyle = colors.text;
+    ctx.font = 'italic 38px sans-serif';
+    wrapText(ctx, `"${profile.reason}"`, width / 2, 1470, width - 260, 54);
+  }
+}
+
+function drawSocialLinks(
+  ctx: CanvasRenderingContext2D,
+  profile: UserProfile,
+  width: number,
+  color: string
+) {
+  if (!profile.instagram && !profile.linkedin && !profile.website) return;
+  ctx.fillStyle = color;
+  ctx.font = 'bold 36px sans-serif';
+  const linkText = [
+    profile.instagram ? `@${profile.instagram.replace(/^@/, '')}` : null,
+    profile.linkedin ? 'LinkedIn' : null,
+    profile.website ? profile.website.replace(/^https?:\/\//, '') : null
+  ].filter(Boolean).join(' • ');
+  ctx.fillText(linkText, width / 2, 1620);
+}
+
+function drawCardFooter(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  highlightColor: string,
+  domainColor: string
+) {
+  ctx.fillStyle = highlightColor;
+  ctx.font = '900 48px sans-serif';
+  ctx.fillText('TOP ME IF YOU CAN.', width / 2, 1750);
+  ctx.fillStyle = domainColor;
+  ctx.font = 'bold 32px sans-serif';
+  ctx.fillText('lazyproof.online', width / 2, 1810);
+}
+
 export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
   profile,
   activeTemplate,
@@ -93,59 +209,17 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.font = 'bold 34px sans-serif';
       ctx.fillText('✓ SERVER-VERIFIED PARTICIPANT', width / 2, 1240);
 
-      // Official Lazy Reason Badge
-      if (profile.lazyReason) {
-        ctx.save();
-        ctx.font = 'bold 28px sans-serif';
-        const emoji = getLazyReasonEmoji(profile.lazyReason);
-        const reasonText = `${emoji} REASON: ${profile.lazyReason.toUpperCase()}`;
-        const pillW = Math.min(width - 320, ctx.measureText(reasonText).width + 50);
-        ctx.fillStyle = '#fef3c7';
-        ctx.beginPath();
-        ctx.roundRect((width - pillW) / 2, 1276, pillW, 46, 23);
-        ctx.fill();
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = '#78350f';
-        ctx.textAlign = 'center';
-        ctx.fillText(reasonText, width / 2, 1308);
-        ctx.restore();
-      }
-
-      // Quote / Roast / Reason
-      if (includeRoast && roast) {
-        ctx.fillStyle = '#f59e0b';
-        ctx.font = '900 28px sans-serif';
-        ctx.fillText('🔥 AI LAZY ROAST', width / 2, 1420);
-        ctx.fillStyle = '#d4d4d8';
-        ctx.font = 'italic 36px sans-serif';
-        wrapText(ctx, `"${roast}"`, width / 2, 1480, width - 260, 48);
-      } else if (profile.reason) {
-        ctx.fillStyle = '#a1a1aa';
-        ctx.font = 'italic 38px sans-serif';
-        wrapText(ctx, `"${profile.reason}"`, width / 2, 1470, width - 260, 54);
-      }
-
-      // Social handle
-      if (profile.instagram || profile.linkedin || profile.website) {
-        ctx.fillStyle = '#d4d4d8';
-        ctx.font = 'bold 36px sans-serif';
-        const linkText = [
-          profile.instagram ? `@${profile.instagram.replace(/^@/, '')}` : null,
-          profile.linkedin ? 'LinkedIn' : null,
-          profile.website ? profile.website.replace(/^https?:\/\//, '') : null
-        ].filter(Boolean).join(' • ');
-        ctx.fillText(linkText, width / 2, 1620);
-      }
-
-      // Challenge footer
-      ctx.fillStyle = '#f59e0b';
-      ctx.font = '900 48px sans-serif';
-      ctx.fillText('TOP ME IF YOU CAN.', width / 2, 1750);
-      ctx.fillStyle = '#71717a';
-      ctx.font = 'bold 32px sans-serif';
-      ctx.fillText('lazyproof.online', width / 2, 1810);
+      drawLazyReasonBadge(ctx, profile.lazyReason, width, {
+        bg: '#fef3c7',
+        border: '#f59e0b',
+        text: '#78350f'
+      });
+      drawRoastOrReason(ctx, profile, roast, includeRoast, width, {
+        header: '#f59e0b',
+        text: (includeRoast && roast) ? '#d4d4d8' : '#a1a1aa'
+      });
+      drawSocialLinks(ctx, profile, width, '#d4d4d8');
+      drawCardFooter(ctx, width, '#f59e0b', '#71717a');
 
     } else if (activeTemplate === 'clean_white') {
       // TEMPLATE 2: Crisp Minimal White
@@ -197,59 +271,17 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.font = 'bold 32px sans-serif';
       ctx.fillText('✓ LEGITIMACY VERIFIED', width / 2, 1240);
 
-      // Official Lazy Reason Badge
-      if (profile.lazyReason) {
-        ctx.save();
-        ctx.font = 'bold 28px sans-serif';
-        const emoji = getLazyReasonEmoji(profile.lazyReason);
-        const reasonText = `${emoji} REASON: ${profile.lazyReason.toUpperCase()}`;
-        const pillW = Math.min(width - 320, ctx.measureText(reasonText).width + 50);
-        ctx.fillStyle = '#fef3c7';
-        ctx.beginPath();
-        ctx.roundRect((width - pillW) / 2, 1276, pillW, 46, 23);
-        ctx.fill();
-        ctx.strokeStyle = '#d97706';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = '#92400e';
-        ctx.textAlign = 'center';
-        ctx.fillText(reasonText, width / 2, 1308);
-        ctx.restore();
-      }
-
-      // Quote / Roast / Reason
-      if (includeRoast && roast) {
-        ctx.fillStyle = '#d97706';
-        ctx.font = '900 28px sans-serif';
-        ctx.fillText('🔥 AI LAZY ROAST', width / 2, 1420);
-        ctx.fillStyle = '#27272a';
-        ctx.font = 'italic 36px sans-serif';
-        wrapText(ctx, `"${roast}"`, width / 2, 1480, width - 260, 48);
-      } else if (profile.reason) {
-        ctx.fillStyle = '#52525b';
-        ctx.font = 'italic 38px sans-serif';
-        wrapText(ctx, `"${profile.reason}"`, width / 2, 1470, width - 260, 54);
-      }
-
-      // Links
-      if (profile.instagram || profile.linkedin || profile.website) {
-        ctx.fillStyle = '#27272a';
-        ctx.font = 'bold 36px sans-serif';
-        const linkText = [
-          profile.instagram ? `@${profile.instagram.replace(/^@/, '')}` : null,
-          profile.linkedin ? 'LinkedIn' : null,
-          profile.website ? profile.website.replace(/^https?:\/\//, '') : null
-        ].filter(Boolean).join(' • ');
-        ctx.fillText(linkText, width / 2, 1620);
-      }
-
-      // Footer
-      ctx.fillStyle = '#09090b';
-      ctx.font = '900 48px sans-serif';
-      ctx.fillText('TOP ME IF YOU CAN.', width / 2, 1750);
-      ctx.fillStyle = '#a1a1aa';
-      ctx.font = 'bold 32px sans-serif';
-      ctx.fillText('lazyproof.online', width / 2, 1810);
+      drawLazyReasonBadge(ctx, profile.lazyReason, width, {
+        bg: '#fef3c7',
+        border: '#d97706',
+        text: '#92400e'
+      });
+      drawRoastOrReason(ctx, profile, roast, includeRoast, width, {
+        header: '#d97706',
+        text: (includeRoast && roast) ? '#27272a' : '#52525b'
+      });
+      drawSocialLinks(ctx, profile, width, '#27272a');
+      drawCardFooter(ctx, width, '#09090b', '#a1a1aa');
 
     } else {
       // TEMPLATE 3: Bold Dark Contrast
@@ -300,59 +332,17 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.font = 'bold 34px sans-serif';
       ctx.fillText('✓ LEGITIMACY VERIFIED', width / 2, 1240);
 
-      // Official Lazy Reason Badge
-      if (profile.lazyReason) {
-        ctx.save();
-        ctx.font = 'bold 28px sans-serif';
-        const emoji = getLazyReasonEmoji(profile.lazyReason);
-        const reasonText = `${emoji} REASON: ${profile.lazyReason.toUpperCase()}`;
-        const pillW = Math.min(width - 320, ctx.measureText(reasonText).width + 50);
-        ctx.fillStyle = '#3f3f46';
-        ctx.beginPath();
-        ctx.roundRect((width - pillW) / 2, 1276, pillW, 46, 23);
-        ctx.fill();
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.fillStyle = '#38bdf8';
-        ctx.textAlign = 'center';
-        ctx.fillText(reasonText, width / 2, 1308);
-        ctx.restore();
-      }
-
-      // Quote / Roast / Reason
-      if (includeRoast && roast) {
-        ctx.fillStyle = '#38bdf8';
-        ctx.font = '900 28px sans-serif';
-        ctx.fillText('🔥 AI LAZY ROAST', width / 2, 1420);
-        ctx.fillStyle = '#f4f4f5';
-        ctx.font = 'italic 36px sans-serif';
-        wrapText(ctx, `"${roast}"`, width / 2, 1480, width - 260, 48);
-      } else if (profile.reason) {
-        ctx.fillStyle = '#d4d4d8';
-        ctx.font = 'italic 38px sans-serif';
-        wrapText(ctx, `"${profile.reason}"`, width / 2, 1470, width - 260, 54);
-      }
-
-      // Links
-      if (profile.instagram || profile.linkedin || profile.website) {
-        ctx.fillStyle = '#e4e4e7';
-        ctx.font = 'bold 36px sans-serif';
-        const linkText = [
-          profile.instagram ? `@${profile.instagram.replace(/^@/, '')}` : null,
-          profile.linkedin ? 'LinkedIn' : null,
-          profile.website ? profile.website.replace(/^https?:\/\//, '') : null
-        ].filter(Boolean).join(' • ');
-        ctx.fillText(linkText, width / 2, 1620);
-      }
-
-      // Footer
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 48px sans-serif';
-      ctx.fillText('TOP ME IF YOU CAN.', width / 2, 1750);
-      ctx.fillStyle = '#71717a';
-      ctx.font = 'bold 32px sans-serif';
-      ctx.fillText('lazyproof.online', width / 2, 1810);
+      drawLazyReasonBadge(ctx, profile.lazyReason, width, {
+        bg: '#3f3f46',
+        border: '#38bdf8',
+        text: '#38bdf8'
+      });
+      drawRoastOrReason(ctx, profile, roast, includeRoast, width, {
+        header: '#38bdf8',
+        text: (includeRoast && roast) ? '#f4f4f5' : '#d4d4d8'
+      });
+      drawSocialLinks(ctx, profile, width, '#e4e4e7');
+      drawCardFooter(ctx, width, '#ffffff', '#71717a');
     }
 
     if (onCardRendered) {
@@ -363,34 +353,6 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       }
     }
   }, [profile, activeTemplate, roast, includeRoast]);
-
-  // Helper function for canvas text wrapping
-  function wrapText(
-    ctx: CanvasRenderingContext2D,
-    text: string,
-    x: number,
-    y: number,
-    maxWidth: number,
-    lineHeight: number
-  ) {
-    const words = text.split(' ');
-    let line = '';
-    let currentY = y;
-
-    for (let n = 0; n < words.length; n++) {
-      const testLine = line + words[n] + ' ';
-      const metrics = ctx.measureText(testLine);
-      const testWidth = metrics.width;
-      if (testWidth > maxWidth && n > 0) {
-        ctx.fillText(line.trim(), x, currentY);
-        line = words[n] + ' ';
-        currentY += lineHeight;
-      } else {
-        line = testLine;
-      }
-    }
-    ctx.fillText(line.trim(), x, currentY);
-  }
 
   const handleDownload = () => {
     const canvas = canvasRef.current;

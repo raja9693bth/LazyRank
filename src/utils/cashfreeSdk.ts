@@ -11,7 +11,7 @@ export function loadCashfreeSdk(): Promise<boolean> {
   if (typeof window === 'undefined') return Promise.resolve(false);
   const w = window as any;
   if (typeof w.Cashfree === 'function') return Promise.resolve(true);
-  if (cashfreeSdkPromise) return cashfreeSdkPromise;
+  if (cashfreeSdkPromise !== null) return cashfreeSdkPromise;
 
   cashfreeSdkPromise = new Promise((resolve) => {
     const existing = document.querySelector('script[src*="sdk.cashfree.com"]') as HTMLScriptElement | null;

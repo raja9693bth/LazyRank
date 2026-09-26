@@ -8,6 +8,7 @@ import { RefundPage } from '../src/pages/RefundPage.tsx';
 import { DeliveryPage } from '../src/pages/DeliveryPage.tsx';
 import { ContactPage } from '../src/pages/ContactPage.tsx';
 import { PricingPage } from '../src/pages/PricingPage.tsx';
+import { stripTrailingSlash } from '../src/utils/seo.ts';
 
 /**
  * Server-side prerenderer for substantive legal and informational pages.
@@ -15,7 +16,7 @@ import { PricingPage } from '../src/pages/PricingPage.tsx';
  * while React hydrates seamlessly in the browser.
  */
 export function prerenderRoute(path: string): string | null {
-  const normalized = path.replace(/\/+$/, '') || '/';
+  const normalized = stripTrailingSlash(path) || '/';
   const noop = () => {};
 
   switch (normalized) {

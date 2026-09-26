@@ -106,11 +106,12 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
       aria-modal="true"
       aria-labelledby="user-settings-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className="w-full max-w-lg rounded-2xl bg-white p-6 sm:p-7 shadow-2xl border border-zinc-200 max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
         <div className="flex items-center justify-between pb-4 border-b border-zinc-100">
@@ -140,10 +141,10 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
         {/* Profile Selector if user has claimed profiles */}
         {userClaimedProfiles.length > 1 && (
           <div className="mt-4 pt-1 pb-3 border-b border-zinc-100">
-            <label className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-2">
+            <span id="select-profile-heading" className="text-[11px] font-bold text-stone-500 uppercase tracking-wider block mb-2">
               Select Your Profile:
-            </label>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Claimed profiles list">
+            </span>
+            <div className="flex items-center gap-2 overflow-x-auto pb-1" role="tablist" aria-labelledby="select-profile-heading">
               {userClaimedProfiles.map(p => (
                 <button
                   key={p.id}
@@ -276,12 +277,13 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
             {/* Quick Profile Finder */}
             <div className="max-w-sm mx-auto text-left space-y-2">
-              <label className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
+              <label htmlFor="user-settings-search-input" className="text-[11px] font-bold text-stone-600 uppercase tracking-wider block">
                 Find Your Profile:
               </label>
               <div className="relative">
                 <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-2.5" />
                 <input
+                  id="user-settings-search-input"
                   type="text"
                   placeholder="Search by participant name..."
                   value={searchQuery}

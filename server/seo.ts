@@ -1,8 +1,11 @@
 import { UserProfile } from '../src/types.ts';
 import { SERVER_LEGAL_CONFIG } from './config/legal.ts';
+import { PAGE_SEO, RouteSeoMeta, stripTrailingSlash } from '../src/utils/seo.ts';
+
+export type { RouteSeoMeta };
 
 const DEFAULT_APP_URL = process.env.NODE_ENV === 'production' ? 'https://lazyproof.online' : 'http://localhost:3000';
-export const BASE_URL = (process.env.APP_URL || DEFAULT_APP_URL).replace(/\/+$/, '');
+export const BASE_URL = stripTrailingSlash(process.env.APP_URL || DEFAULT_APP_URL);
 
 /**
  * Safely serializes JSON-LD structured data for injection into <script type="application/ld+json">
@@ -286,89 +289,10 @@ export function injectProfileMetadata(
   return output;
 }
 
-export interface RouteSeoMeta {
-  title: string;
-  description: string;
-  canonicalPath: string;
-  ogType?: string;
-  breadcrumbName?: string;
-}
-
-export const ROUTE_SEO: Record<string, RouteSeoMeta> = {
-  '/': {
-    title: "LazyProof — Digital Sponsored Profile Showcase | Live Leaderboard",
-    description: "LazyProof is a public digital sponsored showcase where verified cumulative sponsorship determines leaderboard position. Transparent, competitive, and humorous.",
-    canonicalPath: '/',
-    ogType: 'website',
-    breadcrumbName: 'Home'
-  },
-  '/about': {
-    title: "About LazyProof — Digital Sponsored Profile Showcase & Social Proof",
-    description: "Discover the philosophy behind LazyProof: transforming humorous claims into verified social proof, algorithmic ranking transparency, and shareable 9:16 proof cards.",
-    canonicalPath: '/about',
-    ogType: 'website',
-    breadcrumbName: 'About'
-  },
-  '/rules': {
-    title: "Official Rules & Ranking Mechanics — How LazyProof Works",
-    description: "Comprehensive breakdown of LazyProof rules: verified cumulative sponsorship, deterministic tie-breaking by timestamp, and real-time position displacement.",
-    canonicalPath: '/rules',
-    ogType: 'website',
-    breadcrumbName: 'Rules'
-  },
-  '/pricing': {
-    title: "Pricing & Placement Policy — LazyProof Digital Sponsorship",
-    description: "Official pricing mechanics for LazyProof: transparent INR sponsorship tiers, dynamic #1 spot calculation, live position displacement, and checkout status.",
-    canonicalPath: '/pricing',
-    ogType: 'website',
-    breadcrumbName: 'Pricing'
-  },
-  '/terms': {
-    title: "Terms & Conditions — LazyProof Digital Showcase Platform",
-    description: "Official Terms & Conditions for LazyProof by Adabhra Group: public leaderboard participation, verified payment processing, non-defamation conduct policies, and ranking rules.",
-    canonicalPath: '/terms',
-    ogType: 'website',
-    breadcrumbName: 'Terms & Conditions'
-  },
-  '/privacy': {
-    title: "Privacy Policy — How LAZY Handles Your Data",
-    description: "LAZY Privacy Policy: understanding public display of names and handles, user data security, and participant data rights.",
-    canonicalPath: '/privacy',
-    ogType: 'website',
-    breadcrumbName: 'Privacy Policy'
-  },
-  '/refund-cancellation': {
-    title: "Refund & Cancellation Policy — LAZY Payment Guidelines",
-    description: "Official Refund and Cancellation Policy for LAZY: transparent guidelines for pre-payment cancellation, duplicate charge resolutions, and dispute support.",
-    canonicalPath: '/refund-cancellation',
-    ogType: 'website',
-    breadcrumbName: 'Refund Policy'
-  },
-  '/refund': {
-    title: "Refund & Cancellation Policy — LAZY Payment Guidelines",
-    description: "Official Refund and Cancellation Policy for LAZY: transparent guidelines for pre-payment cancellation, duplicate charge resolutions, and dispute support.",
-    canonicalPath: '/refund-cancellation',
-    ogType: 'website',
-    breadcrumbName: 'Refund Policy'
-  },
-  '/delivery': {
-    title: "Digital Delivery & Fulfillment Policy — LazyProof Digital Services",
-    description: "Official Delivery and Fulfillment Policy for LazyProof by Adabhra Group: transparent details on digital delivery timelines and automated server verification.",
-    canonicalPath: '/delivery',
-    ogType: 'website',
-    breadcrumbName: 'Delivery Policy'
-  },
-  '/contact': {
-    title: "Contact Support & Verification Help — LazyProof",
-    description: "Need assistance with a verified rank claim, duplicate charge, or dispute? Contact the LazyProof customer support desk at support@lazyproof.online.",
-    canonicalPath: '/contact',
-    ogType: 'website',
-    breadcrumbName: 'Contact Us'
-  }
-};
+export const ROUTE_SEO: Record<string, RouteSeoMeta> = PAGE_SEO;
 
 export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): object {
-  const normalized = route.replace(/\/+$/, '') || '/';
+  const normalized = stripTrailingSlash(route) || '/';
   const config = ROUTE_SEO[normalized] || ROUTE_SEO['/'];
   const canonicalUrl = `${baseUrl}${config.canonicalPath}`;
 
@@ -477,7 +401,7 @@ export function injectRouteMetadata(
   pathname: string,
   baseUrl: string = BASE_URL
 ): string {
-  const normalized = pathname.replace(/\/+$/, '') || '/';
+  const normalized = stripTrailingSlash(pathname) || '/';
   const config = ROUTE_SEO[normalized] || ROUTE_SEO['/'];
   const canonicalUrl = `${baseUrl}${config.canonicalPath}`;
   const jsonLdData = generateRouteJsonLd(normalized, baseUrl);

@@ -23,7 +23,7 @@ import { ContactPage } from './pages/ContactPage.tsx';
 import { AboutPage } from './pages/AboutPage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
 import { PricingPage } from './pages/PricingPage.tsx';
-import { updatePageSeo, updateProfileSeo } from './utils/seo.ts';
+import { updatePageSeo, updateProfileSeo, stripTrailingSlash } from './utils/seo.ts';
 import { Swords } from 'lucide-react';
 import {
   submitClaimPayment,
@@ -38,7 +38,7 @@ type PublicPaymentConfig = { enabled: boolean; taxReady: boolean; taxDisclosure:
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      const p = window.location.pathname.replace(/\/+$/, '');
+      const p = stripTrailingSlash(window.location.pathname);
       return p || '/';
     }
     return '/';
@@ -354,12 +354,12 @@ export default function App() {
     if (challengeFriend) {
       setIncomingChallenge({
         friendName: challengeFriend,
-        targetAmount: challengeTarget ? parseInt(challengeTarget, 10) : undefined
+        targetAmount: challengeTarget ? Number.parseInt(challengeTarget, 10) : undefined
       });
     }
 
     const onPopState = () => {
-      const p = window.location.pathname.replace(/\/+$/, '') || '/';
+      const p = stripTrailingSlash(window.location.pathname) || '/';
       setCurrentPath(p);
       const urlParams = new URLSearchParams(window.location.search);
       const popRank = urlParams.get('rank') || urlParams.get('profile');

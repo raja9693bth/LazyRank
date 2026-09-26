@@ -3,6 +3,12 @@ import { PaymentProvider, CreateOrderParams, ProviderOrderResult, ProviderPaymen
 
 export const DEFAULT_CASHFREE_API_VERSION = '2026-01-01';
 
+function sanitizeLog(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+  return str.replace(/[\r\n\t]/g, '_').slice(0, 500);
+}
+
 export class CashfreeProvider implements PaymentProvider {
   public name = 'cashfree';
   private appId: string;
@@ -92,7 +98,7 @@ export class CashfreeProvider implements PaymentProvider {
     const data: any = await res.json();
 
     if (!res.ok) {
-      console.error('[Cashfree] Order creation failed:', data);
+      console.error('[Cashfree] Order creation failed for %s (status %d): %s', sanitizeLog(params.orderId), res.status, sanitizeLog(data?.message || data));
       throw new Error(data.message || `Cashfree order creation returned status ${res.status}`);
     }
 
@@ -382,7 +388,7 @@ export class CashfreeProvider implements PaymentProvider {
     } else if (['PENDING', 'ONHOLD', 'PENDING_APPROVAL'].includes(rawStatus)) {
       status = 'PENDING';
     } else {
-      console.warn(`[Cashfree] Unrecognized refund status "${rawStatus}" for order ${orderId} / refund ${merchantRefundId}. Preserving reservation as PENDING.`);
+      console.warn(`[Cashfree] Unrecognized refund status "${sanitizeLog(rawStatus)}" for order ${sanitizeLog(orderId)} / refund ${sanitizeLog(merchantRefundId)}. Preserving reservation as PENDING.`);
       status = 'PENDING';
     }
 

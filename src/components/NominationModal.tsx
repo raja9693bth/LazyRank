@@ -305,9 +305,9 @@ export const NominationModal: React.FC<NominationModalProps> = ({
 
             {/* Grid of Predefined Lazy Reasons */}
             <div>
-              <label className="block text-xs font-bold text-zinc-800 mb-2">
+              <div className="block text-xs font-bold text-zinc-800 mb-2">
                 Choose Your Official Lazy Reason ({LAZY_REASONS_CATALOG.length} Available)
-              </label>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {LAZY_REASONS_CATALOG.map((item) => {
                   const isSelected = selectedLazyReason === item.name;

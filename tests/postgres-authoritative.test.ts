@@ -7,7 +7,7 @@ const isStrict = process.env.STRICT_PG_TEST === 'true' || process.env.CI === 'tr
 async function runPostgresIntegrationTests() {
   console.log('\n========================================================');
   console.log('STARTING REAL POSTGRESQL INTEGRATION TEST SUITE');
-  console.log('Database URL:', TEST_DB_URL.replace(/:[^:@]+@/, ':***@'));
+  console.log('Database Target: Isolated Test PostgreSQL (lazyproof_test)');
   console.log('========================================================\n');
 
   // SAFETY GUARD: Refuse to run against production or non-test databases

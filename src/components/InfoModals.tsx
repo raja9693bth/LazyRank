@@ -29,11 +29,12 @@ export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenR
       aria-modal="true"
       aria-labelledby="about-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
           <h2 id="about-modal-title" className="font-black text-lg text-zinc-950">About LAZY</h2>
@@ -100,11 +101,12 @@ export const RulesModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
       aria-modal="true"
       aria-labelledby="rules-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200 max-h-[85vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
           <h2 id="rules-modal-title" className="font-black text-lg text-zinc-950">Official Rules & Terms (v2.0)</h2>
@@ -365,8 +367,9 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
             }}
             className="mt-4 space-y-3"
           >
-            <label className="block text-xs font-bold text-zinc-700">Admin Secret Key</label>
+            <label htmlFor="admin-secret-key-input" className="block text-xs font-bold text-zinc-700">Admin Secret Key</label>
             <input
+              id="admin-secret-key-input"
               type="password"
               value={key}
               onChange={(e) => setKey(e.target.value)}
@@ -680,11 +683,12 @@ export const LiveStatsModal: React.FC<LiveStatsModalProps> = ({ isOpen, onClose,
       aria-modal="true"
       aria-labelledby="live-stats-modal-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-xs"
-      onClick={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
           <div className="flex items-center gap-2">

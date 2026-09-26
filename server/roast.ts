@@ -1,7 +1,14 @@
+import crypto from 'crypto';
 import { GoogleGenAI } from '@google/genai';
 import { UserProfile } from '../src/types.ts';
 
 let aiClient: GoogleGenAI | null = null;
+
+function pickRandom<T>(items: T[]): T {
+  if (items.length === 0) throw new Error('Cannot pick from empty list');
+  const index = crypto.randomInt(0, items.length);
+  return items[index];
+}
 
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -29,7 +36,7 @@ export function generateFallbackRoast(profile: UserProfile): string {
       `${name} dropped ${formattedAmount} on #1 because walking to the fridge felt like a marathon.`,
       `Peak ambition: spending ${formattedAmount} so nobody on the internet expects anything from you today.`
     ];
-    return winnerRoasts[Math.floor(Math.random() * winnerRoasts.length)];
+    return pickRandom(winnerRoasts);
   }
 
   if (rank === 2 || rank === 3) {
@@ -39,7 +46,7 @@ export function generateFallbackRoast(profile: UserProfile): string {
       `Rank #${rank} on LAZY. Close enough to look like effort, lazy enough to stop right there.`,
       `${name} dropped ${formattedAmount} only to watch #1 stay out of reach from the couch.`
     ];
-    return podiumRoasts[Math.floor(Math.random() * podiumRoasts.length)];
+    return pickRandom(podiumRoasts);
   }
 
   if (amount >= 500) {
@@ -48,7 +55,7 @@ export function generateFallbackRoast(profile: UserProfile): string {
       `Imagine dropping ${formattedAmount} and still being ranked #${rank}. Truly inspirational inefficiency.`,
       `Paid ${formattedAmount} to publicly celebrate avoiding responsibility at Rank #${rank}.`
     ];
-    return bigSpenderMidRank[Math.floor(Math.random() * bigSpenderMidRank.length)];
+    return pickRandom(bigSpenderMidRank);
   }
 
   if (amount <= 50) {
@@ -57,7 +64,7 @@ export function generateFallbackRoast(profile: UserProfile): string {
       `${formattedAmount} to buy a spot on the leaderboard. The absolute coupon-clipper of sloth.`,
       `Rank #${rank} for ${formattedAmount}. Literally the bare minimum in monetary form.`
     ];
-    return budgetRoasts[Math.floor(Math.random() * budgetRoasts.length)];
+    return pickRandom(budgetRoasts);
   }
 
   // General Rank Roasts
@@ -66,7 +73,7 @@ export function generateFallbackRoast(profile: UserProfile): string {
     `Rank #${rank} secured. ${formattedAmount} down the drain with zero intention of doing anything about it.`,
     `${name} paid ${formattedAmount} to formally register as non-functional today.`
   ];
-  return generalRoasts[Math.floor(Math.random() * generalRoasts.length)];
+  return pickRandom(generalRoasts);
 }
 
 /**
@@ -142,8 +149,8 @@ STRICT TONE & FORMAT RULES:
 
     let text = response.text ? response.text.trim() : '';
 
-    // Strip wrapping quotes or backticks if returned
-    text = text.replace(/^["'`]+|["'`]+$/g, '').trim();
+    // Strip wrapping quotes or backticks if returned without backtracking regex
+    text = text.replace(/^["'`]+/, '').replace(/["'`]+$/, '').trim();
 
     // Fallback if empty or overly long
     if (!text || text.length < 10) {

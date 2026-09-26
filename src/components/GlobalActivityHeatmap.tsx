@@ -184,7 +184,8 @@ export const GlobalActivityHeatmap: React.FC<GlobalActivityHeatmapProps> = ({
                   };
 
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={bucket.hour}
                       onMouseEnter={() => setHoveredHour(bucket)}
                       onMouseLeave={() => setHoveredHour(null)}
@@ -209,7 +210,7 @@ export const GlobalActivityHeatmap: React.FC<GlobalActivityHeatmapProps> = ({
                       ) : (
                         <span className="w-1 h-1 rounded-full opacity-30 bg-current shrink-0" />
                       )}
-                    </div>
+                    </button>
                   );
                 })}
               </div>

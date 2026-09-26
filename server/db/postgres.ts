@@ -81,6 +81,29 @@ export interface ContactInquiry {
   createdAt: string;
 }
 
+export type RefundReservationOutcome = 'NEW' | 'EXISTING_PENDING' | 'EXISTING_SUCCESS' | 'CONFLICT';
+
+export interface RefundReservationResult {
+  success: boolean;
+  outcome: RefundReservationOutcome;
+  refundId: string;
+  orderId: string;
+  amount: number;
+  status: string;
+  message?: string;
+  remainingRefundablePaise?: number;
+  statusCode?: number;
+}
+
+export interface ChargebackParams {
+  orderId: string;
+  disputeId: string;
+  amount: number;
+  currency?: string;
+  reason?: string;
+  evidenceRef: string;
+}
+
 export function validateContact(body: any): ContactInput {
   if (!body || typeof body !== 'object') {
     throw new Error('Invalid contact request body');
@@ -659,12 +682,17 @@ export class PostgresDatabase {
         WITH ranked AS (
           SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC) as new_rank
           FROM profiles
-          WHERE moderation_status = 'active' AND is_verified = TRUE
+          WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0
         )
         UPDATE profiles
         SET rank = ranked.new_rank
         FROM ranked
         WHERE profiles.id = ranked.id
+      `);
+      await client.query(`
+        UPDATE profiles
+        SET rank = 999999
+        WHERE (moderation_status != 'active' OR is_verified = FALSE OR amount <= 0) AND rank != 999999
       `);
 
       // 7. Fetch final profile state
@@ -735,7 +763,7 @@ export class PostgresDatabase {
     refundPaise: number,
     merchantRefundId: string,
     reason: string
-  ): Promise<{ success: boolean; message?: string; remainingRefundablePaise?: number; statusCode?: number }> {
+  ): Promise<RefundReservationResult> {
     if (!this.pool) throw new Error('Database unavailable.');
     const client = await this.pool.connect();
     try {
@@ -748,15 +776,20 @@ export class PostgresDatabase {
       );
       if (orderRes.rows.length === 0) {
         await client.query('ROLLBACK');
-        return { success: false, message: 'Order not found.' };
+        return {
+          success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: 'NOT_FOUND',
+          message: 'Order not found.',
+          statusCode: 404
+        };
       }
       const order = orderRes.rows[0];
-      if (!['PAID', 'PARTIALLY_REFUNDED'].includes(order.status) && order.status !== 'REFUND_PENDING') {
-        await client.query('ROLLBACK');
-        return { success: false, message: 'Order is not refundable in this state.' };
-      }
 
-      // Check existing row with this merchant ID before summing remaining balance
+      // A1: Check existing row with this merchant ID FIRST before rejecting based on order status (e.g. REFUNDED or REFUND_PENDING)
       const existingRowRes = await client.query(
         'SELECT * FROM refund_reversals WHERE (id = $1 OR merchant_refund_id = $1) FOR UPDATE',
         [merchantRefundId]
@@ -770,22 +803,99 @@ export class PostgresDatabase {
         if (existingRow.order_id === orderId && existingRowPaise === refundPaise) {
           if (existingRow.status === 'PENDING') {
             await client.query('COMMIT');
-            return { success: true, message: 'Existing pending refund reservation returned idempotently.' };
+            return {
+              success: true,
+              outcome: 'EXISTING_PENDING',
+              refundId: existingRow.merchant_refund_id || existingRow.id,
+              orderId,
+              amount: Number(existingRow.amount),
+              status: 'PENDING',
+              message: 'Existing pending refund reservation returned idempotently.'
+            };
           }
           if (existingRow.status === 'SUCCESS') {
             await client.query('COMMIT');
-            return { success: true, message: 'Refund already settled.' };
+            return {
+              success: true,
+              outcome: 'EXISTING_SUCCESS',
+              refundId: existingRow.merchant_refund_id || existingRow.id,
+              orderId,
+              amount: Number(existingRow.amount),
+              status: 'SUCCESS',
+              message: 'Refund already settled.'
+            };
+          }
+          if (existingRow.status === 'FAILED') {
+            // Explicit safe retry policy: never silently reuse a failed refund ID
+            await client.query('ROLLBACK');
+            return {
+              success: false,
+              outcome: 'CONFLICT',
+              refundId: merchantRefundId,
+              orderId,
+              amount: Number(existingRow.amount),
+              status: 'FAILED',
+              message: 'Refund reservation with this ID previously failed. A new unique refund ID is required to retry.',
+              statusCode: 409
+            };
           }
         }
-        // mismatched order/amount or FAILED
+        // mismatched order or amount
         await client.query('ROLLBACK');
-        return { success: false, message: 'Conflict: Refund ID already exists with mismatched order, amount, or failed status.', statusCode: 409 };
+        return {
+          success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: 'CONFLICT',
+          message: 'Conflict: Refund ID already exists with mismatched order or amount.',
+          statusCode: 409
+        };
+      }
+
+      // If no existing record: verify order state allows new refund initiation
+      if (order.status === 'REFUNDED') {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: order.status,
+          message: 'Order is already fully refunded.',
+          statusCode: 409
+        };
       }
 
       // New different ID while order is REFUND_PENDING: reject to prevent double refund
       if (order.status === 'REFUND_PENDING') {
         await client.query('ROLLBACK');
-        return { success: false, message: 'Order already has a pending refund in progress.', statusCode: 409 };
+        return {
+          success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: order.status,
+          message: 'Order already has a pending refund in progress.',
+          statusCode: 409
+        };
+      }
+
+      if (!['PAID', 'PARTIALLY_REFUNDED'].includes(order.status)) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: order.status,
+          message: 'Order is not refundable in this state.',
+          statusCode: 409
+        };
       }
 
       // Sum all settled (SUCCESS) and in-flight (PENDING) refunds
@@ -800,8 +910,14 @@ export class PostgresDatabase {
         await client.query('ROLLBACK');
         return {
           success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: 'EXCEEDS_REMAINING',
           message: `Refund amount (${refundPaise / 100} INR) exceeds remaining refundable amount (${remainingPaise / 100} INR).`,
-          remainingRefundablePaise: remainingPaise
+          remainingRefundablePaise: remainingPaise,
+          statusCode: 400
         };
       }
 
@@ -815,32 +931,54 @@ export class PostgresDatabase {
       );
 
       await client.query(
-        "UPDATE payment_orders SET status = 'REFUND_PENDING', updated_at = NOW() WHERE order_id = $1 AND status = 'PAID'",
+        "UPDATE payment_orders SET status = 'REFUND_PENDING', updated_at = NOW() WHERE order_id = $1 AND status IN ('PAID', 'PARTIALLY_REFUNDED')",
         [orderId]
       );
 
       await client.query('COMMIT');
-      return { success: true, remainingRefundablePaise: remainingPaise - refundPaise };
+      return {
+        success: true,
+        outcome: 'NEW',
+        refundId: merchantRefundId,
+        orderId,
+        amount: refundAmountINR,
+        status: 'PENDING',
+        remainingRefundablePaise: remainingPaise - refundPaise
+      };
     } catch (err: any) {
       await client.query('ROLLBACK');
-      return { success: false, message: err?.message || 'Failed to reserve refund.' };
+      return {
+        success: false,
+        outcome: 'CONFLICT',
+        refundId: merchantRefundId,
+        orderId,
+        amount: refundPaise / 100,
+        status: 'ERROR',
+        message: err?.message || 'Failed to reserve refund.'
+      };
     } finally {
       client.release();
     }
   }
 
   /**
-   * Release or mark failed a refund reservation if provider rejects the request
+   * Release or mark failed a refund reservation if provider rejects the request.
+   * Only status='PENDING' can transition to FAILED; leave SUCCESS and ledger untouched.
    */
-  public async failRefundReservation(merchantRefundId: string, orderId: string): Promise<void> {
-    if (!this.pool) return;
+  public async failRefundReservation(merchantRefundId: string, orderId: string): Promise<boolean> {
+    if (!this.pool) return false;
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query(
-        "UPDATE refund_reversals SET status = 'FAILED', updated_at = NOW() WHERE (merchant_refund_id = $1 OR id = $1) AND order_id = $2",
+      const updateRes = await client.query(
+        "UPDATE refund_reversals SET status = 'FAILED', updated_at = NOW() WHERE (merchant_refund_id = $1 OR id = $1) AND order_id = $2 AND status = 'PENDING'",
         [merchantRefundId, orderId]
       );
+      if ((updateRes.rowCount ?? 0) === 0) {
+        // Leave SUCCESS, already FAILED, or missing rows completely untouched
+        await client.query('COMMIT');
+        return false;
+      }
       const pendingRes = await client.query(
         "SELECT 1 FROM refund_reversals WHERE order_id = $1 AND status = 'PENDING' LIMIT 1",
         [orderId]
@@ -857,9 +995,11 @@ export class PostgresDatabase {
         );
       }
       await client.query('COMMIT');
+      return true;
     } catch (err) {
       await client.query('ROLLBACK');
       console.error('[PostgreSQL] failRefundReservation error:', err);
+      return false;
     } finally {
       client.release();
     }
@@ -1040,12 +1180,17 @@ export class PostgresDatabase {
           WITH ranked AS (
             SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC) as new_rank
             FROM profiles
-            WHERE moderation_status = 'active' AND is_verified = TRUE
+            WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0
           )
           UPDATE profiles
           SET rank = ranked.new_rank
           FROM ranked
           WHERE profiles.id = ranked.id
+        `);
+        await client.query(`
+          UPDATE profiles
+          SET rank = 999999
+          WHERE (moderation_status != 'active' OR is_verified = FALSE OR amount <= 0) AND rank != 999999
         `);
       }
 
@@ -1055,6 +1200,145 @@ export class PostgresDatabase {
       await client.query('ROLLBACK');
       console.error('[PostgreSQL] Refund reversal error:', err);
       return { success: false, message: err?.message || 'Refund processing failed.' };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Atomic Chargeback & Dispute Ledger Adjustment
+   * Narrowly authenticated, idempotent adjustment path supported by verifiable gateway settlement/dispute evidence.
+   * Debits rank ledger, updates profile amount, and recalculates leaderboard ranks atomically.
+   */
+  public async recordChargebackAtomic(params: ChargebackParams): Promise<{
+    success: boolean;
+    alreadyRecorded?: boolean;
+    message?: string;
+    statusCode?: number;
+  }> {
+    if (!this.pool) throw new Error('Database unavailable.');
+    const client = await this.pool.connect();
+
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(987654321)');
+
+      const orderRes = await client.query(
+        'SELECT * FROM payment_orders WHERE order_id = $1 FOR UPDATE',
+        [params.orderId]
+      );
+
+      if (orderRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Order not found.', statusCode: 404 };
+      }
+
+      const order = orderRes.rows[0];
+      const currency = params.currency || 'INR';
+      if (currency !== 'INR' || order.currency !== 'INR') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Currency mismatch: expected INR.', statusCode: 400 };
+      }
+
+      if (!['PAID', 'PARTIALLY_REFUNDED'].includes(order.status)) {
+        await client.query('ROLLBACK');
+        return { success: false, message: `Order in status ${order.status} cannot accept chargeback adjustment.`, statusCode: 409 };
+      }
+
+      const disputeTag = `[dispute:${params.disputeId.trim()}]`;
+
+      // Check idempotency: dispute ID already processed for this order
+      const existingRes = await client.query(
+        "SELECT 1 FROM rank_ledger WHERE order_id = $1 AND type = 'DEBIT_CHARGEBACK' AND note LIKE $2 LIMIT 1",
+        [params.orderId, `%${disputeTag}%`]
+      );
+
+      if (existingRes.rows.length > 0) {
+        await client.query('COMMIT');
+        return { success: true, alreadyRecorded: true, message: 'Chargeback dispute already settled idempotently.' };
+      }
+
+      const chargebackPaise = toSafePaise(params.amount);
+      if (chargebackPaise === null || chargebackPaise <= 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Invalid chargeback amount.', statusCode: 400 };
+      }
+
+      // Calculate current net settled amount for this order
+      const netRes = await client.query(
+        "SELECT COALESCE(SUM(amount), 0) as net_amount FROM rank_ledger WHERE order_id = $1 AND status = 'SETTLED'",
+        [params.orderId]
+      );
+      const remainingPaise = Math.round(Number(netRes.rows[0].net_amount) * 100);
+
+      if (chargebackPaise > remainingPaise) {
+        await client.query('ROLLBACK');
+        return {
+          success: false,
+          message: `Chargeback amount (${chargebackPaise / 100} INR) exceeds remaining net settled amount (${remainingPaise / 100} INR).`,
+          statusCode: 400
+        };
+      }
+
+      const profileId = order.profile_id;
+      const ledgerId = 'led_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+      const fullNote = `Chargeback ${disputeTag} [evidence:${params.evidenceRef.trim()}]: ${params.reason?.trim() || 'Bank dispute adjustment'}`;
+
+      // Insert DEBIT_CHARGEBACK into rank_ledger
+      await client.query(
+        `INSERT INTO rank_ledger (id, profile_id, order_id, type, amount, currency, status, note, created_at)
+         VALUES ($1, $2, $3, 'DEBIT_CHARGEBACK', $4, 'INR', 'SETTLED', $5, NOW())`,
+        [ledgerId, profileId, params.orderId, -params.amount, fullNote]
+      );
+
+      // Determine final order status
+      const remainingAfterChargeback = remainingPaise - chargebackPaise;
+      const finalOrderStatus = remainingAfterChargeback <= 0 ? 'CHARGEBACK' : 'PARTIALLY_REFUNDED';
+
+      await client.query(
+        'UPDATE payment_orders SET status = $1, updated_at = NOW() WHERE order_id = $2',
+        [finalOrderStatus, params.orderId]
+      );
+
+      if (profileId) {
+        // Recalculate profile verified total from ledger
+        await client.query(
+          `UPDATE profiles SET
+            amount = GREATEST(0, (
+              SELECT COALESCE(SUM(amount), 0)
+              FROM rank_ledger
+              WHERE profile_id = $1 AND status = 'SETTLED'
+            )),
+            updated_at = NOW()
+          WHERE id = $1`,
+          [profileId]
+        );
+
+        // Deterministically recalculate all active ranks
+        await client.query(`
+          WITH ranked AS (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC) as new_rank
+            FROM profiles
+            WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0
+          )
+          UPDATE profiles
+          SET rank = ranked.new_rank
+          FROM ranked
+          WHERE profiles.id = ranked.id
+        `);
+        await client.query(`
+          UPDATE profiles
+          SET rank = 999999
+          WHERE (moderation_status != 'active' OR is_verified = FALSE OR amount <= 0) AND rank != 999999
+        `);
+      }
+
+      await client.query('COMMIT');
+      return { success: true, message: 'Chargeback recorded and rank adjusted successfully.' };
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      console.error('[PostgreSQL] Chargeback error:', err);
+      return { success: false, message: err?.message || 'Chargeback processing failed.', statusCode: 500 };
     } finally {
       client.release();
     }
@@ -1084,12 +1368,17 @@ export class PostgresDatabase {
         WITH ranked AS (
           SELECT id, ROW_NUMBER() OVER (ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC) as new_rank
           FROM profiles
-          WHERE moderation_status = 'active' AND is_verified = TRUE
+          WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0
         )
         UPDATE profiles
         SET rank = ranked.new_rank
         FROM ranked
         WHERE profiles.id = ranked.id
+      `);
+      await client.query(`
+        UPDATE profiles
+        SET rank = 999999
+        WHERE (moderation_status != 'active' OR is_verified = FALSE OR amount <= 0) AND rank != 999999
       `);
 
       await client.query('COMMIT');
@@ -1156,7 +1445,7 @@ export class PostgresDatabase {
 
     // Top amount and minAmountToBeatTop are ALWAYS authoritative ALL-TIME values
     const topRes = await this.pool.query(
-      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
+      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0 ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
     );
     const topAmount = topRes.rows.length > 0 ? Number(topRes.rows[0].amount) : 0;
     const minAmountToBeatTop = topAmount + 1;
@@ -1199,7 +1488,7 @@ export class PostgresDatabase {
         WHERE p.moderation_status = 'active' AND p.is_verified = TRUE;
       `;
       const countRes = await this.pool.query(countQuery, [startTodayUtc, endTodayUtc]);
-      const totalCount = parseInt(countRes.rows[0]?.cnt || '0', 10);
+      const totalCount = Number.parseInt(countRes.rows[0]?.cnt || '0', 10);
 
       const dataQuery = `
         WITH today_credits AS (
@@ -1273,11 +1562,11 @@ export class PostgresDatabase {
 
     // ALL-TIME Leaderboard
     const whereClause = isVerifiedOnly
-      ? "WHERE moderation_status = 'active' AND is_verified = TRUE"
-      : "WHERE moderation_status = 'active'";
+      ? "WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0"
+      : "WHERE moderation_status = 'active' AND amount > 0";
 
     const countRes = await this.pool.query(`SELECT COUNT(*) as cnt FROM profiles ${whereClause}`);
-    const totalCount = parseInt(countRes.rows[0].cnt, 10);
+    const totalCount = Number.parseInt(countRes.rows[0].cnt, 10);
 
     const query = `
       SELECT *, ROW_NUMBER() OVER (ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC) as dynamic_rank
@@ -1311,12 +1600,12 @@ export class PostgresDatabase {
    */
   public async getProfile(idOrRank: string): Promise<UserProfile | null> {
     if (!this.pool) return null;
-    const rankNum = parseInt(idOrRank, 10);
+    const rankNum = Number.parseInt(idOrRank, 10);
     let query: string;
     let params: any[];
 
-    if (!isNaN(rankNum) && rankNum > 0 && String(rankNum) === idOrRank) {
-      query = "SELECT * FROM profiles WHERE rank = $1 AND moderation_status = 'active' AND is_verified = TRUE LIMIT 1";
+    if (!Number.isNaN(rankNum) && rankNum > 0 && String(rankNum) === idOrRank) {
+      query = "SELECT * FROM profiles WHERE rank = $1 AND moderation_status = 'active' AND is_verified = TRUE AND amount > 0 LIMIT 1";
       params = [rankNum];
     } else {
       query = "SELECT * FROM profiles WHERE id = $1 AND moderation_status = 'active' LIMIT 1";
@@ -1349,7 +1638,7 @@ export class PostgresDatabase {
   public async getTopAmount(): Promise<number> {
     if (!this.pool) return 0;
     const res = await this.pool.query(
-      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
+      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0 ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
     );
     return res.rows.length > 0 ? Number(res.rows[0].amount) : 0;
   }

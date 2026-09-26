@@ -23,8 +23,9 @@ function sanitizeLog(val: unknown): string {
 function verifyOrderReadAccess(order: any, req: Request): { allowed: boolean; error?: string; status?: number } {
   const orderAccessToken = (req.headers['x-order-access-token'] as string | undefined)?.trim();
   const profileToken = (req.headers['x-profile-token'] as string | undefined)?.trim();
-  if (order.orderAccessTokenHash) {
-    if (!orderAccessToken || !constantTimeMatch(order.orderAccessTokenHash, hashToken(orderAccessToken))) {
+  const tokenHash = order.orderAccessTokenHash || (order.orderAccessToken ? hashToken(order.orderAccessToken) : undefined);
+  if (tokenHash) {
+    if (!orderAccessToken || !constantTimeMatch(tokenHash, hashToken(orderAccessToken))) {
       return { allowed: false, error: 'Unauthorized: Valid order access token required.', status: 403 };
     }
   } else {
@@ -33,6 +34,13 @@ function verifyOrderReadAccess(order: any, req: Request): { allowed: boolean; er
     if (ownerHash) {
       if (!profileToken || !verifyOwnerToken(ownerHash, profileToken)) {
         return { allowed: false, error: 'Unauthorized: Valid profile token required for historical order.', status: 403 };
+      }
+    } else {
+      // Historical orders missing BOTH order_access_token_hash and owner_token_hash:
+      // Deny anonymous status and receipt access. Allow administrative support procedure via x-admin-key.
+      const adminKey = (req.headers['x-admin-key'] as string | undefined)?.trim();
+      if (!adminKey || !verifyAdminKey(adminKey)) {
+        return { allowed: false, error: 'Unauthorized: Historical order requires administrative support verification.', status: 403 };
       }
     }
   }
@@ -468,6 +476,43 @@ async function startServer() {
         });
       }
 
+      // If internal order exists but paymentSessionId is absent (e.g. after provider timeout), safely recover/reconcile session
+      if (!existingOrder.paymentSessionId) {
+        try {
+          const providerOrder = await paymentManager.getProvider().createOrder({
+            orderId: existingOrder.orderId,
+            amount: Number(existingOrder.amount),
+            currency: existingOrder.currency || 'INR',
+            customerName: existingOrder.name,
+            customerEmail: existingOrder.customerEmail,
+            customerPhone: existingOrder.customerPhone || phoneStr,
+            returnUrl: `https://lazyproof.online/?order_id=${existingOrder.orderId}&status=return`,
+            notifyUrl: `https://lazyproof.online/api/payment/webhook`,
+            note: `Digital sponsored profile placement on LazyProof - ${existingOrder.name}`,
+            idempotencyKey
+          });
+
+          await db.updateOrderProviderSession(
+            existingOrder.orderId,
+            providerOrder.paymentSessionId,
+            providerOrder.providerOrderId,
+            providerOrder.checkoutUrl
+          );
+
+          existingOrder.paymentSessionId = providerOrder.paymentSessionId;
+          existingOrder.providerOrderId = providerOrder.providerOrderId;
+          existingOrder.checkoutUrl = providerOrder.checkoutUrl;
+        } catch (recoverErr: any) {
+          console.error('[PaymentManager] Recovery of paymentSessionId failed on retry:', recoverErr);
+          return res.status(502).json({
+            error: recoverErr?.message || 'Payment gateway order session generation failed.',
+            orderId: existingOrder.orderId,
+            idempotencyKey,
+            recoverable: true
+          });
+        }
+      }
+
       return res.json({
         orderId: existingOrder.orderId,
         paymentSessionId: existingOrder.paymentSessionId,
@@ -494,30 +539,115 @@ async function startServer() {
 
     const orderId = 'order_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 
-    // Authoritative server-side order registration
-    await db.createOrder({
-      orderId,
-      name: name.trim(),
-      amount: parsedAmount,
-      currency: 'INR',
-      profileId,
-      ownerToken: providedToken,
-      orderAccessToken: clientOrderAccessToken,
-      quoteSnapshot,
-      instagram: db.normalizeInstagram(instagram),
-      linkedin: db.normalizeLinkedIn(linkedin),
-      website: db.normalizeWebsite(website),
-      twitter: db.normalizeTwitter(twitter),
-      reason: reason?.trim(),
-      lazyReason: lazyReason?.trim(),
-      idempotencyKey,
-      paymentMode: paymentManager.getMode(),
-      customerEmail: validCustomerEmail,
-      customerPhone: phoneStr,
-      consentAccepted: true,
-      consentTimestamp: new Date().toISOString(),
-      consentVersion: CURRENT_TERMS_VERSION
-    });
+    // Authoritative server-side order registration with concurrent race protection
+    try {
+      await db.createOrder({
+        orderId,
+        name: name.trim(),
+        amount: parsedAmount,
+        currency: 'INR',
+        profileId,
+        ownerToken: providedToken,
+        orderAccessToken: clientOrderAccessToken,
+        quoteSnapshot,
+        instagram: db.normalizeInstagram(instagram),
+        linkedin: db.normalizeLinkedIn(linkedin),
+        website: db.normalizeWebsite(website),
+        twitter: db.normalizeTwitter(twitter),
+        reason: reason?.trim(),
+        lazyReason: lazyReason?.trim(),
+        idempotencyKey,
+        paymentMode: paymentManager.getMode(),
+        customerEmail: validCustomerEmail,
+        customerPhone: phoneStr,
+        consentAccepted: true,
+        consentTimestamp: new Date().toISOString(),
+        consentVersion: CURRENT_TERMS_VERSION
+      });
+    } catch (createErr: any) {
+      if (createErr?.code === '23505' || createErr?.message?.includes('duplicate key') || createErr?.message?.includes('idempotency')) {
+        const concurrentOrder = await db.getOrderByIdempotencyKey(idempotencyKey);
+        if (concurrentOrder) {
+          const isExistingTop = concurrentOrder.amount > topAmount;
+          const amountMatch = Number(concurrentOrder.amount) === parsedAmount;
+          const nameMatch = concurrentOrder.name === name.trim();
+          const phoneMatch = !concurrentOrder.customerPhone || concurrentOrder.customerPhone === phoneStr;
+          const profileMatch = (concurrentOrder.profileId || undefined) === (profileId || undefined);
+
+          const ownerTokenMatch = concurrentOrder.ownerTokenHash
+            ? (providedToken && verifyOwnerToken(concurrentOrder.ownerTokenHash, providedToken))
+            : true;
+          const accessTokenMatch = concurrentOrder.orderAccessTokenHash
+            ? (clientOrderAccessToken && constantTimeMatch(concurrentOrder.orderAccessTokenHash, hashToken(clientOrderAccessToken)))
+            : true;
+
+          if (!amountMatch || !nameMatch || !phoneMatch || !profileMatch || !ownerTokenMatch || !accessTokenMatch) {
+            return res.status(409).json({
+              error: 'Idempotency conflict: order parameters differ for this idempotency key.'
+            });
+          }
+
+          if (!concurrentOrder.paymentSessionId) {
+            try {
+              const providerOrder = await paymentManager.getProvider().createOrder({
+                orderId: concurrentOrder.orderId,
+                amount: Number(concurrentOrder.amount),
+                currency: concurrentOrder.currency || 'INR',
+                customerName: concurrentOrder.name,
+                customerEmail: concurrentOrder.customerEmail,
+                customerPhone: concurrentOrder.customerPhone || phoneStr,
+                returnUrl: `https://lazyproof.online/?order_id=${concurrentOrder.orderId}&status=return`,
+                notifyUrl: `https://lazyproof.online/api/payment/webhook`,
+                note: `Digital sponsored profile placement on LazyProof - ${concurrentOrder.name}`,
+                idempotencyKey
+              });
+
+              await db.updateOrderProviderSession(
+                concurrentOrder.orderId,
+                providerOrder.paymentSessionId,
+                providerOrder.providerOrderId,
+                providerOrder.checkoutUrl
+              );
+
+              concurrentOrder.paymentSessionId = providerOrder.paymentSessionId;
+              concurrentOrder.providerOrderId = providerOrder.providerOrderId;
+              concurrentOrder.checkoutUrl = providerOrder.checkoutUrl;
+            } catch (concurrentSessionErr: any) {
+              return res.status(502).json({
+                error: concurrentSessionErr?.message || 'Payment gateway order session generation failed.',
+                orderId: concurrentOrder.orderId,
+                idempotencyKey,
+                recoverable: true
+              });
+            }
+          }
+
+          return res.json({
+            orderId: concurrentOrder.orderId,
+            paymentSessionId: concurrentOrder.paymentSessionId,
+            checkoutUrl: concurrentOrder.checkoutUrl,
+            providerOrderId: concurrentOrder.providerOrderId,
+            idempotencyKey,
+            name: concurrentOrder.name,
+            amount: concurrentOrder.amount,
+            currency: concurrentOrder.currency || 'INR',
+            isTop: isExistingTop,
+            topAmount,
+            minAmountToBeatTop: topAmount + 1,
+            profileId: concurrentOrder.profileId,
+            paymentMode: concurrentOrder.paymentMode,
+            quote: concurrentOrder.quoteSnapshot || quoteSnapshot,
+            instagram: concurrentOrder.instagram,
+            linkedin: concurrentOrder.linkedin,
+            website: concurrentOrder.website,
+            twitter: concurrentOrder.twitter,
+            reason: concurrentOrder.reason,
+            lazyReason: concurrentOrder.lazyReason
+          });
+        }
+      }
+      throw createErr;
+    }
 
     try {
       const providerOrder = await paymentManager.getProvider().createOrder({
@@ -673,10 +803,20 @@ async function startServer() {
     }
     res.setHeader('Cache-Control', 'no-store');
 
+    const profile = order.profileId
+      ? (db.isPostgresAuthoritative() ? await db.pg.getProfile(order.profileId) : db.getProfile(order.profileId))
+      : undefined;
+
+    // Return authoritative stored terminal/refund/chargeback state directly (never re-settle or downgrade)
+    if (['REFUNDED', 'PARTIALLY_REFUNDED', 'REFUND_PENDING', 'CHARGEBACK', 'FAILED', 'CANCELLED'].includes(order.status)) {
+      return res.json({
+        orderId,
+        status: order.status,
+        profile: profile ? db.sanitizeProfile(profile) : undefined
+      });
+    }
+
     if (order.status === 'completed' || order.status === 'PAID') {
-      const profile = order.profileId
-        ? (db.isPostgresAuthoritative() ? await db.pg.getProfile(order.profileId) : db.getProfile(order.profileId))
-        : undefined;
       return res.json({
         orderId,
         status: 'PAID',
@@ -684,10 +824,11 @@ async function startServer() {
       });
     }
 
-    if (paymentManager.isEnabled()) {
+    // Allow initial settlement ONLY from CREATED/PENDING with exact INR paise checks
+    if (paymentManager.isEnabled() && (order.status === 'CREATED' || order.status === 'PENDING')) {
       try {
         const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
-        if (providerStatus.status === 'PAID' && order.status !== 'completed' && order.status !== 'PAID') {
+        if (providerStatus.status === 'PAID') {
           const providerPaise = toSafePaise(providerStatus.amount);
           const orderPaise = toSafePaise(order.amount);
           if (!providerStatus.providerPaymentId || providerStatus.currency !== 'INR' || order.currency !== 'INR' ||
@@ -747,7 +888,7 @@ async function startServer() {
 
     return res.json({
       orderId,
-      status: (order.status === 'completed' || order.status === 'PAID') ? 'PAID' : (order.status || 'PENDING')
+      status: order.status || 'PENDING'
     });
   }));
 
@@ -1021,33 +1162,69 @@ async function startServer() {
     if (!orderId || typeof orderId !== 'string') {
       return res.status(400).json({ error: 'orderId is required.' });
     }
+
+    const merchantRefundId = (req.body.refundId && typeof req.body.refundId === 'string' ? req.body.refundId.trim() : '') ||
+      ('ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12));
+
+    const isTestMode = process.env.NODE_ENV === 'test' || process.env.ALLOW_MOCK_REFUNDS === 'true';
+
+    // A4: When provider processing is disabled/unconfigured, live refund request must return clear 503 without reserving or reversing anything
+    if (!paymentManager.isEnabled() && !isTestMode) {
+      return res.status(503).json({
+        error: 'Payment gateway provider is not enabled or unconfigured. Live refund processing unavailable.',
+        orderId,
+        refundId: merchantRefundId
+      });
+    }
+
     const order = await db.getOrderAsync(orderId);
     if (!order) {
-      return res.status(404).json({ error: 'Order not found.' });
+      return res.status(404).json({ error: 'Order not found.', orderId, refundId: merchantRefundId });
     }
 
     const amountINR: number = amount === undefined ? order.amount : Number(amount);
     if (!Number.isFinite(amountINR) || amountINR <= 0 ||
         Math.abs(amountINR * 100 - Math.round(amountINR * 100)) >= 1e-8) {
-      return res.status(400).json({ error: 'Invalid refund amount.' });
+      return res.status(400).json({ error: 'Invalid refund amount.', orderId, refundId: merchantRefundId });
     }
     const refundPaise: number = Math.round(amountINR * 100);
-    const validStatuses = db.isPostgresAuthoritative()
-      ? ['PAID', 'PARTIALLY_REFUNDED']
-      : ['PAID', 'PARTIALLY_REFUNDED', 'completed', 'PENDING'];
-    if (!validStatuses.includes(order.status)) {
-      return res.status(409).json({ error: 'Order is not refundable in this state.' });
-    }
 
     const refundReason = (reason && typeof reason === 'string') ? reason : 'Customer refund request';
-    const merchantRefundId = (req.body.refundId && typeof req.body.refundId === 'string' ? req.body.refundId.trim() : '') || ('ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12));
 
     // Preflight reservation: reserve remaining refundable amount under FOR UPDATE BEFORE calling payment gateway
     const reservation = await db.reserveRefundAtomic(orderId, refundPaise, merchantRefundId, refundReason);
     if (!reservation.success) {
-      return res.status(400).json({
+      return res.status(reservation.statusCode || 400).json({
         success: false,
-        error: reservation.message || 'Refund reservation failed.'
+        error: reservation.message || 'Refund reservation failed.',
+        orderId,
+        refundId: merchantRefundId,
+        outcome: reservation.outcome
+      });
+    }
+
+    // A1: Never issue a second Cashfree createRefund call for EXISTING_PENDING or EXISTING_SUCCESS
+    if (reservation.outcome === 'EXISTING_SUCCESS') {
+      return res.json({
+        success: true,
+        outcome: 'EXISTING_SUCCESS',
+        status: 'REFUNDED',
+        orderId,
+        refundId: merchantRefundId,
+        amount: reservation.amount,
+        message: reservation.message || 'Refund already settled.'
+      });
+    }
+
+    if (reservation.outcome === 'EXISTING_PENDING') {
+      return res.json({
+        success: true,
+        outcome: 'EXISTING_PENDING',
+        status: 'REFUND_PENDING',
+        orderId,
+        refundId: merchantRefundId,
+        amount: reservation.amount,
+        message: 'Refund is currently pending provider confirmation; reconciliation worker will confirm status.'
       });
     }
 
@@ -1061,11 +1238,13 @@ async function startServer() {
         });
 
         if (!providerRes.success || providerRes.status === 'FAILED') {
-          // Release reservation
+          // Terminal failure: release reservation
           await db.failRefundReservation(merchantRefundId, orderId);
           return res.status(400).json({
             success: false,
             status: 'FAILED',
+            orderId,
+            refundId: merchantRefundId,
             error: providerRes.error || 'Payment gateway rejected refund request.'
           });
         }
@@ -1144,23 +1323,81 @@ async function startServer() {
         }
       } catch (err: any) {
         console.warn('[Refund] Provider refund error: %s', sanitizeLog(err?.message));
+        // A2: Keep ambiguous provider outcomes reserved as PENDING for authoritative GET reconciliation; do NOT release
         return res.status(502).json({
           success: false,
-          status: 'RECONCILIATION_PENDING',
+          status: 'REFUND_PENDING',
+          orderId,
+          refundId: merchantRefundId,
           error: err?.message || 'Payment gateway communication failure during refund.'
         });
       }
     }
 
-    // In disabled / mock mode (e.g. test environment)
-    const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, undefined, 'INR');
-    const updatedOrder = await db.getOrderAsync(orderId);
-    return res.json({
-      success: reversed,
+    // Retain local/mock refund behavior only in an explicit test-only environment
+    if (isTestMode) {
+      const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, undefined, 'INR');
+      const updatedOrder = await db.getOrderAsync(orderId);
+      return res.json({
+        success: reversed,
+        orderId,
+        refundId: merchantRefundId,
+        amount: amountINR,
+        status: updatedOrder?.status || 'REFUNDED'
+      });
+    }
+
+    return res.status(503).json({
+      error: 'Live refund processing unavailable.',
       orderId,
-      refundId: merchantRefundId,
-      amount: amountINR,
-      status: updatedOrder?.status || 'REFUNDED'
+      refundId: merchantRefundId
+    });
+  }));
+
+  // Admin-authorized chargeback adjustment endpoint (Phase B3)
+  app.post('/api/payment/chargeback', asyncHandler(async (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 10, 60000)) {
+      return res.status(429).json({ error: 'Too many chargeback requests.' });
+    }
+    const adminKey = req.headers['x-admin-key'] as string | undefined;
+    if (!verifyAdminKey(adminKey)) {
+      return res.status(403).json({ error: 'Unauthorized: Admin authentication required.' });
+    }
+    const { orderId, disputeId, amount, reason, evidenceRef } = req.body;
+    if (!orderId || typeof orderId !== 'string') {
+      return res.status(400).json({ error: 'orderId is required.' });
+    }
+    if (!disputeId || typeof disputeId !== 'string') {
+      return res.status(400).json({ error: 'disputeId is required.' });
+    }
+    if (!evidenceRef || typeof evidenceRef !== 'string') {
+      return res.status(400).json({ error: 'evidenceRef is required.' });
+    }
+    const numAmount = Number(amount);
+    if (!Number.isFinite(numAmount) || numAmount <= 0) {
+      return res.status(400).json({ error: 'Valid positive amount is required.' });
+    }
+
+    const result = await db.recordChargebackAtomic({
+      orderId: orderId.trim(),
+      disputeId: disputeId.trim(),
+      amount: numAmount,
+      reason: typeof reason === 'string' ? reason.trim() : undefined,
+      evidenceRef: evidenceRef.trim()
+    });
+
+    if (!result.success) {
+      return res.status(result.statusCode || 400).json(result);
+    }
+
+    const updatedOrder = await db.getOrderAsync(orderId.trim());
+    return res.json({
+      success: true,
+      orderId: orderId.trim(),
+      disputeId: disputeId.trim(),
+      status: updatedOrder?.status || 'CHARGEBACK',
+      message: result.message
     });
   }));
 

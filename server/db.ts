@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { UserProfile, Nomination, ActivityEvent, PurchaseRecord, ReportRecord, AnalyticsSummary, LiveStats, ContactMessage, NotificationSubscription, ClaimHistoryRecord, GlobalActivityData, HourlyActivityBucket, DayActivityBucket, LazyDilemma } from '../src/types.ts';
-import { PostgresDatabase, hashToken, verifyOwnerToken, getIstTodayWindow } from './db/postgres.ts';
+import { PostgresDatabase, hashToken, verifyOwnerToken, getIstTodayWindow, RefundReservationResult, ChargebackParams } from './db/postgres.ts';
 
 const DATA_FILE = path.join(process.cwd(), 'server-data.json');
 
@@ -311,6 +311,9 @@ interface DatabaseState {
       amount: number;
       profileId?: string;
       ownerToken?: string;
+      ownerTokenHash?: string;
+      orderAccessToken?: string;
+      orderAccessTokenHash?: string;
       instagram?: string;
       linkedin?: string;
       website?: string;
@@ -950,6 +953,8 @@ export class LazyDatabase {
 
     this.state.orders[order.orderId] = {
       ...order,
+      orderAccessTokenHash: order.orderAccessToken ? hashToken(order.orderAccessToken) : undefined,
+      ownerTokenHash: order.ownerToken ? hashToken(order.ownerToken) : undefined,
       createdAt: new Date().toISOString(),
       status: 'PENDING'
     };
@@ -1370,29 +1375,65 @@ export class LazyDatabase {
     return false;
   }
 
-  public async reserveRefundAtomic(orderId: string, refundPaise: number, merchantRefundId: string, reason: string): Promise<{ success: boolean; message?: string; remainingRefundablePaise?: number }> {
+  public async reserveRefundAtomic(orderId: string, refundPaise: number, merchantRefundId: string, reason: string): Promise<RefundReservationResult> {
     if (this.isPostgresAuthoritative()) {
       return this.pg.reserveRefundAtomic(orderId, refundPaise, merchantRefundId, reason);
     }
     if (this.state.orders && this.state.orders[orderId]) {
       const ord = this.state.orders[orderId];
       if (!['PAID', 'PARTIALLY_REFUNDED', 'completed', 'PENDING'].includes(ord.status)) {
-        return { success: false, message: 'Order is not refundable in this state' };
+        return {
+          success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: ord.status,
+          message: 'Order is not refundable in this state',
+          statusCode: 409
+        };
       }
       const orderPaise = Math.round(ord.amount * 100);
       const existingRefundedPaise = Math.round((ord.refundedAmount || 0) * 100);
       const remainingPaise = orderPaise - existingRefundedPaise;
       if (refundPaise > remainingPaise) {
-        return { success: false, message: 'Refund amount exceeds remaining refundable amount', remainingRefundablePaise: remainingPaise };
+        return {
+          success: false,
+          outcome: 'CONFLICT',
+          refundId: merchantRefundId,
+          orderId,
+          amount: refundPaise / 100,
+          status: 'EXCEEDS_REMAINING',
+          message: 'Refund amount exceeds remaining refundable amount',
+          remainingRefundablePaise: remainingPaise,
+          statusCode: 400
+        };
       }
       ord.status = 'REFUND_PENDING';
       this.saveData();
-      return { success: true, remainingRefundablePaise: remainingPaise - refundPaise };
+      return {
+        success: true,
+        outcome: 'NEW',
+        refundId: merchantRefundId,
+        orderId,
+        amount: refundPaise / 100,
+        status: 'PENDING',
+        remainingRefundablePaise: remainingPaise - refundPaise
+      };
     }
-    return { success: false, message: 'Order not found' };
+    return {
+      success: false,
+      outcome: 'CONFLICT',
+      refundId: merchantRefundId,
+      orderId,
+      amount: refundPaise / 100,
+      status: 'NOT_FOUND',
+      message: 'Order not found',
+      statusCode: 404
+    };
   }
 
-  public async failRefundReservation(merchantRefundId: string, orderId: string): Promise<void> {
+  public async failRefundReservation(merchantRefundId: string, orderId: string): Promise<boolean> {
     if (this.isPostgresAuthoritative()) {
       return this.pg.failRefundReservation(merchantRefundId, orderId);
     }
@@ -1401,8 +1442,22 @@ export class LazyDatabase {
       if (ord.status === 'REFUND_PENDING') {
         ord.status = (ord.refundedAmount && ord.refundedAmount > 0) ? 'PARTIALLY_REFUNDED' : 'PAID';
         this.saveData();
+        return true;
       }
     }
+    return false;
+  }
+
+  public async recordChargebackAtomic(params: ChargebackParams): Promise<{
+    success: boolean;
+    alreadyRecorded?: boolean;
+    message?: string;
+    statusCode?: number;
+  }> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.recordChargebackAtomic(params);
+    }
+    return { success: false, message: 'Chargebacks require authoritative PostgreSQL.', statusCode: 501 };
   }
 
   public async recordWebhookEvent(eventId: string, eventType: string, orderId?: string | null, providerPaymentId?: string | null, payload?: any): Promise<boolean> {

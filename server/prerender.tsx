@@ -7,6 +7,7 @@ import { PrivacyPage } from '../src/pages/PrivacyPage.tsx';
 import { RefundPage } from '../src/pages/RefundPage.tsx';
 import { DeliveryPage } from '../src/pages/DeliveryPage.tsx';
 import { ContactPage } from '../src/pages/ContactPage.tsx';
+import { PricingPage } from '../src/pages/PricingPage.tsx';
 
 /**
  * Server-side prerenderer for substantive legal and informational pages.
@@ -33,6 +34,8 @@ export function prerenderRoute(path: string): string | null {
       return renderToString(React.createElement(DeliveryPage, { onNavigate: noop }));
     case '/contact':
       return renderToString(React.createElement(ContactPage, { onNavigate: noop }));
+    case '/pricing':
+      return renderToString(React.createElement(PricingPage, { onNavigate: noop }));
     default:
       return null;
   }

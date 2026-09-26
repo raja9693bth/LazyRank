@@ -1,7 +1,7 @@
 import assert from 'assert';
 import { PostgresDatabase, getIstTodayWindow } from '../server/db/postgres.ts';
 
-const TEST_DB_URL = process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
+const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
 const isStrict = process.env.STRICT_PG_TEST === 'true' || process.env.CI === 'true';
 
 async function runPostgresIntegrationTests() {

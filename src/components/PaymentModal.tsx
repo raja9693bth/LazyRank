@@ -3,6 +3,8 @@ import { X, AlertCircle, ShieldAlert, Loader2, ArrowRight, CheckCircle2, Printer
 import confetti from 'canvas-confetti';
 import { UserProfile } from '../types.ts';
 import { LEGAL_CONFIG } from '../config/legal.ts';
+import { saveOwnerToken, getSavedOwnerToken, getOrderCheckout } from '../utils/checkoutContract.ts';
+import { loadCashfreeSdk } from '../utils/cashfreeSdk.ts';
 
 interface PaymentModalProps {
   orderData: {
@@ -42,6 +44,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [completedProfile, setCompletedProfile] = useState<UserProfile | null>(null);
   const [_receiptData, setReceiptData] = useState<any | null>(null);
+  const [persistedToken, setPersistedToken] = useState<string | null>(null);
+  const [storageWarning, setStorageWarning] = useState<string | null>(null);
   const pollIntervalRef = useRef<any>(null);
 
   useEffect(() => {
@@ -54,6 +58,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       setErrorMessage(null);
       setCompletedProfile(null);
       setReceiptData(null);
+      setPersistedToken(null);
+      setStorageWarning(null);
     }
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
@@ -64,12 +70,20 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && step !== 'polling') {
-        onClose();
+        handleModalClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, step]);
+  }, [onClose, step, completedProfile, persistedToken, pendingOwnerToken]);
+
+  const handleModalClose = () => {
+    if (step === 'success' && completedProfile) {
+      onPaymentSuccess(completedProfile, undefined, pendingOwnerToken ?? undefined);
+    } else {
+      onClose();
+    }
+  };
 
   if (!isOpen || !orderData) return null;
 
@@ -111,6 +125,27 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   const handleSuccess = async (profile: UserProfile, _ownerToken: string | undefined, orderId: string) => {
     setCompletedProfile(profile);
+
+    // CRITICAL: Immediately persist authentic client-generated token
+    // Never take an owner token from status response.
+    // Recover from pendingOwnerToken, getOrderCheckout(orderId), or existing saved token for profile upgrades.
+    const clientToken = (pendingOwnerToken && pendingOwnerToken.trim().length > 0)
+      ? pendingOwnerToken
+      : (orderId ? getOrderCheckout(orderId)?.ownerToken : null)
+      || (orderData?.profileId ? getSavedOwnerToken(orderData.profileId) : null);
+
+    if (profile.id && clientToken) {
+      setPersistedToken(clientToken);
+      const saved = saveOwnerToken(profile.id, clientToken);
+      if (!saved) {
+        setStorageWarning(
+          `Browser local storage is unavailable or full. To edit or manage your profile later, please securely copy and save your private owner token: ${clientToken}`
+        );
+      } else {
+        setStorageWarning(null);
+      }
+    }
+
     try {
       const headers: Record<string, string> = {};
       if (orderAccessToken) headers['x-order-access-token'] = orderAccessToken;
@@ -134,8 +169,13 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setStep('success');
   };
 
-  const handleLaunchCashfreeCheckout = () => {
+  const handleLaunchCashfreeCheckout = async () => {
     setErrorMessage(null);
+
+    // Dynamically load Cashfree Web SDK on demand
+    if (orderData.paymentSessionId) {
+      await loadCashfreeSdk();
+    }
 
     // If Cashfree Web SDK is loaded and paymentSessionId is available, launch official checkout modal
     const w = typeof window !== 'undefined' ? (window as any) : undefined;
@@ -248,7 +288,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleModalClose}
             aria-label="Close payment modal"
             className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
           >
@@ -473,6 +513,24 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <strong>Service:</strong> Digital Sponsored Profile Placement on LazyProof leaderboard. Not a tax invoice. Delivery verified and fulfilled electronically.
                 </div>
               </div>
+
+              {/* Ownership persistence confirmation or recovery instruction */}
+              {storageWarning ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-left space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
+                    <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>Browser Storage Notice</span>
+                  </div>
+                  <p className="text-[11px] text-amber-950 leading-relaxed break-all">
+                    {storageWarning}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-xs text-emerald-800 bg-emerald-50/90 border border-emerald-200/80 p-2.5 rounded-xl">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Profile ownership token securely saved in this browser.</span>
+                </div>
+              )}
 
               <div className="pt-2 flex flex-col sm:flex-row gap-2">
                 <button

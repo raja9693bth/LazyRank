@@ -128,9 +128,14 @@ The base schema is defined in `server/db/schema.sql`. Additive migrations are lo
 ## 5. Security & Operational Policies
 
 The canonical underwriting, legal, and operational policies are hosted live on the website:
+- **Pricing & Placement Policy:** [/pricing](https://lazyproof.online/pricing)
+- **About LazyProof:** [/about](https://lazyproof.online/about)
+- **Official Rules:** [/rules](https://lazyproof.online/rules)
 - **Terms of Service:** [/terms](https://lazyproof.online/terms)
 - **Privacy Policy:** [/privacy](https://lazyproof.online/privacy)
 - **Refund & Cancellation:** [/refund-cancellation](https://lazyproof.online/refund-cancellation)
 - **Shipping & Delivery:** [/delivery](https://lazyproof.online/delivery)
 - **Contact & Support:** [/contact](https://lazyproof.online/contact)
-- **Official Rules:** [/rules](https://lazyproof.online/rules)
+
+### Merchant Underwriting & Commercial Notice
+Live payments operate in `PAYMENT_MODE=disabled` pending formal banking aggregator underwriting and merchant account activation. Any sample invoice requested by payment aggregators (e.g., Razorpay or Cashfree) must be prepared from genuine business and tax facts by the founder or registered accountant. Never generate or issue synthetic or fake GST invoices.

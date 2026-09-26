@@ -81,7 +81,7 @@ export const Hero: React.FC<HeroProps> = ({
 
           {/* Accurate Subheading */}
           <p className="text-xs sm:text-base font-semibold text-stone-600 max-w-lg mx-auto md:mx-0">
-            Pay to prove it. The more you pay, the higher you rank.
+            A live digital sponsored showcase. Position follows verified cumulative INR sponsorship and can be displaced by subsequent sponsors. No financial return or guaranteed tenure.
           </p>
 
           {/* ONE Main CTA Button & Explanation */}
@@ -153,14 +153,18 @@ export const Hero: React.FC<HeroProps> = ({
           </div>
 
           <div className="w-[300px] lg:w-[350px] max-w-full pt-4">
-            <img
-              src="/mascot/lazyproof-sloth.png"
-              alt="LazyProof Sloth Mascot on orange beanbag with laptop"
-              width={350}
-              height={350}
-              className="w-full h-auto object-contain select-none drop-shadow-md transition-transform duration-300 hover:scale-103"
-              loading="eager"
-            />
+            <picture>
+              <source srcSet="/mascot/lazyproof-sloth.webp" type="image/webp" />
+              <img
+                src="/mascot/lazyproof-sloth.png"
+                alt="LazyProof Sloth Mascot on orange beanbag with laptop"
+                width={360}
+                height={240}
+                className="w-full h-auto object-contain select-none drop-shadow-md transition-transform duration-300 hover:scale-103"
+                loading="eager"
+                decoding="async"
+              />
+            </picture>
           </div>
         </div>
       </div>

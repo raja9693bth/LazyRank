@@ -62,6 +62,7 @@ export async function runPhase1Tests() {
   const requiredRoutes = [
     '/about',
     '/rules',
+    '/pricing',
     '/terms',
     '/privacy',
     '/refund-cancellation',

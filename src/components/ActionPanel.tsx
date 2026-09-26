@@ -218,7 +218,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <h2 className="text-xs sm:text-sm font-extrabold uppercase tracking-wider text-stone-900 flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-[#b44b1c]" />
-              <span>Pay to Prove Your Legitimacy</span>
+              <span>Claim Sponsored Profile Placement</span>
             </h2>
 
             <div className="text-xs font-mono-numbers text-stone-500 font-semibold">
@@ -227,7 +227,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
           </div>
 
           <p className="text-[11px] sm:text-xs text-stone-500 mt-0.5 leading-relaxed">
-            Your verified payment amount determines your rank. Higher payment = higher rank.
+            Digital sponsored showcase. Higher verified cumulative sponsorship equals higher rank. Positions are subject to dynamic displacement.
           </p>
         </div>
 

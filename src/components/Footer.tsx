@@ -75,6 +75,18 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
             Rules
           </a>
           <a
+            id="footer-link-pricing"
+            href="/pricing"
+            onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {
+              if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              onNavigate('/pricing');
+            }}
+            className="hover:text-zinc-950 transition-colors cursor-pointer"
+          >
+            Pricing
+          </a>
+          <a
             id="footer-link-terms"
             href="/terms"
             onClick={(event: React.MouseEvent<HTMLAnchorElement>) => {

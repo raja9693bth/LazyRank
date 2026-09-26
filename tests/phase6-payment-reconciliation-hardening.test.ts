@@ -1,13 +1,36 @@
 import assert from 'assert';
 import http from 'http';
+import express from 'express';
 import { CashfreeProvider } from '../server/payments/cashfree.ts';
 import { PostgresDatabase } from '../server/db/postgres.ts';
 
-const TEST_DB_URL = process.env.TEST_DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
+const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
+
+function assertSafeTestDatabase(url: string) {
+  const lowerUrl = url.toLowerCase();
+  if (
+    lowerUrl.includes('neon.tech') ||
+    lowerUrl.includes('neon.build') ||
+    lowerUrl.includes('aws.neon') ||
+    lowerUrl.includes('prod')
+  ) {
+    throw new Error('FATAL SECURITY VIOLATION: Refusing to run destructive PostgreSQL integration tests against production or Neon URL!');
+  }
+  try {
+    const urlObj = new URL(url.startsWith('postgres') ? url : `postgresql://${url}`);
+    const dbName = urlObj.pathname.replace(/^\//, '');
+    if (!dbName.includes('test')) {
+      throw new Error(`FATAL SAFETY VIOLATION: Target database "${dbName}" is not explicitly named as a test database (must contain "test").`);
+    }
+  } catch (err: any) {
+    if (err.message.includes('FATAL')) throw err;
+  }
+}
 
 console.log('\n--- STARTING SUITE 11: PHASE 6 PAYMENT & RECONCILIATION HARDENING ---');
 
 async function runTests() {
+  assertSafeTestDatabase(TEST_DB_URL);
   const pg = new PostgresDatabase(TEST_DB_URL);
   const initOk = await pg.init();
   assert.strictEqual(initOk, true, 'PostgreSQL init should succeed and apply migrations');
@@ -186,7 +209,6 @@ async function runTests() {
   console.log('[Phase 6: Section 4] Legacy endpoint retirement: POST /api/participant/create returns HTTP 410...');
   // Test server.ts route directly via lightweight node http request to running or local mock
   // Or test through an Express instance with the exact handler
-  const express = (await import('express')).default;
   const testApp = express();
   testApp.post('/api/participant/create', (_req, res) => {
     return res.status(410).json({
@@ -278,6 +300,217 @@ async function runTests() {
   const debitRows = await pool.query("SELECT * FROM rank_ledger WHERE order_id = $1 AND type = 'DEBIT_REFUND'", [idempotentOrderId]);
   assert.strictEqual(debitRows.rows.length, 1, 'Exactly one DEBIT_REFUND row must exist');
   console.log('  -> PASSED: Duplicate refund reversal is strictly idempotent with zero double-debiting.');
+
+  console.log('[Phase 6: Section 6] Unsigned / generic webhook rejection & authoritative settlement...');
+  const webhookApp = express();
+
+  // Middleware to capture raw body exactly like production server.ts
+  webhookApp.use((req, _res, next) => {
+    const chunks: Buffer[] = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      (req as any).rawBody = Buffer.concat(chunks);
+      try {
+        req.body = JSON.parse((req as any).rawBody.toString('utf8'));
+      } catch {
+        req.body = {};
+      }
+      next();
+    });
+  });
+
+  const testWebhookSecret = 'test_webhook_cf_secret_key_123';
+  const cfProvider = new CashfreeProvider({
+    appId: 'test_app_id',
+    secretKey: testWebhookSecret,
+    isSandbox: true
+  });
+
+  // Replicate production webhook handler logic
+  webhookApp.post('/api/payment/webhook', async (req, res) => {
+    const rawBodyBuf = (req as any).rawBody;
+    if (!rawBodyBuf || rawBodyBuf.length === 0) {
+      return res.status(400).json({ error: 'Missing raw webhook request body.' });
+    }
+    const rawBodyStr = rawBodyBuf.toString('utf8');
+
+    const webhookTimestamp = req.headers['x-webhook-timestamp'];
+    const webhookSignature = req.headers['x-webhook-signature'];
+    if (!webhookTimestamp || !webhookSignature) {
+      return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+    }
+
+    const verification = await cfProvider.verifyWebhook(rawBodyStr, req.headers as any);
+    if (!verification.isValid) {
+      return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
+    }
+
+    if (verification.status === 'SUCCESS' && verification.orderId) {
+      const orderId = verification.orderId;
+      const orderCheck = await pool.query('SELECT * FROM payment_orders WHERE order_id = $1', [orderId]);
+      const order = orderCheck.rows[0];
+      if (!order) {
+        return res.status(404).json({ error: 'Referenced order not found.' });
+      }
+
+      if (order.status === 'completed' || order.status === 'PAID') {
+        return res.json({ received: true, processed: true, message: 'Order already completed.' });
+      }
+
+      const settlementResult = await pg.settlePaymentAtomic({
+        orderId,
+        providerPaymentId: (verification.providerPaymentId || 'cf_test_pay').trim(),
+        provider: 'cashfree',
+        amount: Number(order.amount),
+        currency: 'INR',
+        status: 'PAID',
+        paymentMethod: 'UPI',
+        signatureVerified: true,
+        rawPayload: verification.rawPayload
+      });
+
+      if (!settlementResult.success || !settlementResult.profile) {
+        return res.status(503).json({ error: settlementResult.message || 'Payment settlement failed.' });
+      }
+
+      return res.json({
+        received: true,
+        processed: true,
+        profileId: settlementResult.profile.id,
+        rank: settlementResult.profile.rank
+      });
+    }
+
+    return res.json({ received: true, processed: false });
+  });
+
+  const webhookServer = http.createServer(webhookApp);
+  await new Promise<void>((resolve) => webhookServer.listen(0, resolve));
+  const webhookPort = (webhookServer.address() as any).port;
+  const webhookUrl = `http://127.0.0.1:${webhookPort}/api/payment/webhook`;
+
+  // Seed unpaid order
+  const negativeOrderId = `ord_neg_${Date.now()}`;
+  const negativeProfId = `prof_neg_${Date.now()}`;
+  await pool.query(
+    `INSERT INTO profiles (id, user_id, name, amount, rank, owner_token_hash, is_verified)
+     VALUES ($1, $2, $3, 0.00, 999999, $4, false)`,
+    [negativeProfId, `user_${negativeProfId}`, 'Negative Test User', dummyHash]
+  );
+  await pool.query(
+    `INSERT INTO payment_orders (order_id, profile_id, name, amount, currency, status, payment_mode, provider)
+     VALUES ($1, $2, $3, 300.00, 'INR', 'CREATED', 'disabled', 'cashfree')`,
+    [negativeOrderId, negativeProfId, 'Negative Test User']
+  );
+
+  // 1. Send completely unsigned generic PAID payload (simulating attacker or legacy webhook)
+  const genericPayload = JSON.stringify({
+    event: 'order.paid',
+    orderId: negativeOrderId,
+    status: 'PAID',
+    amount: 300
+  });
+
+  const unsignedRes = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: genericPayload
+  });
+
+  assert.strictEqual(unsignedRes.status, 401, 'Unsigned generic webhook must be rejected with HTTP 401');
+  const unsignedBody = await unsignedRes.json();
+  assert.match(unsignedBody.error, /Missing authoritative Cashfree webhook signature headers/i);
+
+  // Verify database state: order STILL CREATED, profile amount STILL 0, 0 CREDIT rows
+  const dbCheckAfterUnsigned = await pool.query('SELECT status FROM payment_orders WHERE order_id = $1', [negativeOrderId]);
+  assert.strictEqual(dbCheckAfterUnsigned.rows[0]?.status, 'CREATED', 'Order status must NOT be modified by unsigned webhook');
+
+  const profCheckAfterUnsigned = await pool.query('SELECT amount, is_verified FROM profiles WHERE id = $1', [negativeProfId]);
+  assert.strictEqual(Number(profCheckAfterUnsigned.rows[0]?.amount), 0, 'Profile amount must NOT be credited');
+  assert.strictEqual(profCheckAfterUnsigned.rows[0]?.is_verified, false, 'Profile must NOT be verified');
+
+  const ledgerCheckAfterUnsigned = await pool.query('SELECT * FROM rank_ledger WHERE order_id = $1', [negativeOrderId]);
+  assert.strictEqual(ledgerCheckAfterUnsigned.rows.length, 0, 'Zero ledger rows must exist for unsigned attempt');
+
+  // 2. Send webhook with timestamp but invalid/tampered signature
+  const validTimestamp = String(Date.now());
+  const tamperedRes = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-webhook-timestamp': validTimestamp,
+      'x-webhook-signature': 'tampered_fake_signature_abc=='
+    },
+    body: genericPayload
+  });
+  assert.strictEqual(tamperedRes.status, 401, 'Tampered signature must be rejected with HTTP 401');
+
+  // 3. Send validly signed Cashfree payment success payload
+  const validCashfreeBody = JSON.stringify({
+    type: 'PAYMENT_SUCCESS_WEBHOOK',
+    event_time: new Date().toISOString(),
+    data: {
+      order: { order_id: negativeOrderId, order_amount: 300, order_currency: 'INR' },
+      payment: {
+        cf_payment_id: 'cf_pay_valid_123',
+        order_id: negativeOrderId,
+        payment_amount: 300,
+        payment_currency: 'INR',
+        payment_status: 'SUCCESS',
+        payment_method: { upi: { channel: 'collect' } }
+      }
+    }
+  });
+
+  const validSig = crypto
+    .createHmac('sha256', testWebhookSecret)
+    .update(validTimestamp + validCashfreeBody)
+    .digest('base64');
+
+  const signedRes = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-webhook-timestamp': validTimestamp,
+      'x-webhook-signature': validSig
+    },
+    body: validCashfreeBody
+  });
+
+  assert.strictEqual(signedRes.status, 200, 'Valid signed Cashfree webhook must succeed with HTTP 200');
+  const signedJson = await signedRes.json();
+  assert.strictEqual(signedJson.processed, true);
+
+  // Verify database state: order updated to PAID, profile amount updated to 300, 1 CREDIT row
+  const dbCheckAfterSigned = await pool.query('SELECT status FROM payment_orders WHERE order_id = $1', [negativeOrderId]);
+  assert.strictEqual(dbCheckAfterSigned.rows[0]?.status, 'PAID', 'Order status must be updated to PAID');
+
+  const profCheckAfterSigned = await pool.query('SELECT amount, is_verified FROM profiles WHERE id = $1', [negativeProfId]);
+  assert.strictEqual(Number(profCheckAfterSigned.rows[0]?.amount), 300, 'Profile amount must be credited');
+  assert.strictEqual(profCheckAfterSigned.rows[0]?.is_verified, true, 'Profile must be verified');
+
+  const ledgerCheckAfterSigned = await pool.query('SELECT * FROM rank_ledger WHERE order_id = $1 AND type = $2', [negativeOrderId, 'CREDIT']);
+  assert.strictEqual(ledgerCheckAfterSigned.rows.length, 1, 'Exactly one CREDIT row must exist in rank_ledger');
+
+  // 4. Duplicate delivery of valid webhook -> idempotent acknowledgment without duplicate credit
+  const duplicateRes = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-webhook-timestamp': validTimestamp,
+      'x-webhook-signature': validSig
+    },
+    body: validCashfreeBody
+  });
+  assert.strictEqual(duplicateRes.status, 200, 'Duplicate delivery must succeed with HTTP 200');
+  const duplicateJson = await duplicateRes.json();
+  assert.match(duplicateJson.message, /already completed/i);
+
+  const ledgerCheckAfterDup = await pool.query('SELECT * FROM rank_ledger WHERE order_id = $1 AND type = $2', [negativeOrderId, 'CREDIT']);
+  assert.strictEqual(ledgerCheckAfterDup.rows.length, 1, 'Ledger must still have exactly one CREDIT row');
+
+  webhookServer.close();
+  console.log('  -> PASSED: Unsigned webhooks strictly fail closed (401); valid signed webhooks settle cleanly; duplicate deliveries are idempotent.');
 
   console.log('\n--- ALL SUITE 11 PHASE 6 TESTS PASSED SUCCESSFULLY! ---\n');
   await pool.end();

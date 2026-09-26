@@ -64,6 +64,7 @@ All compliance pages are complete, live, mobile-responsive, and prominently link
 | **Privacy Policy** | [https://lazyproof.online/privacy](https://lazyproof.online/privacy) | Itemized data collection, zero storage of cards/UPI PINs, third-party payment processing, AI processing disclosure, and grievance contact. |
 | **Refund & Cancellation** | [https://lazyproof.online/refund-cancellation](https://lazyproof.online/refund-cancellation) | Six distinct payment scenarios, 5–7 business days internal processing timeline, original payment method return, and rank reversal policy. |
 | **Digital Delivery Policy** | [https://lazyproof.online/delivery](https://lazyproof.online/delivery) | Digital fulfillment lifecycle (5–30 seconds target), pending webhook state handling, access URL provision, zero physical shipping. |
+| **Pricing Policy** | [https://lazyproof.online/pricing](https://lazyproof.online/pricing) | Authoritative pricing rules (₹1 base minimum, dynamic #1 spot calculation), live position displacement, final INR quotes, and checkout status. |
 | **Contact & Customer Support**| [https://lazyproof.online/contact](https://lazyproof.online/contact) | Verified business address, customer support email, phone, support hours, issue categories, and interactive support inquiry form. |
 | **Platform Rules & About** | [https://lazyproof.online/about](https://lazyproof.online/about) & [/rules](https://lazyproof.online/rules) | Platform mechanics, ranking algorithm, tie-breaking rules, and non-gambling declarations. |
 
@@ -160,4 +161,5 @@ When completing payment gateway onboarding forms, select the category that best 
 - **Current Architecture:** Cashfree Payments India Pvt Ltd is the sole active payment provider.
 - **No Active Razorpay Integration:** Razorpay settlement handling has been removed/disabled to prevent unverified payment routes.
 - **Compliance Policy:** Razorpay terms list "Bidding/Auction houses" under restricted categories. While LazyProof operates a deterministic cumulative sponsorship ranking and not an auction, Razorpay requires explicit business-model pre-clearance before any future integration or application reliance.
+- **Underwriting Document Verification:** If Razorpay, Cashfree, or banking underwriting partners request a sample service invoice, it must be prepared by the founder or accountant reflecting genuine business and tax facts (e.g. digital sponsored profile placement, sole proprietorship details, real transaction considerations). Never create, generate, or submit a fake GST invoice or assert tax exemptions without accountant review.
 - **Current Target:** Cashfree is the designated primary payment gateway partner.

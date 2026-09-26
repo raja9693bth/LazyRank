@@ -1,6 +1,6 @@
 {
   "name": "LAZY",
-  "description": "Pay to prove you're the laziest. Public legitimacy leaderboard where higher verified payment equals higher rank.",
+  "description": "Public digital sponsored profile showcase where verified cumulative sponsorship determines leaderboard position. Transparent, competitive, and humorous.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

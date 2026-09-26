@@ -106,14 +106,17 @@ export function clearCheckoutRecords(orderId?: string, storage?: Storage): void 
   } catch {}
 }
 
-export function saveOwnerToken(profileId: string, token: string, storage?: Storage): void {
+export function saveOwnerToken(profileId: string, token: string, storage?: Storage): boolean {
   const ls = getLocalStorage(storage);
-  if (!ls || !profileId || !token) return;
+  if (!ls || !profileId || !token) return false;
   try {
     const tokens = JSON.parse(ls.getItem('lazy_tokens') || '{}');
     tokens[profileId] = token;
     ls.setItem('lazy_tokens', JSON.stringify(tokens));
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function getSavedOwnerToken(profileId: string, storage?: Storage): string | null {

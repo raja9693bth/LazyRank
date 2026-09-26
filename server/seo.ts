@@ -182,7 +182,7 @@ export function generateProfileOgSvg(profile: UserProfile): string {
   <!-- Bottom CTA Footer -->
   <g transform="translate(80, 548)">
     <text x="0" y="16" fill="#78716c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="600">Can you beat this rank? Claim your rank on lazyproof.online</text>
-    <text x="1040" y="16" text-anchor="end" fill="#9c3a16" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="800">PAY TO PROVE →</text>
+    <text x="1040" y="16" text-anchor="end" fill="#9c3a16" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="800">SPONSORED SHOWCASE →</text>
   </g>
 </svg>`;
 }
@@ -296,29 +296,36 @@ export interface RouteSeoMeta {
 
 export const ROUTE_SEO: Record<string, RouteSeoMeta> = {
   '/': {
-    title: "LAZY — Pay to Prove You're the Laziest | Live Leaderboard",
-    description: "Pay to prove you're the laziest. Public legitimacy leaderboard where higher verified payment equals higher rank. Transparent, humorous, and competitive.",
+    title: "LazyProof — Digital Sponsored Profile Showcase | Live Leaderboard",
+    description: "LazyProof is a public digital sponsored showcase where verified cumulative sponsorship determines leaderboard position. Transparent, competitive, and humorous.",
     canonicalPath: '/',
     ogType: 'website',
     breadcrumbName: 'Home'
   },
   '/about': {
-    title: "About LAZY — The World's Premier Pay-to-Rank Social Experiment",
-    description: "Discover the philosophy behind LAZY: transforming humorous claims into verified social proof, algorithmic ranking transparency, and shareable 9:16 proof cards.",
+    title: "About LazyProof — Digital Sponsored Profile Showcase & Social Proof",
+    description: "Discover the philosophy behind LazyProof: transforming humorous claims into verified social proof, algorithmic ranking transparency, and shareable 9:16 proof cards.",
     canonicalPath: '/about',
     ogType: 'website',
     breadcrumbName: 'About'
   },
   '/rules': {
-    title: "Official Rules & Ranking Mechanics — How LAZY Works",
-    description: "Comprehensive breakdown of the LAZY rules: verified cumulative sponsorship, strict tie-breaking by timestamp, position displacement, and tamper-proof claim permanence.",
+    title: "Official Rules & Ranking Mechanics — How LazyProof Works",
+    description: "Comprehensive breakdown of LazyProof rules: verified cumulative sponsorship, deterministic tie-breaking by timestamp, and real-time position displacement.",
     canonicalPath: '/rules',
     ogType: 'website',
     breadcrumbName: 'Rules'
   },
+  '/pricing': {
+    title: "Pricing & Placement Policy — LazyProof Digital Sponsorship",
+    description: "Official pricing mechanics for LazyProof: transparent INR sponsorship tiers, dynamic #1 spot calculation, live position displacement, and checkout status.",
+    canonicalPath: '/pricing',
+    ogType: 'website',
+    breadcrumbName: 'Pricing'
+  },
   '/terms': {
-    title: "Terms & Conditions — LAZY Pay-to-Rank Platform",
-    description: "Official Terms & Conditions for LAZY: public leaderboard participation, verified payment processing, non-defamation conduct policies, and ranking rules.",
+    title: "Terms & Conditions — LazyProof Digital Showcase Platform",
+    description: "Official Terms & Conditions for LazyProof by Adabhra Group: public leaderboard participation, verified payment processing, non-defamation conduct policies, and ranking rules.",
     canonicalPath: '/terms',
     ogType: 'website',
     breadcrumbName: 'Terms & Conditions'

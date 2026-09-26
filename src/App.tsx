@@ -22,6 +22,7 @@ import { DeliveryPage } from './pages/DeliveryPage.tsx';
 import { ContactPage } from './pages/ContactPage.tsx';
 import { AboutPage } from './pages/AboutPage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
+import { PricingPage } from './pages/PricingPage.tsx';
 import { updatePageSeo, updateProfileSeo } from './utils/seo.ts';
 import { Swords } from 'lucide-react';
 import {
@@ -676,6 +677,8 @@ export default function App() {
           <AboutPage onNavigate={navigate} />
         ) : currentPath === '/rules' ? (
           <RulesPage onNavigate={navigate} />
+        ) : currentPath === '/pricing' ? (
+          <PricingPage onNavigate={navigate} />
         ) : (
           <>
             {/* Incoming Challenge Banner */}

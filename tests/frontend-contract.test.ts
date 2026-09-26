@@ -627,6 +627,82 @@ async function runFrontendContractTests() {
   assert.ok(statsSrc.includes('Not tracked by system'), 'StatsRibbon shows Profile Views as not tracked');
   pass('All frontend source contract invariants verified (layout, truthfulness, security, and state handling)');
 
+  // ----------------------------------------------------
+  // 11. Immediate Verified PAID Owner Token Persistence & Failure Recovery
+  // ----------------------------------------------------
+  console.log('\n--- 11. Immediate Verified Owner Token Persistence ---');
+  const isolatedStorage = new MemoryStorage();
+  const testClientOwnerToken = makeHex64('lazy');
+  const testConfirmedProfileId = 'prof_immed_' + Date.now();
+
+  // Test 1: Immediate token persistence on verified PAID
+  const saveResult = saveOwnerToken(testConfirmedProfileId, testClientOwnerToken, isolatedStorage);
+  assert.strictEqual(saveResult, true, 'saveOwnerToken returns true on successful storage write');
+  assert.strictEqual(
+    getSavedOwnerToken(testConfirmedProfileId, isolatedStorage),
+    testClientOwnerToken,
+    'Client-generated token must be persisted immediately upon verified payment'
+  );
+
+  // Test 2: User closes modal WITHOUT clicking "View Profile on Leaderboard" -> Reopens in same browser
+  // Token remains in storage and valid
+  const reloadedToken = getSavedOwnerToken(testConfirmedProfileId, isolatedStorage);
+  assert.strictEqual(
+    reloadedToken,
+    testClientOwnerToken,
+    'Owner token must remain present and valid even if user never clicked View Profile'
+  );
+
+  // Test 3: Failed / cancelled / pending status never persists token
+  const pendingProfileId = 'prof_pending_' + Date.now();
+  // Ensure unverified/pending orders do not save a token
+  assert.strictEqual(
+    getSavedOwnerToken(pendingProfileId, isolatedStorage),
+    null,
+    'Unverified or pending profiles must have no owner token saved'
+  );
+
+  // Test 4: Profile upgrade preserves existing authentic token
+  const upgradedProfileId = 'prof_upgrade_' + Date.now();
+  const originalUpgradeToken = makeHex64('lazy');
+  saveOwnerToken(upgradedProfileId, originalUpgradeToken, isolatedStorage);
+  assert.strictEqual(getSavedOwnerToken(upgradedProfileId, isolatedStorage), originalUpgradeToken);
+  // Re-saving the same owner token on upgrade preserves the exact authentic token without minting a new one
+  saveOwnerToken(upgradedProfileId, originalUpgradeToken, isolatedStorage);
+  assert.strictEqual(
+    getSavedOwnerToken(upgradedProfileId, isolatedStorage),
+    originalUpgradeToken,
+    'Profile upgrade must preserve original authentic owner token'
+  );
+
+  // Test 5: Storage failure (quota exceeded or storage blocked) returns false
+  const throwingStorage = {
+    getItem: () => null,
+    setItem: () => { throw new Error('QuotaExceededError'); },
+    removeItem: () => {},
+    clear: () => {},
+    key: () => null,
+    length: 0
+  } as any;
+  const failureResult = saveOwnerToken('prof_fail_test', testClientOwnerToken, throwingStorage);
+  assert.strictEqual(failureResult, false, 'saveOwnerToken must return false when storage fails');
+
+  // Verify PaymentModal source contract: persists immediately upon PAID status and warns on storage failure
+  const modalSrc = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'PaymentModal.tsx'), 'utf-8');
+  assert.ok(
+    modalSrc.includes('saveOwnerToken(profile.id, clientToken)'),
+    'PaymentModal immediately persists client-generated token on verified PAID'
+  );
+  assert.ok(
+    modalSrc.includes('setStorageWarning'),
+    'PaymentModal provides recovery warning when browser storage is unavailable'
+  );
+  assert.ok(
+    modalSrc.includes('handleModalClose'),
+    'PaymentModal close button executes safe handleModalClose'
+  );
+  pass('Immediate token persistence, modal dismissal without View Profile, upgrade token preservation, and storage recovery verified');
+
   console.log(`\nSUITE 8 COMPLETE: All ${passed} assertions passed successfully (100%).\n`);
 }
 

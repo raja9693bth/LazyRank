@@ -9,9 +9,31 @@ import { generateProfileJsonLd } from '../server/seo.ts';
 import { SERVER_LEGAL_CONFIG } from '../server/config/legal.ts';
 import { UserProfile } from '../src/types.ts';
 
-const TEST_DB_URL = process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
+const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
+
+function assertSafeTestDatabase(url: string) {
+  const lowerUrl = url.toLowerCase();
+  if (
+    lowerUrl.includes('neon.tech') ||
+    lowerUrl.includes('neon.build') ||
+    lowerUrl.includes('aws.neon') ||
+    lowerUrl.includes('prod')
+  ) {
+    throw new Error('FATAL SECURITY VIOLATION: Refusing to run destructive PostgreSQL integration tests against production or Neon URL!');
+  }
+  try {
+    const urlObj = new URL(url.startsWith('postgres') ? url : `postgresql://${url}`);
+    const dbName = urlObj.pathname.replace(/^\//, '');
+    if (!dbName.includes('test')) {
+      throw new Error(`FATAL SAFETY VIOLATION: Target database "${dbName}" is not explicitly named as a test database (must contain "test").`);
+    }
+  } catch (err: any) {
+    if (err.message.includes('FATAL')) throw err;
+  }
+}
 
 async function runPhase5Tests() {
+  assertSafeTestDatabase(TEST_DB_URL);
   console.log('\n========================================================');
   console.log('RUNNING PHASE 5: RECONCILIATION SAFEGUARDS & FINAL REMEDIATION');
   console.log('========================================================\n');

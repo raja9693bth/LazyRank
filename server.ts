@@ -804,12 +804,19 @@ async function startServer() {
     }
     const rawBodyStr = rawBodyBuf.toString('utf8');
 
-    // Case 1: Cashfree PG official webhook (identified by x-webhook-timestamp header)
-    if (req.headers['x-webhook-timestamp']) {
-      const verification = await paymentManager.getProvider().verifyWebhook(rawBodyStr, req.headers as any);
-      if (!verification.isValid) {
-        return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
-      }
+    // Authoritative Cashfree Webhook Enforcement
+    // Missing timestamp or signature must fail closed in both sandbox and production.
+    // Generic webhook settlement is disabled in production/live mode.
+    const webhookTimestamp = req.headers['x-webhook-timestamp'];
+    const webhookSignature = req.headers['x-webhook-signature'];
+    if (!webhookTimestamp || !webhookSignature) {
+      return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+    }
+
+    const verification = await paymentManager.getProvider().verifyWebhook(rawBodyStr, req.headers as any);
+    if (!verification.isValid) {
+      return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
+    }
 
       // Generate event ID from validated x-webhook-id or rawBody hash (excluding timestamp so retries share event ID)
       const headerWebhookId = req.headers['x-webhook-id'];
@@ -992,122 +999,8 @@ async function startServer() {
         });
       }
 
-      await db.recordWebhookEvent(eventId, verification.event || 'IGNORED_WEBHOOK', verification.orderId, verification.providerPaymentId, verification.rawPayload);
-      return res.json({ received: true, processed: false, reason: 'Event acknowledged, no rank update required.' });
-    }
-
-    // Case 2: Standard webhook signature HMAC check (generic webhook secret)
-    // Strictly forbidden when PAYMENT_MODE=live or in production
-    if (paymentManager.getMode() === 'live' || process.env.NODE_ENV === 'production') {
-      return res.status(400).json({ error: 'Generic webhook settlement is disabled in production/live mode.' });
-    }
-
-    const signature = req.headers['x-webhook-signature'] as string | undefined;
-    const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET;
-
-    if (webhookSecret) {
-      if (!signature) {
-        return res.status(401).json({ error: 'Missing webhook signature header.' });
-      }
-      try {
-        const expectedSignature = crypto
-          .createHmac('sha256', webhookSecret)
-          .update(rawBodyBuf)
-          .digest('hex');
-
-        const sigBuf = Buffer.from(signature.trim());
-        const expectedBuf = Buffer.from(expectedSignature);
-        if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
-          return res.status(401).json({ error: 'Invalid webhook signature.' });
-        }
-      } catch {
-        return res.status(401).json({ error: 'Webhook cryptographic validation failed.' });
-      }
-    }
-
-    const body = req.body;
-    const event = body.event || body.type;
-
-    let orderId: string | undefined;
-    let paymentId: string | undefined;
-
-    if (
-      event === 'payment.captured' ||
-      event === 'order.paid' ||
-      body.status === 'SUCCESS' ||
-      body.status === 'PAID'
-    ) {
-      const payment = body.payload?.payment?.entity || body.data?.payment || body;
-      paymentId = payment.id || payment.payment_id || payment.referenceId || payment.providerReference;
-      orderId = payment.notes?.orderId || payment.order_id || body.payload?.order?.entity?.id || body.orderId;
-    }
-
-    if (!orderId || !paymentId) {
-      return res.json({ received: true, processed: false, reason: 'Event acknowledged, no claim required.' });
-    }
-
-    const order = await db.getOrderAsync(orderId);
-    if (!order) {
-      return res.status(404).json({ error: 'Referenced order not found.' });
-    }
-
-    if (order.status === 'completed' || order.status === 'PAID') {
-      return res.json({ received: true, processed: true, message: 'Order already completed.' });
-    }
-
-    if (order.currency !== 'INR') {
-      return res.status(400).json({ error: 'Order currency must be INR.' });
-    }
-
-    if (db.isPostgresAuthoritative()) {
-      const settlementResult = await db.pg.settlePaymentAtomic({
-        orderId,
-        providerPaymentId: paymentId.trim(),
-        provider: 'generic',
-        amount: order.amount,
-        currency: 'INR',
-        status: 'PAID',
-        paymentMethod: 'UPI',
-        signatureVerified: true,
-        rawPayload: body
-      });
-
-      if (!settlementResult.success || !settlementResult.profile) {
-        return res.status(400).json({ error: settlementResult.message || 'Payment settlement failed.' });
-      }
-
-      return res.json({
-        received: true,
-        processed: true,
-        profileId: settlementResult.profile.id,
-        rank: settlementResult.profile.rank
-      });
-    }
-
-    const result = db.verifyAndClaimRank({
-      name: order.name,
-      amount: order.amount,
-      paymentRef: paymentId,
-      orderId,
-      instagram: order.instagram,
-      linkedin: order.linkedin,
-      website: order.website,
-      reason: order.reason,
-      lazyReason: order.lazyReason,
-      profileId: order.profileId,
-      ownerToken: order.ownerToken
-    });
-
-    if (!result.success || !result.profile) {
-      return res.status(400).json({ error: result.message || 'Payment claim failed.' });
-    }
-
-    return res.json({
-      received: true,
-      processed: true,
-      profileId: result.profile.id,
-      rank: result.profile.rank
-    });
+    await db.recordWebhookEvent(eventId, verification.event || 'IGNORED_WEBHOOK', verification.orderId, verification.providerPaymentId, verification.rawPayload);
+    return res.json({ received: true, processed: false, reason: 'Event acknowledged, no rank update required.' });
   }));
 
   // Admin-authorized refund endpoint
@@ -1958,7 +1851,7 @@ async function startServer() {
 
   const staticPagePaths: ReadonlySet<string> = new Set([
     '/', '/terms', '/privacy', '/refund-cancellation',
-    '/delivery', '/contact', '/about', '/rules', '/refund'
+    '/delivery', '/contact', '/about', '/rules', '/refund', '/pricing'
   ]);
 
   const isKnownSpaPath = (pathname: string): boolean => {

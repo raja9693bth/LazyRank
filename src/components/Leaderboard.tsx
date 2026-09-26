@@ -31,6 +31,7 @@ interface LeaderboardProps {
   currencyMode?: 'INR' | 'USD';
   minAmountToBeatTop?: number;
   period?: 'all' | 'today';
+  onPeriodChange?: (period: 'all' | 'today') => void;
   canClaim?: boolean;
 }
 
@@ -52,6 +53,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
   currencyMode = 'INR',
   minAmountToBeatTop = 1,
   period = 'all',
+  onPeriodChange,
   canClaim = true
 }) => {
   const [activeCategory, setActiveCategory] = useState<ShowcaseCategory>('All');
@@ -109,6 +111,49 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* Accessible Timeframe Switcher: All-time | Today (Centered in Leaderboard column) */}
+      {onPeriodChange && (
+        <div className="flex flex-col items-center justify-center gap-1.5 mb-4 w-full">
+          <div
+            role="group"
+            aria-label="Leaderboard timeframe selection"
+            className="inline-flex items-center p-1 rounded-full bg-[#f4ebe1] border border-[#e8ded2] shadow-2xs"
+          >
+            <button
+              type="button"
+              id="leaderboard-period-toggle-all"
+              onClick={() => onPeriodChange('all')}
+              aria-pressed={period === 'all'}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                period === 'all'
+                  ? 'bg-white text-stone-900 shadow-2xs font-black'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              All-time
+            </button>
+            <button
+              type="button"
+              id="leaderboard-period-toggle-today"
+              onClick={() => onPeriodChange('today')}
+              aria-pressed={period === 'today'}
+              className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                period === 'today'
+                  ? 'bg-white text-stone-900 shadow-2xs font-black'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              Today
+            </button>
+          </div>
+          {period === 'today' && (
+            <p className="text-[11px] text-stone-500 font-medium text-center max-w-md px-2">
+              Verified sponsorship added since 12:00 AM IST. Your all-time profile and checkout price are unchanged.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Category Pill Tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 mb-3">
@@ -197,7 +242,8 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
           {/* Row #1: #FFF4EE background, dashed border, empty avatar placeholder, clear CTA */}
           <div className="rounded-2xl border-2 border-dashed border-[#f2ded0] bg-[#fff4ee] p-5 sm:p-6 transition-all shadow-2xs">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
+              {/* Left Column: Rank + Avatar */}
+              <div className="flex items-center gap-3.5 sm:gap-4 shrink-0">
                 <span className="w-9 h-9 rounded-xl bg-[#e86638] text-white flex items-center justify-center font-black text-sm font-mono-numbers shrink-0 shadow-2xs">
                   #1
                 </span>
@@ -205,56 +251,61 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                 <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl border-2 border-dashed border-amber-300 bg-white/80 flex items-center justify-center text-amber-500 shrink-0">
                   <Trophy className="w-6 h-6 stroke-[1.5]" />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-sm sm:text-base font-black text-stone-900">
-                      {period === 'today' ? 'No Claims Recorded Today' : 'Spot #1 is Unclaimed'}
-                    </h3>
-                    <span className="px-2 py-0.5 rounded-full bg-white text-[#9c3a16] text-[10px] font-extrabold border border-amber-200">
-                      {period === 'today' ? 'Today (IST)' : 'Open for Claim'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-stone-600 mt-1 max-w-md leading-relaxed">
-                    {period === 'today'
-                      ? 'No verified sponsorships have been recorded since 12:00 AM IST today. The all-time leaderboard remains active.'
-                      : 'Dynamic sponsored placement · Rank adjusts as new sponsored payments are verified'}
-                  </p>
-                </div>
               </div>
 
+              {/* Middle Column: Content */}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm sm:text-base font-black text-stone-900 truncate">
+                    {period === 'today' ? 'No Claims Recorded Today' : 'Spot #1 is Unclaimed'}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-white text-[#9c3a16] text-[10px] font-extrabold border border-amber-200 whitespace-nowrap">
+                    {period === 'today' ? 'Today (IST)' : 'Open for Claim'}
+                  </span>
+                </div>
+                <p className="text-xs text-stone-600 mt-1 max-w-md leading-relaxed">
+                  {period === 'today'
+                    ? 'No verified sponsorships have been recorded since 12:00 AM IST today. The all-time leaderboard remains active.'
+                    : 'Dynamic sponsored placement · Rank adjusts as new sponsored payments are verified'}
+                </p>
+              </div>
+
+              {/* Right Column: CTA Button */}
               {onClaimSpecificRank && (
-                <div className="flex flex-col items-center sm:items-end gap-1 shrink-0 w-full sm:w-auto">
+                <div className="shrink-0 w-full sm:w-auto">
                   <button
                     type="button"
                     disabled={!canClaim}
                     onClick={() => onClaimSpecificRank(minAmountToBeatTop)}
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white text-xs font-black shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                     <span>{period === 'today' ? `Claim All-time #1 for ${formattedMinPrice}` : `Claim #1 for ${formattedMinPrice}`}</span>
                     <ArrowRight className="w-3.5 h-3.5" />
                   </button>
-                  {!canClaim && (
-                    <span className="text-[11px] text-amber-800 font-medium">
-                      Checkout is temporarily unavailable while payment setup is being verified.
-                    </span>
-                  )}
                 </div>
               )}
             </div>
+
+            {/* Full-width Line Below Card Row for Payment Disablement Notice */}
+            {!canClaim && (
+              <div className="mt-3.5 pt-3 border-t border-amber-200/60 text-xs text-amber-800 font-medium text-center sm:text-left">
+                Checkout is temporarily unavailable while payment setup is being verified.
+              </div>
+            )}
           </div>
 
           {/* Row #2: Clearly marked as future/open position */}
           <div className="rounded-2xl border border-dashed border-[#ede5db] bg-white/70 p-4 sm:p-5 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
+            <div className="flex items-center gap-3.5 min-w-0 flex-1">
               <span className="w-8 h-8 rounded-xl bg-stone-200 text-stone-700 flex items-center justify-center font-bold text-xs font-mono-numbers shrink-0">
                 #2
               </span>
               <div className="w-12 h-12 rounded-2xl border border-dashed border-stone-300 bg-[#faf8f4] flex items-center justify-center text-stone-400 shrink-0">
                 <span className="text-xs font-bold">#2</span>
               </div>
-              <div>
-                <h4 className="text-xs sm:text-sm font-bold text-stone-700">
+              <div className="min-w-0 flex-1">
+                <h4 className="text-xs sm:text-sm font-bold text-stone-700 truncate">
                   {period === 'today' ? 'Today Spot #2' : 'Future Spot #2'}
                 </h4>
                 <p className="text-[11px] text-stone-500 mt-0.5">
@@ -271,19 +322,21 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
 
           {/* Row #3: Clearly marked as future/open position */}
           <div className="rounded-2xl border border-dashed border-[#ede5db] bg-white/70 p-4 sm:p-5 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3.5">
+            <div className="flex items-center gap-3.5 min-w-0 flex-1">
               <span className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold text-xs font-mono-numbers shrink-0">
                 #3
               </span>
               <div className="w-12 h-12 rounded-2xl border border-dashed border-stone-300 bg-[#faf8f4] flex items-center justify-center text-stone-400 shrink-0">
                 <span className="text-xs font-bold">#3</span>
               </div>
-              <div>
-                <h4 className="text-xs sm:text-sm font-bold text-stone-700">
-                  Future Spot #3
+              <div className="min-w-0 flex-1">
+                <h4 className="text-xs sm:text-sm font-bold text-stone-700 truncate">
+                  {period === 'today' ? 'Today Spot #3' : 'Future Spot #3'}
                 </h4>
                 <p className="text-[11px] text-stone-500 mt-0.5">
-                  Assigned automatically to the third highest cumulative verified sponsorship.
+                  {period === 'today'
+                    ? 'Assigned automatically to the third highest verified sponsorship today.'
+                    : 'Assigned automatically to the third highest cumulative verified sponsorship.'}
                 </p>
               </div>
             </div>

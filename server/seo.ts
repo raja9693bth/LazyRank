@@ -112,60 +112,60 @@ export function generateProfileOgSvg(profile: UserProfile): string {
   const safeQuote = escapeXml(rawQuote.slice(0, 110) + (rawQuote.length > 110 ? '...' : ''));
   const isApex = profile.rank === 1;
   const isPodium = profile.rank <= 3;
-  const badgeColor = isApex ? '#fbbf24' : isPodium ? '#f59e0b' : '#38bdf8';
-  const badgeText = isApex ? '👑 CURRENT #1 APEX' : isPodium ? `PODIUM RANK #${profile.rank}` : `LEADERBOARD RANK #${profile.rank}`;
+  const badgeColor = isApex ? '#9c3a16' : isPodium ? '#c2410c' : '#57534e';
+  const badgeText = isApex ? '#1 TOP SPONSOR' : isPodium ? `PODIUM RANK #${profile.rank}` : `LEADERBOARD RANK #${profile.rank}`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <!-- Gradient Background -->
-  <rect width="1200" height="630" fill="#09090b"/>
+  <!-- Light Cream Background -->
+  <rect width="1200" height="630" fill="#faf8f5"/>
   
-  <!-- Ambient Gold / Dark Glows -->
-  <circle cx="150" cy="120" r="380" fill="#f59e0b" fill-opacity="0.12" filter="blur(90px)"/>
-  <circle cx="1050" cy="510" r="320" fill="#e86638" fill-opacity="0.10" filter="blur(90px)"/>
+  <!-- Subtle warm accent glow -->
+  <circle cx="150" cy="120" r="380" fill="#ea580c" fill-opacity="0.08" filter="blur(90px)"/>
+  <circle cx="1050" cy="510" r="320" fill="#c2410c" fill-opacity="0.06" filter="blur(90px)"/>
 
   <!-- Border Card Frame -->
-  <rect x="36" y="36" width="1128" height="558" rx="28" stroke="#27272a" stroke-width="2"/>
-  <rect x="38" y="38" width="1124" height="554" rx="26" fill="#18181b" fill-opacity="0.85"/>
+  <rect x="36" y="36" width="1128" height="558" rx="28" stroke="#f2ded0" stroke-width="2"/>
+  <rect x="38" y="38" width="1124" height="554" rx="26" fill="#ffffff" fill-opacity="0.95"/>
 
   <!-- Header Brand Bar -->
   <g transform="translate(80, 80)">
     <!-- Brand Pill -->
-    <rect width="130" height="42" rx="10" fill="#27272a"/>
-    <text x="22" y="28" fill="#fafafa" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="900" letter-spacing="3">LAZY</text>
-    <text x="145" y="28" fill="#71717a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600">lazyproof.online</text>
+    <rect width="130" height="42" rx="10" fill="#faeee5"/>
+    <text x="22" y="28" fill="#9c3a16" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="900" letter-spacing="3">LAZY</text>
+    <text x="145" y="28" fill="#78716c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="600">lazyproof.online</text>
   </g>
 
   <!-- Rank Badge (Top Right) -->
   <g transform="translate(820, 76)">
-    <rect width="300" height="48" rx="24" fill="${badgeColor}" fill-opacity="0.15" stroke="${badgeColor}" stroke-opacity="0.5" stroke-width="1.5"/>
+    <rect width="300" height="48" rx="24" fill="${badgeColor}" fill-opacity="0.10" stroke="${badgeColor}" stroke-opacity="0.3" stroke-width="1.5"/>
     <text x="150" y="30" text-anchor="middle" fill="${badgeColor}" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="800" letter-spacing="1">${badgeText}</text>
   </g>
 
   <!-- Participant Identity Block -->
   <g transform="translate(80, 190)">
-    <text x="0" y="20" fill="#a1a1aa" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" letter-spacing="2">VERIFIED PARTICIPANT</text>
-    <text x="0" y="80" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="56" font-weight="900" letter-spacing="-1">${safeName}</text>
+    <text x="0" y="20" fill="#78716c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="16" font-weight="700" letter-spacing="2">VERIFIED PARTICIPANT</text>
+    <text x="0" y="80" fill="#1c1917" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="56" font-weight="900" letter-spacing="-1">${safeName}</text>
   </g>
 
   <!-- Amount Card Highlight -->
   <g transform="translate(80, 310)">
-    <rect width="420" height="84" rx="18" fill="#27272a" fill-opacity="0.7" stroke="#3f3f46" stroke-width="1.5"/>
-    <text x="28" y="32" fill="#71717a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700" letter-spacing="1">VERIFIED MONETARY CLAIM</text>
-    <text x="28" y="68" fill="#10b981" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="36" font-weight="900" letter-spacing="-0.5">${formattedAmount}</text>
-    <text x="400" y="52" text-anchor="end" fill="#34d399" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800">✓ PROVEN</text>
+    <rect width="420" height="84" rx="18" fill="#faf8f5" fill-opacity="0.9" stroke="#f2ded0" stroke-width="1.5"/>
+    <text x="28" y="32" fill="#78716c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700" letter-spacing="1">VERIFIED MONETARY CLAIM</text>
+    <text x="28" y="68" fill="#059669" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="36" font-weight="900" letter-spacing="-0.5">${formattedAmount}</text>
+    <text x="400" y="52" text-anchor="end" fill="#059669" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800">✓ PROVEN</text>
   </g>
 
   <!-- Quote / Statement Card -->
   <g transform="translate(80, 425)">
-    <rect width="1040" height="96" rx="16" fill="#09090b" fill-opacity="0.6" stroke="#27272a" stroke-width="1"/>
-    <text x="28" y="54" fill="#e4e4e7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="600" font-style="italic">“${safeQuote}”</text>
+    <rect width="1040" height="96" rx="16" fill="#fdfbf7" fill-opacity="0.9" stroke="#f2ded0" stroke-width="1"/>
+    <text x="28" y="54" fill="#292524" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="22" font-weight="600" font-style="italic">“${safeQuote}”</text>
   </g>
 
   <!-- Bottom CTA Footer -->
   <g transform="translate(80, 548)">
-    <text x="0" y="16" fill="#a1a1aa" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="600">Can you beat this rank? Claim your rank on lazyproof.online</text>
-    <text x="1040" y="16" text-anchor="end" fill="#f59e0b" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="800">PAY TO PROVE →</text>
+    <text x="0" y="16" fill="#78716c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="600">Can you beat this rank? Claim your rank on lazyproof.online</text>
+    <text x="1040" y="16" text-anchor="end" fill="#9c3a16" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14" font-weight="800">PAY TO PROVE →</text>
   </g>
 </svg>`;
 }

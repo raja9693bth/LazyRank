@@ -40,60 +40,56 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
     canvas.width = width;
     canvas.height = height;
 
-    if (activeTemplate === 'gold_winner' || profile.rank === 1) {
-      // TEMPLATE 1: Gold / Winner
-      ctx.fillStyle = '#09090b';
+    if (activeTemplate === 'gold_winner') {
+      // TEMPLATE 1: Warm Orange / Light Showcase (Approved Brand Aesthetic)
+      ctx.fillStyle = '#faf8f5';
       ctx.fillRect(0, 0, width, height);
 
-      // Gold border accent
-      ctx.strokeStyle = '#f59e0b';
+      // Warm border accent
+      ctx.strokeStyle = '#ea580c';
       ctx.lineWidth = 14;
       ctx.strokeRect(50, 50, width - 100, height - 100);
 
       // Top brand badge
-      ctx.fillStyle = '#f59e0b';
+      ctx.fillStyle = '#9c3a16';
       ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      const streakText1 = profile.rank === 1 ? '👑 ALL-TIME #1 • TOP SPONSOR' : 'LAZY • LEGITIMACY VERIFIED';
-      ctx.fillText(streakText1, width / 2, 220);
-
-      // Crown / Trophy
-      ctx.font = '84px sans-serif';
-      ctx.fillText('👑', width / 2, 340);
+      const streakText1 = profile.rank === 1 ? 'ALL-TIME #1 • TOP SPONSOR' : 'LAZY • SPONSORED PROOF';
+      ctx.fillText(streakText1, width / 2, 240);
 
       // Punchy main statement
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#1c1917';
       ctx.font = '900 68px sans-serif';
-      ctx.fillText('I PAID', width / 2, 480);
+      ctx.fillText('I PAID', width / 2, 450);
 
       // Huge Amount
-      ctx.fillStyle = '#f59e0b';
+      ctx.fillStyle = '#ea580c';
       ctx.font = '900 130px sans-serif';
-      ctx.fillText(`₹${profile.amount.toLocaleString('en-IN')}`, width / 2, 620);
+      ctx.fillText(`₹${profile.amount.toLocaleString('en-IN')}`, width / 2, 600);
 
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#1c1917';
       ctx.font = '800 60px sans-serif';
-      ctx.fillText("TO PROVE I'M LAZY.", width / 2, 730);
+      ctx.fillText("TO PROVE I'M LAZY.", width / 2, 720);
 
       // Center container for Rank & Identity
-      ctx.fillStyle = '#18181b';
+      ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.roundRect(140, 830, width - 280, 520, 32);
       ctx.fill();
-      ctx.strokeStyle = '#27272a';
+      ctx.strokeStyle = '#f2ded0';
       ctx.lineWidth = 4;
       ctx.stroke();
 
       // Rank display
-      ctx.fillStyle = '#f59e0b';
+      ctx.fillStyle = '#ea580c';
       ctx.font = '900 170px sans-serif';
       ctx.fillText(`#${profile.rank}`, width / 2, 1020);
 
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#1c1917';
       ctx.font = 'bold 56px sans-serif';
       ctx.fillText(profile.name.toUpperCase(), width / 2, 1140);
 
-      ctx.fillStyle = '#10b981';
+      ctx.fillStyle = '#059669';
       ctx.font = 'bold 34px sans-serif';
       ctx.fillText('✓ SERVER-VERIFIED PARTICIPANT', width / 2, 1240);
 
@@ -165,7 +161,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#18181b';
       ctx.font = '900 40px sans-serif';
       ctx.textAlign = 'center';
-      const streakText2 = profile.rank === 1 ? '👑 ALL-TIME #1 • TOP SPONSOR' : 'LAZY • OFFICIAL LEADERBOARD';
+      const streakText2 = profile.rank === 1 ? 'ALL-TIME #1 • TOP SPONSOR' : 'LAZY • OFFICIAL LEADERBOARD';
       ctx.fillText(streakText2, width / 2, 220);
 
       // Statement
@@ -269,7 +265,7 @@ export const ShareCardPreview: React.FC<ShareCardPreviewProps> = ({
       ctx.fillStyle = '#a1a1aa';
       ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      const streakText3 = profile.rank === 1 ? '👑 ALL-TIME #1 • TOP SPONSOR' : 'LAZY • VERIFIED RANK';
+      const streakText3 = profile.rank === 1 ? 'ALL-TIME #1 • TOP SPONSOR' : 'LAZY • VERIFIED RANK';
       ctx.fillText(streakText3, width / 2, 220);
 
       // Text

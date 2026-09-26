@@ -13,7 +13,6 @@ interface HeroProps {
   currencyMode?: 'INR' | 'USD';
   canClaim?: boolean;
   period?: 'all' | 'today';
-  onPeriodChange?: (period: 'all' | 'today') => void;
 }
 
 export const Hero: React.FC<HeroProps> = ({
@@ -26,8 +25,7 @@ export const Hero: React.FC<HeroProps> = ({
   onClaimAmount,
   currencyMode = 'INR',
   canClaim = true,
-  period = 'all',
-  onPeriodChange
+  period = 'all'
 }) => {
   const hasTopHolder = topAmount > 0 && Boolean(topProfileName);
   const formattedTopAmount = formatDisplayCurrency(topAmount, currencyMode);
@@ -36,51 +34,8 @@ export const Hero: React.FC<HeroProps> = ({
   return (
     <section className="pt-4 sm:pt-8 pb-4 max-w-5xl mx-auto px-3 sm:px-6">
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 lg:gap-8 items-center">
-        {/* Left Column: Period Switch, Headline, Price Callout, and Primary Action (Desktop col-span-7) */}
+        {/* Left Column: Headline, Price Callout, and Primary Action (Desktop col-span-7) */}
         <div className="md:col-span-7 text-center md:text-left space-y-3.5 sm:space-y-4">
-
-          {/* Period Toggle Pill: All-time | Today */}
-          {onPeriodChange && (
-            <div className="flex flex-col items-center md:items-start gap-1">
-              <div
-                role="group"
-                aria-label="Leaderboard timeframe selection"
-                className="inline-flex items-center p-1 rounded-full bg-[#f4ebe1] border border-[#e8ded2] shadow-2xs"
-              >
-                <button
-                  type="button"
-                  id="hero-period-toggle-all"
-                  onClick={() => onPeriodChange('all')}
-                  aria-pressed={period === 'all'}
-                  className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    period === 'all'
-                      ? 'bg-white text-stone-900 shadow-2xs font-black'
-                      : 'text-stone-600 hover:text-stone-900'
-                  }`}
-                >
-                  All-time
-                </button>
-                <button
-                  type="button"
-                  id="hero-period-toggle-today"
-                  onClick={() => onPeriodChange('today')}
-                  aria-pressed={period === 'today'}
-                  className={`px-3.5 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                    period === 'today'
-                      ? 'bg-white text-stone-900 shadow-2xs font-black'
-                      : 'text-stone-600 hover:text-stone-900'
-                  }`}
-                >
-                  Today
-                </button>
-              </div>
-              {period === 'today' && (
-                <p className="text-[11px] text-stone-500 font-medium max-w-md">
-                  Verified sponsorship added since 12:00 AM IST. Your all-time profile and checkout price are unchanged.
-                </p>
-              )}
-            </div>
-          )}
 
           {/* Dynamic #1 Price Callout */}
           <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#faeee5] border border-[#f2ded0] text-[#7c2d12] text-xs font-semibold shadow-2xs">

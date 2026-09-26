@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, Flame, Crown, ArrowRight, Info, ShieldAlert, Sparkles } from 'lucide-react';
+import { Clock, Flame, ArrowRight, Info, ShieldAlert, Sparkles } from 'lucide-react';
 
 export interface TodayResetCountdownProps {
   onClaimClick?: () => void;
@@ -143,7 +143,7 @@ export const TodayResetCountdown: React.FC<TodayResetCountdownProps> = ({
               }`}
             >
               <Clock className={`w-3 h-3 ${isFinalStretch ? 'text-orange-600 animate-spin' : 'text-amber-700'}`} />
-              <span>{isFinalStretch ? 'FINAL STRETCH' : "TODAY'S CROWN RESET"}</span>
+              <span>{isFinalStretch ? 'FINAL STRETCH' : "TODAY'S RESET"}</span>
             </span>
 
             <span className="text-[11px] font-bold text-stone-500">
@@ -169,10 +169,10 @@ export const TodayResetCountdown: React.FC<TodayResetCountdownProps> = ({
                 <strong className="font-mono-numbers text-stone-900">
                   ₹{topParticipantAmount?.toLocaleString('en-IN')}
                 </strong>
-                . Winner locks the daily title & Lazy Streak.
+                . Top spot is locked at midnight IST.
               </span>
             ) : (
-              <span>Whoever holds #1 at midnight locks the daily crown & verified Hall of Fame record.</span>
+              <span>Whoever holds #1 at midnight IST secures the top position for today's sponsored showcase.</span>
             )}
           </p>
         </div>
@@ -243,13 +243,10 @@ export const TodayResetCountdown: React.FC<TodayResetCountdownProps> = ({
           </div>
           <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] text-stone-600">
             <li>
-              <strong>Midnight (12:00 AM IST)</strong>: Today's ranks lock in. The #1 rank holder permanently earns the <em>Daily Champion</em> badge in their profile history.
+              <strong>Midnight (12:00 AM IST)</strong>: Today's sponsored leaderboard locks in at midnight Indian Standard Time and starts fresh for the new day.
             </li>
             <li>
-              <strong>Lazy Streak Progression</strong>: Top 10 participants at reset advance their daily streak (+1 day), defending their position on the Hall of Fame.
-            </li>
-            <li>
-              <strong>All-Time Board Unaffected</strong>: All-time rankings, total amounts, and lifetime verified stats remain permanent and never reset.
+              <strong>All-Time Board Unaffected</strong>: All-time rankings, cumulative verified amounts, and lifetime verified profile placements remain permanent and never reset.
             </li>
           </ul>
         </div>

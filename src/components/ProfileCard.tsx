@@ -182,11 +182,11 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
 
           {/* Core Info */}
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <button
                 type="button"
                 onClick={() => onSelect(profile)}
-                className="text-sm sm:text-base font-extrabold text-stone-900 hover:text-[#9c3a16] transition-colors truncate cursor-pointer text-left"
+                className="text-sm sm:text-base font-extrabold text-stone-900 hover:text-[#9c3a16] transition-colors truncate max-w-full cursor-pointer text-left [overflow-wrap:anywhere]"
               >
                 {profile.name}
               </button>
@@ -195,7 +195,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
               {profile.isVerified && (
                 <span
                   title="Verified by payment"
-                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold"
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold shrink-0"
                 >
                   <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                   <span>Verified</span>
@@ -204,7 +204,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
 
               {/* User-selected Lazy Category: Only rendered when user explicitly chose one */}
               {profile.lazyReason && (
-                <span className="px-2 py-0.5 rounded-full bg-[#faeee5] text-[#9c3a16] text-[10px] font-extrabold border border-[#f2ded0]">
+                <span className="px-2 py-0.5 rounded-full bg-[#faeee5] text-[#9c3a16] text-[10px] font-extrabold border border-[#f2ded0] shrink-0">
                   {profile.lazyReason}
                 </span>
               )}
@@ -212,13 +212,13 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
 
             {/* Authentic Bio: reason */}
             {profile.reason && (
-              <p className="text-xs text-stone-600 mt-1 line-clamp-2 leading-relaxed">
+              <p className="text-xs text-stone-600 mt-1 line-clamp-2 leading-relaxed [overflow-wrap:anywhere] break-words">
                 "{profile.reason}"
               </p>
             )}
 
-            {/* Social Links: Focusable, accessible icon badges with URL validation */}
-            <div className="flex items-center gap-2 mt-2 text-stone-500">
+            {/* Social Links: Focusable, accessible icon badges with URL validation (36-44px touch targets) */}
+            <div className="flex items-center gap-1.5 mt-2 text-stone-500 flex-wrap">
               {/* Website */}
               {websiteLink ? (
                 <a
@@ -226,13 +226,13 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label={`${profile.name}'s website`}
-                  className="p-1 rounded-md hover:bg-stone-100 text-stone-700 hover:text-stone-900 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-stone-800"
+                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-700 hover:text-stone-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
                 >
-                  <Globe className="w-3.5 h-3.5" />
+                  <Globe className="w-4 h-4" />
                 </a>
               ) : (
-                <span title="No website provided" className="p-1 opacity-25 cursor-not-allowed">
-                  <Globe className="w-3.5 h-3.5" />
+                <span title="No website provided" aria-label="No website provided" className="w-9 h-9 flex items-center justify-center opacity-25 cursor-not-allowed">
+                  <Globe className="w-4 h-4" />
                 </span>
               )}
 
@@ -242,14 +242,14 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                   href={linkedinLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={`${profile.name}'s LinkedIn`}
-                  className="p-1 rounded-md hover:bg-blue-50 text-[#0a66c2] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0a66c2]"
+                  aria-label={`${profile.name}'s LinkedIn profile`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-blue-50 text-[#0a66c2] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a66c2]"
                 >
-                  <Linkedin className="w-3.5 h-3.5" />
+                  <Linkedin className="w-4 h-4" />
                 </a>
               ) : (
-                <span title="No LinkedIn provided" className="p-1 opacity-25 cursor-not-allowed">
-                  <Linkedin className="w-3.5 h-3.5" />
+                <span title="No LinkedIn provided" aria-label="No LinkedIn provided" className="w-9 h-9 flex items-center justify-center opacity-25 cursor-not-allowed">
+                  <Linkedin className="w-4 h-4" />
                 </span>
               )}
 
@@ -259,24 +259,18 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                   href={instagramLink}
                   target="_blank"
                   rel="noopener noreferrer"
-                  aria-label={`${profile.name}'s Instagram`}
-                  className="p-1 rounded-md hover:bg-rose-50 text-[#e1306c] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#e1306c]"
+                  aria-label={`${profile.name}'s Instagram profile`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-rose-50 text-[#e1306c] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e1306c]"
                 >
-                  <Instagram className="w-3.5 h-3.5" />
+                  <Instagram className="w-4 h-4" />
                 </a>
               ) : (
-                <span title="No Instagram provided" className="p-1 opacity-25 cursor-not-allowed">
-                  <Instagram className="w-3.5 h-3.5" />
+                <span title="No Instagram provided" aria-label="No Instagram provided" className="w-9 h-9 flex items-center justify-center opacity-25 cursor-not-allowed">
+                  <Instagram className="w-4 h-4" />
                 </span>
               )}
 
-              {/* X (Twitter) - Always rendered inactive as backend model has no X field */}
-              <span
-                title="X profile not connected"
-                className="p-1 opacity-25 cursor-not-allowed text-stone-400"
-              >
-                <XIcon className="w-3 h-3" />
-              </span>
+              {/* X icon is intentionally omitted until Commit 3 wires optional X field end to end (omitted rather than showing dead link: X profile not connected) */}
             </div>
           </div>
         </div>

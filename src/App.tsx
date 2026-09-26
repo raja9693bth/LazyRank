@@ -157,7 +157,9 @@ export default function App() {
         { signal: controller.signal }
       );
       if (res.ok) {
+        if (controller.signal.aborted) return;
         const data: LeaderboardResponse = await res.json();
+        if (controller.signal.aborted) return;
         if (isAppend) {
           setProfiles(prev => {
             const existingIds = new Set(prev.map(p => p.id));
@@ -175,19 +177,21 @@ export default function App() {
           }
         }
         setTotalCount(data.totalCount || 0);
-        if (filterParam === 'verified') {
+        if (targetPeriod === 'all' && filterParam === 'verified') {
           setVerifiedTotalCount(data.totalCount || 0);
         }
         setHasMore(data.hasMore || false);
       } else {
-        if (!isAppend) setLeaderboardError(true);
+        if (!controller.signal.aborted && !isAppend) setLeaderboardError(true);
       }
     } catch (err: any) {
-      if (err?.name === 'AbortError') return;
+      if (err?.name === 'AbortError' || controller.signal.aborted) return;
       if (!isAppend) setLeaderboardError(true);
     } finally {
-      setIsLoadingLeaderboard(false);
-      setIsLoadingMore(false);
+      if (!controller.signal.aborted) {
+        setIsLoadingLeaderboard(false);
+        setIsLoadingMore(false);
+      }
     }
   };
 
@@ -225,6 +229,9 @@ export default function App() {
         setAllTimeTop3(topList);
         if (topList.length > 0) {
           setAllTimeTopProfile(topList[0]);
+        }
+        if (data.totalCount !== undefined) {
+          setVerifiedTotalCount(data.totalCount);
         }
         if (data.topAmount !== undefined) {
           setTopAmount(data.topAmount);
@@ -383,22 +390,47 @@ export default function App() {
     }
   }, [selectedProfile, currentPath]);
 
-  // Midnight IST Refresh Timer (Refetches when the IST day rolls over)
+  // Recurring Midnight IST Refresh Timer & Visibility Resumption
   useEffect(() => {
-    const nowMs = Date.now();
-    const istOffsetMs = 5.5 * 3600 * 1000;
-    const nowIst = new Date(nowMs + istOffsetMs);
-    const nextMidnightIstUtc = new Date(Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate() + 1, 0, 0, 0));
-    const nextMidnightUtcMs = nextMidnightIstUtc.getTime() - istOffsetMs;
-    const delayMs = Math.max(1000, nextMidnightUtcMs - nowMs + 1000);
+    let timer: NodeJS.Timeout | null = null;
+    let lastRefreshedIstDate = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCDate();
 
-    const timer = setTimeout(() => {
+    const doRefresh = () => {
+      lastRefreshedIstDate = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCDate();
       loadGlobalActivity();
       loadAllTimeTop3();
       loadLeaderboard(0, 20, currentPeriod === 'today' ? 'verified' : filterMode, false, currentPeriod);
-    }, delayMs);
+      scheduleNext();
+    };
 
-    return () => clearTimeout(timer);
+    const scheduleNext = () => {
+      if (timer) clearTimeout(timer);
+      const nowMs = Date.now();
+      const istOffsetMs = 5.5 * 3600 * 1000;
+      const nowIst = new Date(nowMs + istOffsetMs);
+      const nextMidnightIstUtc = new Date(Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate() + 1, 0, 0, 0));
+      const nextMidnightUtcMs = nextMidnightIstUtc.getTime() - istOffsetMs;
+      const delayMs = Math.max(1000, nextMidnightUtcMs - nowMs + 1000);
+      timer = setTimeout(doRefresh, delayMs);
+    };
+
+    scheduleNext();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        const currentIstDate = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCDate();
+        if (currentIstDate !== lastRefreshedIstDate) {
+          doRefresh();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [currentPeriod, filterMode]);
 
   const navigate = (path: string) => {
@@ -546,20 +578,29 @@ export default function App() {
   };
 
   const handleVoteProfile = async (profileId: string) => {
-    const res = await fetch('/api/vote', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profileId })
-    });
-    const data = await res.json();
-    if (data.success && data.profile) {
-      setProfiles(prev =>
-        prev.map(p => (p.id === profileId ? data.profile : p))
-      );
-      if (selectedProfile && selectedProfile.id === profileId) {
-        setSelectedProfile(data.profile);
+    try {
+      const res = await fetch('/api/vote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId })
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.warn('Vote failed:', errorData.error || res.statusText);
+        return;
       }
-      loadActivities();
+      const data = await res.json();
+      if (data.success && data.profile) {
+        setProfiles(prev =>
+          prev.map(p => (p.id === profileId ? data.profile : p))
+        );
+        if (selectedProfile && selectedProfile.id === profileId) {
+          setSelectedProfile(data.profile);
+        }
+        loadActivities();
+      }
+    } catch (err) {
+      console.warn('Network error voting for profile:', err);
     }
   };
 
@@ -606,6 +647,8 @@ export default function App() {
         onOpenRules={() => navigate('/rules')}
         onOpenChallenge={() => {
           setChallengeTargetRank(undefined);
+          setNominationModalTab('challenge');
+          setNominationDefaultName('');
           setIsChallengeModalOpen(true);
         }}
         onOpenAdmin={() => setIsAdminOpen(true)}
@@ -697,7 +740,6 @@ export default function App() {
                   currencyMode={currencyMode}
                   canClaim={paymentConfig.enabled && paymentConfig.taxReady}
                   period={currentPeriod}
-                  onPeriodChange={handlePeriodChange}
                 />
 
                 {/* 2. One QuickClaimBar directly underneath */}
@@ -734,6 +776,7 @@ export default function App() {
                       currencyMode={currencyMode}
                       minAmountToBeatTop={minAmountToBeatTop}
                       period={currentPeriod}
+                      onPeriodChange={handlePeriodChange}
                       canClaim={paymentConfig.enabled && paymentConfig.taxReady}
                     />
                   </div>
@@ -839,14 +882,18 @@ export default function App() {
       <NominationModal
         isOpen={isChallengeModalOpen}
         onClose={() => setIsChallengeModalOpen(false)}
-        defaultTab={nominationModalTab}
-        defaultNomineeName={nominationDefaultName}
+        initialTab={nominationModalTab}
+        defaultName={nominationDefaultName}
         targetRank={challengeTargetRank}
-        profiles={profiles}
-        onNominationSuccess={() => {
+        minAmountToBeatTop={minAmountToBeatTop}
+        currentProfile={selectedProfile || undefined}
+        onProfileUpdated={(updatedProfile) => {
+          if (selectedProfile && selectedProfile.id === updatedProfile.id) {
+            setSelectedProfile(updatedProfile);
+          }
           loadLeaderboard();
+          loadAllTimeTop3();
         }}
-        onOpenClaim={(targetAmount) => handleOpenDrawerWithClaim(targetAmount)}
       />
 
       {/* About Modal */}
@@ -870,13 +917,18 @@ export default function App() {
         isOpen={!!reportingTargetId}
         onClose={() => setReportingTargetId(null)}
         targetId={reportingTargetId || ''}
+        targetType="profile"
+        onReportSubmitted={() => {
+          setReportingTargetId(null);
+          loadLeaderboard();
+        }}
       />
 
       {/* Operator Admin Modal */}
       <AdminModal
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
-        onDataChanged={() => {
+        onRefreshLeaderboard={() => {
           loadLeaderboard();
           loadAllTimeTop3();
           loadActivities();

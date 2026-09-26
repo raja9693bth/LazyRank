@@ -104,8 +104,8 @@ export const RulesModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
             <p>Rank is strictly determined by verified payment amount. Higher amount = higher rank. If two users pay identical amounts, earlier verification timestamp takes priority.</p>
           </div>
           <div>
-            <h3 className="font-bold text-zinc-900">2. Voluntary Entertainment Game</h3>
-            <p>Payments made to LAZY are for participation in a public internet joke and leaderboard ranking. No financial return, equity, or commercial benefit is offered.</p>
+            <h3 className="font-bold text-zinc-900">2. Digital Sponsored Showcase</h3>
+            <p>Payments made to LAZY are voluntary sponsorships for public profile placement and digital showcase on the leaderboard. No financial return, investment, or commercial benefit is offered.</p>
           </div>
           <div>
             <h3 className="font-bold text-zinc-900">3. Verified Server Source of Truth</h3>
@@ -140,10 +140,9 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 }) => {
   const [reason, setReason] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   if (!isOpen) return null;
-
-  const [reportError, setReportError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

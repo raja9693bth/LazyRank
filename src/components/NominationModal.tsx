@@ -37,7 +37,7 @@ export interface NominationModalProps {
 }
 
 const FUNNY_CHALLENGES = [
-  "Think you're lazier than me? Put ₹ on it.",
+  "Think you're lazier than me? Sponsor your spot to prove it.",
   "You've been in bed since morning. Prove you belong on the leaderboard.",
   "I sponsored to prove my laziness. Challenge you to top my rank.",
   "Moving your mouse on Slack doesn't count. Take #1 if you dare."
@@ -48,7 +48,7 @@ export const NominationModal: React.FC<NominationModalProps> = ({
   onClose,
   targetRank,
   minAmountToBeatTop,
-  initialTab = 'reason',
+  initialTab = 'challenge',
   defaultName = '',
   defaultEmail = '',
   currentProfile,
@@ -70,6 +70,8 @@ export const NominationModal: React.FC<NominationModalProps> = ({
   const [challengeMsg, setChallengeMsg] = useState(FUNNY_CHALLENGES[0]);
   const [challengeLazyReason, setChallengeLazyReason] = useState<string>('Bed Connoisseur');
   const [challengeGenerated, setChallengeGenerated] = useState(false);
+  const [isGeneratingChallenge, setIsGeneratingChallenge] = useState(false);
+  const [challengeError, setChallengeError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
 
   // Notify Me Flow State
@@ -129,25 +131,24 @@ export const NominationModal: React.FC<NominationModalProps> = ({
 
   if (!isOpen) return null;
 
-  const challengeUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/?challenge=${encodeURIComponent(friendName || 'friend')}&target=${minAmountToBeatTop}&lazyReason=${encodeURIComponent(challengeLazyReason || '')}`
-    : `https://lazyproof.online/?challenge=${encodeURIComponent(friendName || 'friend')}&target=${minAmountToBeatTop}&lazyReason=${encodeURIComponent(challengeLazyReason || '')}`;
+  const safeMinAmount = typeof minAmountToBeatTop === 'number' && !isNaN(minAmountToBeatTop) && minAmountToBeatTop > 0
+    ? minAmountToBeatTop
+    : 1;
 
-  const fullChallengeText = `${friendName ? `${friendName}, ` : ''}${yourName ? `${yourName} nominated you as "${challengeLazyReason || 'Bed Connoisseur'}" on LAZY: ` : ''}"${challengeMsg}" Beat the leaderboard for ₹${minAmountToBeatTop}: ${challengeUrl}`;
+  const challengeUrl = typeof window !== 'undefined'
+    ? `${window.location.origin}/?challenge=${encodeURIComponent(friendName || 'friend')}&target=${safeMinAmount}&lazyReason=${encodeURIComponent(challengeLazyReason || '')}`
+    : `https://lazyproof.online/?challenge=${encodeURIComponent(friendName || 'friend')}&target=${safeMinAmount}&lazyReason=${encodeURIComponent(challengeLazyReason || '')}`;
+
+  const fullChallengeText = `${friendName ? `${friendName}, ` : ''}${yourName ? `${yourName} nominated you as "${challengeLazyReason || 'Bed Connoisseur'}" on LAZY: ` : ''}"${challengeMsg}" Beat the leaderboard for ₹${safeMinAmount}: ${challengeUrl}`;
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!friendName.trim()) return;
-    setChallengeGenerated(true);
+    setIsGeneratingChallenge(true);
+    setChallengeError(null);
 
-    // Record nomination toward daily Lazy Goal
     try {
-      recordNominationGoal(friendName.trim());
-    } catch {}
-
-    // Record challenge on server backend
-    try {
-      await fetch('/api/challenge', {
+      const res = await fetch('/api/challenge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -155,11 +156,25 @@ export const NominationModal: React.FC<NominationModalProps> = ({
           nominatorName: yourName.trim() || undefined,
           reason: challengeMsg,
           lazyReason: challengeLazyReason,
-          targetAmount: minAmountToBeatTop
+          targetAmount: safeMinAmount
         })
       });
-    } catch {
-      // Offline fallback
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to record challenge on server.');
+      }
+
+      // Record nomination toward daily Lazy Goal only on successful response
+      try {
+        recordNominationGoal(friendName.trim());
+      } catch {}
+
+      setChallengeGenerated(true);
+    } catch (err: any) {
+      setChallengeError(err?.message || 'Network error recording challenge. Please try again.');
+    } finally {
+      setIsGeneratingChallenge(false);
     }
   };
 
@@ -596,14 +611,30 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                   </select>
                 </div>
 
+                {challengeError && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>{challengeError}</span>
+                  </div>
+                )}
+
                 <button
                   type="submit"
-                  disabled={!friendName.trim()}
+                  disabled={!friendName.trim() || isGeneratingChallenge}
                   aria-label="Create challenge link"
                   className="w-full mt-2 flex items-center justify-center gap-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 py-3 px-4 text-xs font-extrabold text-white transition-all active:scale-98 cursor-pointer disabled:opacity-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
                 >
-                  <span>Create Challenge Link</span>
-                  <ArrowRight className="w-4 h-4" />
+                  {isGeneratingChallenge ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>Recording Challenge...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Create Challenge Link</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
 
                 {/* Prompt to switch to Lazy Reason or Notify */}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile, getLazyReasonEmoji } from '../types.ts';
 import { ShareCardPreview, CardTemplateType } from './ShareCardPreview.tsx';
+import { safeWebsiteUrl, safeLinkedInUrl, safeInstagramUrl } from './ProfileCard.tsx';
 import {
   Share2,
   Copy,
@@ -66,9 +67,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
   onUpgradeRank,
   onProfileUpdated
 }) => {
-  const [activeTemplate, setActiveTemplate] = useState<CardTemplateType>(
-    profile.rank === 1 ? 'gold_winner' : 'bold_dark'
-  );
+  const [activeTemplate, setActiveTemplate] = useState<CardTemplateType>('clean_white');
   const [copiedLink, setCopiedLink] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
   const [showShareTooltip, setShowShareTooltip] = useState(false);
@@ -585,56 +584,63 @@ export const ResultView: React.FC<ResultViewProps> = ({
           </div>
 
           {/* Social & Website Links */}
-          {(profile.instagram || profile.linkedin || profile.website) && (
-            <div className="flex items-center justify-center gap-3 pt-2 text-xs text-zinc-600 flex-wrap">
-              {profile.instagram && (
-                <a
-                  href={`https://instagram.com/${profile.instagram.replace(/^@/, '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Visit Instagram profile @${profile.instagram.replace(/^@/, '')}`}
-                  className="inline-flex items-center gap-1 text-zinc-700 hover:text-pink-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500"
-                >
-                  <Instagram className="w-3.5 h-3.5" />
-                  <span>@{profile.instagram.replace(/^@/, '')}</span>
-                </a>
-              )}
+          {(() => {
+            const igUrl = safeInstagramUrl(profile.instagram);
+            const liUrl = safeLinkedInUrl(profile.linkedin);
+            const webUrl = safeWebsiteUrl(profile.website);
+            if (!igUrl && !liUrl && !webUrl) return null;
 
-              {profile.instagram && (profile.linkedin || profile.website) && (
-                <span className="text-zinc-300">·</span>
-              )}
+            return (
+              <div className="flex items-center justify-center gap-3 pt-2 text-xs text-zinc-600 flex-wrap">
+                {igUrl && (
+                  <a
+                    href={igUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Visit Instagram profile"
+                    className="inline-flex items-center gap-1 text-zinc-700 hover:text-pink-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500"
+                  >
+                    <Instagram className="w-3.5 h-3.5" />
+                    <span>Instagram</span>
+                  </a>
+                )}
 
-              {profile.linkedin && (
-                <a
-                  href={profile.linkedin.startsWith('http') ? profile.linkedin : `https://${profile.linkedin}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="Visit LinkedIn profile"
-                  className="inline-flex items-center gap-1 text-zinc-700 hover:text-blue-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                >
-                  <Linkedin className="w-3.5 h-3.5" />
-                  <span>LinkedIn</span>
-                </a>
-              )}
+                {igUrl && (liUrl || webUrl) && (
+                  <span className="text-zinc-300">·</span>
+                )}
 
-              {profile.linkedin && profile.website && (
-                <span className="text-zinc-300">·</span>
-              )}
+                {liUrl && (
+                  <a
+                    href={liUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Visit LinkedIn profile"
+                    className="inline-flex items-center gap-1 text-zinc-700 hover:text-blue-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                  >
+                    <Linkedin className="w-3.5 h-3.5" />
+                    <span>LinkedIn</span>
+                  </a>
+                )}
 
-              {profile.website && (
-                <a
-                  href={profile.website}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label={`Visit website ${profile.website}`}
-                  className="inline-flex items-center gap-1 text-zinc-700 hover:text-sky-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-                >
-                  <Globe className="w-3.5 h-3.5" />
-                  <span>Website</span>
-                </a>
-              )}
-            </div>
-          )}
+                {liUrl && webUrl && (
+                  <span className="text-zinc-300">·</span>
+                )}
+
+                {webUrl && (
+                  <a
+                    href={webUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Visit website"
+                    className="inline-flex items-center gap-1 text-zinc-700 hover:text-sky-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    <span>Website</span>
+                  </a>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* All-Time Leaderboard Position & Dynamic Ranking Card */}

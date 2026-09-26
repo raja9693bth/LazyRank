@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, ShieldAlert, Check, AlertTriangle, Eye, Trash2, RefreshCw, Activity, Users, DollarSign, Trophy } from 'lucide-react';
-import { AnalyticsSummary, Nomination, ReportRecord, UserProfile, LiveStats } from '../types.ts';
+import { AnalyticsSummary, Nomination, ReportRecord, UserProfile, LiveStats, AdminDataResponse, AdminOrderRecord, AdminInquiryRecord, AdminReportRecord } from '../types.ts';
 
 interface ModalBaseProps {
   isOpen: boolean;
@@ -237,11 +237,13 @@ interface AdminModalProps extends ModalBaseProps {
 export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefreshLeaderboard }) => {
   const [key, setKey] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [adminData, setAdminData] = useState<any>(null);
+  const [adminData, setAdminData] = useState<AdminDataResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'orders' | 'profiles' | 'inquiries' | 'reports'>('orders');
+  const [ordersPage, setOrdersPage] = useState(0);
 
-  const loadData = async (adminKey: string) => {
+  const loadData = async (adminKey: string, page = 0) => {
     if (!adminKey.trim()) {
       setAuthError('Please enter the admin key.');
       return;
@@ -249,15 +251,16 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
     setLoading(true);
     setAuthError(null);
     try {
-      const res = await fetch('/api/admin/data', {
+      const res = await fetch(`/api/admin/data?limit=20&offset=${page * 20}`, {
         headers: {
           'x-admin-key': adminKey.trim()
         }
       });
       if (res.ok) {
-        const data = await res.json();
+        const data: AdminDataResponse = await res.json();
         setAdminData(data);
         setIsAuthenticated(true);
+        setOrdersPage(page);
       } else {
         const err = await res.json().catch(() => ({}));
         setAuthError(err.error || 'Unauthorized admin access.');
@@ -287,22 +290,51 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
         alert(err.error || 'Failed to apply moderation action.');
         return;
       }
-      loadData(key);
-      onRefreshLeaderboard();
+      loadData(key, ordersPage);
+      if (typeof onRefreshLeaderboard === 'function') {
+        onRefreshLeaderboard();
+      }
     } catch {
       alert('Network error while applying moderation action.');
     }
   };
 
+  const handleResolveReport = async (reportId: string) => {
+    try {
+      const res = await fetch('/api/admin/moderate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-key': key.trim()
+        },
+        body: JSON.stringify({ action: 'resolve_report', targetId: reportId })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Failed to resolve report.');
+        return;
+      }
+      loadData(key, ordersPage);
+    } catch {
+      alert('Network error while resolving report.');
+    }
+  };
+
+  const stats = adminData?.stats;
+  const orders = adminData?.orders || [];
+  const inquiries = adminData?.inquiries || [];
+  const reports = adminData?.reports || [];
+  const profiles = adminData?.profiles || [];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/70 backdrop-blur-xs">
-      <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl border border-zinc-200 max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-3xl rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-zinc-200 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-zinc-200">
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 text-zinc-900" />
-            <h3 className="font-extrabold text-base text-zinc-950">LAZY v2.0 Admin & Revenue Dashboard</h3>
+            <h3 className="font-extrabold text-base text-zinc-950">LAZY Founder Admin & Operations Desk</h3>
           </div>
-          <button onClick={onClose} className="p-1 text-zinc-400 hover:text-zinc-700 cursor-pointer">
+          <button onClick={onClose} aria-label="Close admin dialog" className="p-1 text-zinc-400 hover:text-zinc-700 cursor-pointer">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -311,7 +343,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              loadData(key);
+              loadData(key, 0);
             }}
             className="mt-4 space-y-3"
           >
@@ -337,158 +369,267 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
             </button>
           </form>
         ) : (
-          <div className="mt-4 space-y-6">
-            {/* Analytics Overview */}
-            {adminData?.analytics && (
-              <div>
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-zinc-500 mb-2">
-                  Validation & Revenue
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
-                    <span className="text-[10px] uppercase text-zinc-400 font-bold block">Total Revenue</span>
-                    <span className="text-xl font-black font-mono-numbers text-amber-600">
-                      ₹{adminData.analytics.totalRevenueINR.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
-                    <span className="text-[10px] uppercase text-zinc-400 font-bold block">Verified Purchases</span>
-                    <span className="text-xl font-black font-mono-numbers text-zinc-900">
-                      {adminData.analytics.successfulPurchases}
-                    </span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
-                    <span className="text-[10px] uppercase text-zinc-400 font-bold block">Homepage Views</span>
-                    <span className="text-xl font-black font-mono-numbers text-zinc-900">
-                      {adminData.analytics.homepageViews}
-                    </span>
-                  </div>
-                  <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
-                    <span className="text-[10px] uppercase text-zinc-400 font-bold block">Share Clicks</span>
-                    <span className="text-xl font-black font-mono-numbers text-zinc-900">
-                      {adminData.analytics.shareClicks}
-                    </span>
-                  </div>
-                </div>
+          <div className="mt-4 space-y-5">
+            {/* Top Operational Metrics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                <span className="text-[10px] uppercase text-zinc-400 font-bold block">Verified Revenue</span>
+                <span className="text-lg font-black font-mono-numbers text-amber-600">
+                  ₹{stats?.totalVerifiedRevenue ? stats.totalVerifiedRevenue.toLocaleString('en-IN') : 0}
+                </span>
               </div>
-            )}
-
-            {/* Verified Paid Profiles */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-zinc-500">
-                  Verified Paid Profiles ({adminData?.profiles?.length || 0})
-                </h4>
-                <button
-                  onClick={() => loadData(key)}
-                  className="text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 flex items-center gap-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  <span>Refresh</span>
-                </button>
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                <span className="text-[10px] uppercase text-zinc-400 font-bold block">Verified Profiles</span>
+                <span className="text-lg font-black font-mono-numbers text-zinc-900">
+                  {stats?.totalVerifiedParticipants ?? 0}
+                </span>
               </div>
-
-              <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
-                {adminData?.profiles?.map((p: UserProfile) => (
-                  <div key={p.id} className="p-3 text-xs flex items-center justify-between hover:bg-zinc-50">
-                    <div className="min-w-0 pr-3">
-                      <div className="font-bold text-zinc-900 flex items-center gap-2">
-                        <span>#{p.rank} {p.name}</span>
-                        <span className="text-amber-600 font-mono-numbers font-extrabold">₹{p.amount.toLocaleString('en-IN')}</span>
-                      </div>
-                      <p className="text-zinc-500 italic truncate max-w-xs mt-0.5">
-                        "{p.reason}"
-                      </p>
-                      {p.isReported && (
-                        <span className="text-[9px] uppercase px-1 py-0.5 rounded font-bold bg-rose-100 text-rose-700">
-                          Reported
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {p.isReported ? (
-                        <button
-                          onClick={() => handleModerate('restore', p.id)}
-                          className="px-2 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-md text-[11px] font-bold cursor-pointer"
-                        >
-                          Restore
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleModerate('remove', p.id)}
-                          className="px-2 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md text-[11px] font-bold cursor-pointer"
-                        >
-                          Hide
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                <span className="text-[10px] uppercase text-zinc-400 font-bold block">Total Paid Claims</span>
+                <span className="text-lg font-black font-mono-numbers text-zinc-900">
+                  {stats?.totalClaims ?? 0}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200">
+                <span className="text-[10px] uppercase text-zinc-400 font-bold block">Settled Today (IST)</span>
+                <span className="text-lg font-black font-mono-numbers text-emerald-600">
+                  {stats?.claimsToday ?? 0}
+                </span>
               </div>
             </div>
 
-            {/* Reports list */}
-            {adminData?.reports?.length > 0 && (
-              <div>
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-rose-600 mb-2">
-                  Flagged Reports ({adminData.reports.length})
-                </h4>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                  {adminData.reports.map((rep: ReportRecord) => (
-                    <div key={rep.id} className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-zinc-800">
-                      <span className="font-bold text-rose-700">Report: </span>
-                      {rep.reason} (Target: {rep.targetId})
-                    </div>
-                  ))}
+            {/* Navigation Tabs */}
+            <div className="flex items-center gap-1 border-b border-zinc-200 pb-2 text-xs font-bold flex-wrap">
+              <button
+                type="button"
+                onClick={() => setActiveTab('orders')}
+                className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  activeTab === 'orders' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'
+                }`}
+              >
+                Orders ({adminData?.pagination?.totalOrders ?? orders.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('profiles')}
+                className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  activeTab === 'profiles' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'
+                }`}
+              >
+                Profiles ({profiles.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('inquiries')}
+                className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  activeTab === 'inquiries' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'
+                }`}
+              >
+                Inquiries ({inquiries.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('reports')}
+                className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                  activeTab === 'reports' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'
+                }`}
+              >
+                Reports ({reports.length})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => loadData(key, ordersPage)}
+                disabled={loading}
+                className="ml-auto text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 flex items-center gap-1 cursor-pointer"
+              >
+                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+            </div>
+
+            {/* Tab: Orders */}
+            {activeTab === 'orders' && (
+              <div className="space-y-3">
+                {orders.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+                    No payment orders recorded yet.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+                    {orders.map((ord: AdminOrderRecord) => (
+                      <div key={ord.orderId} className="p-3 text-xs hover:bg-zinc-50 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-zinc-950">{ord.orderId}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                              ord.status === 'PAID' ? 'bg-emerald-100 text-emerald-800' :
+                              ord.status === 'PENDING' ? 'bg-amber-100 text-amber-800' :
+                              'bg-zinc-100 text-zinc-700'
+                            }`}>
+                              {ord.status}
+                            </span>
+                          </div>
+                          <span className="font-mono font-extrabold text-amber-700">
+                            ₹{ord.amount.toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-zinc-600 text-[11px] flex-wrap gap-1">
+                          <span>Name: <strong className="text-zinc-900">{ord.name}</strong></span>
+                          <span>{new Date(ord.createdAt).toLocaleString('en-IN')}</span>
+                        </div>
+                        {(ord.customerEmail || ord.customerPhone || ord.cfPaymentId) && (
+                          <div className="text-[11px] text-zinc-500 flex items-center gap-3 pt-0.5 flex-wrap">
+                            {ord.customerEmail && <span>Email: <strong className="text-zinc-800">{ord.customerEmail}</strong></span>}
+                            {ord.customerPhone && <span>Phone: <strong className="text-zinc-800">{ord.customerPhone}</strong></span>}
+                            {ord.cfPaymentId && <span className="font-mono">Ref: {ord.cfPaymentId}</span>}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Pagination */}
+                <div className="flex items-center justify-between pt-1 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => loadData(key, ordersPage - 1)}
+                    disabled={ordersPage === 0 || loading}
+                    className="px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 disabled:opacity-40 cursor-pointer"
+                  >
+                    Previous
+                  </button>
+                  <span className="font-semibold text-zinc-500">Page {ordersPage + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => loadData(key, ordersPage + 1)}
+                    disabled={orders.length < 20 || loading}
+                    className="px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 disabled:opacity-40 cursor-pointer"
+                  >
+                    Next
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Support Inquiries from /contact */}
-            {adminData?.contactMessages?.length > 0 && (
-              <div>
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-blue-700 mb-2">
-                  Support Inquiries ({adminData.contactMessages.length})
-                </h4>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {adminData.contactMessages.map((msg: any) => (
-                    <div key={msg.id} className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-800 space-y-1">
-                      <div className="flex items-center justify-between font-bold text-zinc-950">
-                        <span>{msg.name} ({msg.email})</span>
-                        <span className="text-[10px] text-zinc-400">{new Date(msg.createdAt).toLocaleString('en-IN')}</span>
+            {/* Tab: Verified Profiles */}
+            {activeTab === 'profiles' && (
+              <div className="space-y-3">
+                {profiles.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+                    No verified profiles found.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-zinc-100 border border-zinc-200 rounded-xl overflow-hidden max-h-72 overflow-y-auto">
+                    {profiles.map((p: UserProfile) => (
+                      <div key={p.id} className="p-3 text-xs flex items-center justify-between hover:bg-zinc-50">
+                        <div className="min-w-0 pr-3">
+                          <div className="font-bold text-zinc-900 flex items-center gap-2">
+                            <span>#{p.rank} {p.name}</span>
+                            <span className="text-amber-600 font-mono-numbers font-extrabold">₹{p.amount.toLocaleString('en-IN')}</span>
+                            {p.moderationStatus !== 'active' && (
+                              <span className="text-[9px] uppercase px-1 py-0.5 rounded font-bold bg-rose-100 text-rose-700">
+                                {p.moderationStatus}
+                              </span>
+                            )}
+                          </div>
+                          {p.reason && (
+                            <p className="text-zinc-500 italic truncate max-w-xs mt-0.5">
+                              "{p.reason}"
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {p.moderationStatus === 'removed' || p.isReported ? (
+                            <button
+                              type="button"
+                              onClick={() => handleModerate('restore', p.id)}
+                              className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-md text-[11px] font-bold cursor-pointer"
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleModerate('remove', p.id)}
+                              className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md text-[11px] font-bold cursor-pointer"
+                            >
+                              Hide
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-zinc-600 font-semibold">
-                        Subject: <span className="text-zinc-900">{msg.subject}</span>
-                        {msg.orderId && <span className="ml-2 text-amber-700 font-mono">Order: {msg.orderId}</span>}
-                      </div>
-                      <p className="text-zinc-700 whitespace-pre-wrap">{msg.message}</p>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Notification Subscribers */}
-            {adminData?.notificationSubscriptions?.length > 0 && (
-              <div>
-                <h4 className="text-xs font-extrabold uppercase tracking-wider text-amber-800 mb-2">
-                  Email Alert Subscribers ({adminData.notificationSubscriptions.length})
-                </h4>
-                <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                  {adminData.notificationSubscriptions.map((sub: any) => (
-                    <div key={sub.id} className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-zinc-800 flex items-center justify-between">
-                      <div>
-                        <span className="font-bold text-zinc-950">{sub.email}</span>
-                        {sub.name && <span className="ml-1 text-zinc-600">({sub.name})</span>}
+            {/* Tab: Support Inquiries */}
+            {activeTab === 'inquiries' && (
+              <div className="space-y-3">
+                {inquiries.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+                    No customer support inquiries submitted yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {inquiries.map((inq: AdminInquiryRecord) => (
+                      <div key={inq.id} className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-800 space-y-1">
+                        <div className="flex items-center justify-between font-bold text-zinc-950">
+                          <span>{inq.name} ({inq.email})</span>
+                          <span className="text-[10px] text-zinc-400 font-normal">{new Date(inq.createdAt).toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="text-zinc-600 font-semibold">
+                          Subject: <span className="text-zinc-900">{inq.subject}</span>
+                          {inq.orderId && <span className="ml-2 text-amber-700 font-mono">Order: {inq.orderId}</span>}
+                        </div>
+                        <p className="text-zinc-700 whitespace-pre-wrap mt-1">{inq.message}</p>
                       </div>
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold text-amber-900">
-                        {sub.notifyOnOutranked && <span className="bg-amber-100 px-1.5 py-0.5 rounded">Outranked</span>}
-                        {sub.notifyOnNomination && <span className="bg-amber-100 px-1.5 py-0.5 rounded">Nomination</span>}
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tab: Reports */}
+            {activeTab === 'reports' && (
+              <div className="space-y-3">
+                {reports.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-zinc-500 bg-zinc-50 rounded-xl border border-dashed border-zinc-200">
+                    No moderation reports submitted.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {reports.map((rep: AdminReportRecord) => (
+                      <div key={rep.id} className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-zinc-800 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-rose-800">
+                            Reason: {rep.reason}
+                          </span>
+                          <span className="text-[10px] text-zinc-400">{new Date(rep.createdAt).toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="text-zinc-600 text-[11px]">
+                          Target: <strong className="text-zinc-900">{rep.targetId}</strong> ({rep.targetType})
+                        </div>
+                        {rep.details && <p className="text-zinc-700 italic mt-0.5">"{rep.details}"</p>}
+                        {rep.status !== 'resolved' && (
+                          <div className="pt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleResolveReport(rep.id)}
+                              className="px-2 py-0.5 rounded bg-white border border-rose-300 text-rose-700 font-bold hover:bg-rose-100 cursor-pointer text-[10px]"
+                            >
+                              Mark Resolved
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

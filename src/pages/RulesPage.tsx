@@ -21,8 +21,8 @@ export const RulesPage: React.FC<RulesPageProps> = ({ onNavigate }) => {
     },
     {
       num: 3,
-      title: 'Earlier Server Timestamp Breaks Ties',
-      desc: 'If two or more participants have verified the exact same cumulative amount in INR, the participant whose payment was verified earlier by our backend server takes the higher rank.'
+      title: 'Deterministic Tie-Breaking Engine',
+      desc: 'If two or more participants have verified the exact same cumulative amount in INR, ties are broken deterministically: first by earlier FIRST verified payment timestamp (first_verified_at), then by stable unique profile ID.'
     },
     {
       num: 4,

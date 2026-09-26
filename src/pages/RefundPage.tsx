@@ -118,7 +118,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
         </h2>
         <ul className="list-disc list-inside space-y-2 text-xs sm:text-sm text-zinc-700 pl-1">
           <li>
-            <strong>7-Calendar-Day Claim Window:</strong> Any claim for an eligible refund (such as a verified duplicate debit or unfulfilled placement due to technical failure) must be submitted within <strong>7 calendar days</strong> of the transaction timestamp. Requests received after 7 calendar days cannot be reconciled against real-time gateway records.
+            <strong>7-Calendar-Day Claim Window (Preferred Request Window):</strong> We request that any claim for an eligible refund (such as a verified duplicate debit or unfulfilled placement due to technical failure) be submitted within <strong>7 calendar days</strong> of the transaction timestamp for prompt review and reconciliation with gateway records. This preferred window does not restrict any mandatory rights under applicable consumer protection laws or payment network dispute rules for verified duplicate debits or technical non-fulfillment.
           </li>
           <li>
             <strong>Internal Review & Approval:</strong> Validated refund requests are reviewed and approved by {LEGAL_CONFIG.LEGAL_BUSINESS_NAME} within <strong>1 to 2 business days</strong>.

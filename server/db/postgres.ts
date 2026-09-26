@@ -1383,7 +1383,7 @@ export class PostgresDatabase {
     const profiles = profRes.rows.map(r => this.mapProfile(r));
 
     const ordersRes = await this.pool.query(
-      `SELECT order_id, profile_id, name, amount, currency, status, payment_mode, provider, created_at, updated_at
+      `SELECT order_id, profile_id, name, amount, currency, status, payment_mode, provider, customer_email, customer_phone, cf_payment_id, created_at, updated_at
        FROM payment_orders ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
@@ -1400,30 +1400,84 @@ export class PostgresDatabase {
       [limit, offset]
     );
 
+    const { startTodayUtc, endTodayUtc } = getIstTodayWindow();
     const statsRes = await this.pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE is_verified = true AND moderation_status = 'active') as verified_count,
         COALESCE(SUM(amount) FILTER (WHERE is_verified = true AND moderation_status = 'active'), 0) as verified_revenue,
         (SELECT COUNT(*) FROM payment_orders WHERE status = 'PAID') as total_claims,
-        (SELECT COUNT(*) FROM payment_orders WHERE status = 'PAID' AND created_at >= CURRENT_DATE) as claims_today
+        (SELECT COUNT(DISTINCT l.order_id)
+         FROM rank_ledger l
+         WHERE l.type = 'CREDIT' AND l.status = 'SETTLED'
+           AND l.created_at >= $1 AND l.created_at < $2) as claims_today,
+        (SELECT COUNT(*) FROM payment_orders) as total_orders
       FROM profiles
-    `);
+    `, [startTodayUtc, endTodayUtc]);
     const s = statsRes.rows[0];
+
+    const stats = {
+      totalVerifiedParticipants: parseInt(s?.verified_count || '0', 10),
+      totalVerifiedRevenue: parseFloat(s?.verified_revenue || '0'),
+      totalClaims: parseInt(s?.total_claims || '0', 10),
+      claimsToday: parseInt(s?.claims_today || '0', 10),
+      topAmount: profiles[0]?.amount || 0,
+      minAmountToBeatTop: (profiles[0]?.amount || 0) + 1
+    };
+
+    const orders = ordersRes.rows.map(o => ({
+      orderId: o.order_id,
+      profileId: o.profile_id || null,
+      name: o.name,
+      amount: Number(o.amount),
+      currency: o.currency,
+      status: o.status,
+      paymentMode: o.payment_mode,
+      provider: o.provider,
+      customerEmail: o.customer_email || null,
+      customerPhone: o.customer_phone || null,
+      cfPaymentId: o.cf_payment_id || null,
+      createdAt: new Date(o.created_at).toISOString(),
+      updatedAt: new Date(o.updated_at).toISOString()
+    }));
+
+    const inquiries = inqRes.rows.map(i => ({
+      id: i.id,
+      name: i.name,
+      email: i.email,
+      subject: i.subject,
+      orderId: i.order_id || null,
+      message: i.message,
+      status: i.status,
+      createdAt: new Date(i.created_at).toISOString()
+    }));
+
+    const reports = repRes.rows.map(r => ({
+      id: r.id,
+      targetId: r.target_id,
+      targetType: r.target_type,
+      reason: r.reason,
+      details: r.details || null,
+      status: r.status,
+      createdAt: new Date(r.created_at).toISOString()
+    }));
 
     return {
       profiles,
-      orders: ordersRes.rows.map(o => this.mapOrder(o)),
-      inquiries: inqRes.rows,
-      reports: repRes.rows,
-      liveStats: {
-        online: 1,
-        visitsToday: 1,
-        totalVerifiedParticipants: parseInt(s?.verified_count || '0', 10),
-        totalVerifiedRevenue: parseFloat(s?.verified_revenue || '0'),
-        totalClaims: parseInt(s?.total_claims || '0', 10),
-        claimsToday: parseInt(s?.claims_today || '0', 10),
-        topAmount: profiles[0]?.amount || 0,
-        minAmountToBeatTop: (profiles[0]?.amount || 0) + 1
+      orders,
+      inquiries,
+      reports,
+      stats,
+      liveStats: stats,
+      analytics: {
+        totalRevenueINR: stats.totalVerifiedRevenue,
+        successfulPurchases: stats.totalClaims,
+        homepageViews: 0,
+        shareClicks: 0
+      },
+      pagination: {
+        limit,
+        offset,
+        totalOrders: parseInt(s?.total_orders || '0', 10)
       },
       serverTime: new Date().toISOString()
     };

@@ -73,8 +73,8 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
             Leaderboard rank is determined solely by the cumulative verified amount (in INR) paid toward a specific profile. Higher cumulative verified sponsorship results in a higher rank (e.g. #1 Rank has the highest verified total).
           </div>
           <div className="p-3 rounded-lg bg-zinc-100 border border-zinc-200">
-            <strong className="text-zinc-950 block mb-0.5">Rule 2: Tie-Breaking by Earlier Timestamp</strong>
-            In the event that two or more profiles have the exact same cumulative verified amount, the profile that achieved that verified total earlier in time receives the higher rank.
+            <strong className="text-zinc-950 block mb-0.5">Rule 2: Deterministic Tie-Breaking</strong>
+            In the event that two or more profiles have the exact same cumulative verified amount in INR, ties are resolved deterministically: first by earlier FIRST verified payment timestamp (first_verified_at), and subsequently by stable unique profile ID.
           </div>
           <div className="p-3 rounded-lg bg-zinc-100 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">Rule 3: Live Rank Displacement Dynamic</strong>

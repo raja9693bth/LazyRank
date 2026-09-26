@@ -353,3 +353,70 @@ export interface LazyDilemma {
   userVotedOptionId?: string | null;
   endDate?: string;
 }
+
+export interface AdminOrderRecord {
+  orderId: string;
+  profileId: string | null;
+  name: string;
+  amount: number;
+  currency: string;
+  status: string;
+  paymentMode: string;
+  provider: string;
+  customerEmail?: string | null;
+  customerPhone?: string | null;
+  cfPaymentId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminInquiryRecord {
+  id: string;
+  name: string;
+  email: string;
+  subject: string;
+  orderId?: string | null;
+  message: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface AdminReportRecord {
+  id: string;
+  targetId: string;
+  targetType: string;
+  reason: string;
+  details?: string | null;
+  status: string;
+  createdAt: string;
+}
+
+export interface AdminStats {
+  totalVerifiedParticipants: number;
+  totalVerifiedRevenue: number;
+  totalClaims: number;
+  claimsToday: number;
+  topAmount: number;
+  minAmountToBeatTop: number;
+}
+
+export interface AdminDataResponse {
+  profiles: UserProfile[];
+  orders: AdminOrderRecord[];
+  inquiries: AdminInquiryRecord[];
+  reports: AdminReportRecord[];
+  stats: AdminStats;
+  liveStats?: AdminStats;
+  analytics?: {
+    totalRevenueINR: number;
+    successfulPurchases: number;
+    homepageViews: number;
+    shareClicks: number;
+  };
+  pagination: {
+    limit: number;
+    offset: number;
+    totalOrders: number;
+  };
+  serverTime: string;
+}

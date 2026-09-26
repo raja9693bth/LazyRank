@@ -283,7 +283,7 @@ async function runCommercialTests() {
   });
 
   // Create matching order with valid owner token
-  db.createOrder({
+  await db.createOrder({
     orderId: refundOrderId,
     name: 'Refund Target User',
     amount: 1000,
@@ -316,6 +316,7 @@ async function runCommercialTests() {
   process.env.PAYMENT_MODE = 'disabled';
   process.env.DEMO_MODE = 'false';
   process.env.APP_URL = 'https://lazyproof.online';
+  process.env.ALLOW_MOCK_REFUNDS = 'true';
 
   try {
     await import('../server.ts');
@@ -354,13 +355,17 @@ async function runCommercialTests() {
 
   // 6.3 Receipt Endpoint
   const dummyReceiptOrderId = 'order_receipt_test_' + Date.now();
-  db.createOrder({
+  const dummyOrderToken = 'receipt-token-' + Date.now();
+  await db.createOrder({
     orderId: dummyReceiptOrderId,
     name: 'Receipt User',
-    amount: 750
+    amount: 750,
+    orderAccessToken: dummyOrderToken
   });
 
-  const resReceipt = await fetchJson(`${BASE}/api/payment/receipt/${dummyReceiptOrderId}`);
+  const resReceipt = await fetchJson(`${BASE}/api/payment/receipt/${dummyReceiptOrderId}`, {
+    headers: { 'x-order-access-token': dummyOrderToken }
+  });
   assert(resReceipt.status === 200, '/api/payment/receipt/:orderId returns 200');
   assert(resReceipt.body.operator === 'ADABHRA GROUP', 'Receipt operator is ADABHRA GROUP');
   assert(resReceipt.body.amount === 750, 'Receipt amount matches order amount');
@@ -371,7 +376,9 @@ async function runCommercialTests() {
   );
 
   // 6.4 Status Polling Endpoint
-  const resStatus = await fetchJson(`${BASE}/api/payment/status/${dummyReceiptOrderId}`);
+  const resStatus = await fetchJson(`${BASE}/api/payment/status/${dummyReceiptOrderId}`, {
+    headers: { 'x-order-access-token': dummyOrderToken }
+  });
   assert(resStatus.status === 200, '/api/payment/status/:orderId returns 200');
   assert(resStatus.body.orderId === dummyReceiptOrderId, 'Status orderId matches');
 
@@ -445,6 +452,12 @@ async function runCommercialTests() {
   }
 
   // 6.6 Admin-authorized refund endpoint
+  if (db.isPostgresAuthoritative()) {
+    await (db as any).pg.pool.query("UPDATE payment_orders SET status = 'PAID' WHERE order_id = $1", [dummyReceiptOrderId]);
+  } else if ((db as any).state?.orders?.[dummyReceiptOrderId]) {
+    (db as any).state.orders[dummyReceiptOrderId].status = 'PAID';
+  }
+
   const resRefundNoAdmin = await fetchJson(`${BASE}/api/payment/refund`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

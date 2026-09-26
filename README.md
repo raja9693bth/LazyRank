@@ -115,7 +115,7 @@ npm run build
 ## 4. Migrations & Schema
 
 The base schema is defined in `server/db/schema.sql`. Additive migrations are located in `server/db/migrations/` and applied automatically on server startup via `server/db/postgres.ts`:
-- `server/db/schema.sql`: Fresh baseline authoritative schema containing all core tables (`profiles`, `payment_orders`, `payment_transactions`, `rank_ledger`, `claim_history`, `refund_reversals`, `reports`, `nominations`, `notification_preferences`, `contact_inquiries`, `operational_outbox`, `outbox_channel_deliveries`, `rate_limit_hits`).
+- `server/db/schema.sql`: Fresh baseline authoritative schema containing all core tables (`profiles`, `payment_orders`, `payment_transactions`, `rank_ledger`, `claim_history`, `refund_reversals`, `reports`, `nominations`, `notification_preferences`, `contact_inquiries`, `operational_outbox`, `outbox_channel_deliveries`, `api_rate_limits`).
 - `002_remediation.sql`: Owner token hashing, check constraints, refund reservations, and transaction isolation.
 - `003_final_polish.sql`: Deterministic tie-breaking indexes, audit logging, and payment verification hardening.
 - `004_today_leaderboard.sql`: IST boundary indexes for high-performance daily window leaderboard aggregations.

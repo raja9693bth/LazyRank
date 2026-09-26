@@ -129,6 +129,13 @@ All compliance pages are complete, live, mobile-responsive, and prominently link
 - **Processing Time:** Validated refunds are processed internally within 5–7 business days (estimate) and credited back through the original payment method by the banking gateway.
 - **Rank Debit Enforcement:** A refunded or reversed payment immediately ceases to count as verified sponsorship. The platform's `reverseRefund` engine deducts the confirmed refunded amount from the profile's verified cumulative total and recalculates the leaderboard positions atomically in PostgreSQL. Partial refunds only deduct confirmed partial amounts, and total refunds never exceed the original captured payment.
 
+### Dispute & Chargeback Reconciliation SOP:
+Because Cashfree's current core Payment Gateway APIs provide settlement telemetry but require merchant dashboard handling for formal bank chargeback representations, the following founder review SOP is enforced:
+1. **Dispute Notification:** Inquiries or chargeback notices received via Cashfree merchant dashboard or banking channels trigger documented founder review against fulfillment telemetry (`payment_orders`, `payment_transactions`, server fulfillment logs).
+2. **No Unverified Debits:** Unverified client claims, emails, or unauthenticated webhooks NEVER trigger automated ledger adjustments or profile debits.
+3. **Confirmed Settlement Adjustment:** Only upon official, final bank dispute settlement upheld by Cashfree (with official dispute reference ID and proof of debit in merchant settlement records) does an administrator execute the narrow, authenticated adjustment path (`POST /api/payment/chargeback` requiring `x-admin-key`).
+4. **Idempotency & Audit Isolation:** Each chargeback adjustment records a `DEBIT_CHARGEBACK` in `rank_ledger` tied uniquely to `disputeId`, ensuring no duplicate debit, keeping dispute IDs strictly isolated from merchant refund IDs, and deterministically updating profile amount and active ranks.
+
 ---
 
 ## 7. Merchant Business Category Guidance
@@ -144,10 +151,10 @@ When completing payment gateway onboarding forms, select the category that best 
 
 | Checkpoint | Status | Notes |
 |---|---|---|
-| **Public Deployment & Domain** | **UNVERIFIED — PUBLIC DEPLOYMENT CHECK REQUIRED** | Domain currently parked on Hostinger DNS; web server DNS pointing required before final public audit |
-| **HTTPS SSL/TLS** | **UNVERIFIED — PUBLIC DEPLOYMENT CHECK REQUIRED** | Requires live production host certificate validation |
+| **Public Deployment & Domain** | **VERIFIED LIVE (September 2026)** | `https://lazyproof.online` is active, serving production web assets and valid canonical links |
+| **HTTPS SSL/TLS** | **VERIFIED ACTIVE (September 2026)** | Valid TLS certificate active on `https://lazyproof.online` with HSTS enforcement |
 | **All Compliance Pages** | **Source Complete & Ready** | Terms, Privacy, Refund, Delivery, Contact, Rules, About implemented in repository |
-| **Operator Details** | **Consistent** | Adabhra Group (Sole Proprietorship) across all pages and schemas |
+| **Operator Details** | **Consistent** | Adabhra Group (Sole Proprietorship, Proprietor: Raja Babu) across all pages and schemas |
 | **Pricing Transparency** | **Active** | Clear breakdown and affirmative terms & privacy checkbox before checkout |
 | **Cashfree PG Integration** | **Engineered** | API v2026-01-01 client, HMAC verification, retry-safe idempotency, refund state machine |
 | **Cashfree Sandbox E2E** | **UNVERIFIED — CASHFREE TEST CREDENTIALS REQUIRED** | Requires developer test credentials to perform end-to-end sandbox transaction |

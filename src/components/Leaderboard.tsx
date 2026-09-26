@@ -26,8 +26,6 @@ interface LeaderboardProps {
   hasMore?: boolean;
   onLoadMore?: () => void;
   isLoadingMore?: boolean;
-  currentFilter?: 'verified' | 'all';
-  onSelectFilter?: (filter: 'verified' | 'all') => void;
   currencyMode?: 'INR' | 'USD';
   minAmountToBeatTop?: number;
   period?: 'all' | 'today';
@@ -48,8 +46,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
   hasMore = false,
   onLoadMore,
   isLoadingMore = false,
-  currentFilter = 'verified',
-  onSelectFilter,
   currencyMode = 'INR',
   minAmountToBeatTop = 1,
   period = 'all',
@@ -80,36 +76,6 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
               : 'Ranked deterministically by cumulative verified sponsorship.'}
           </p>
         </div>
-
-        {/* Scope Filter: Verified vs All */}
-        {onSelectFilter && (
-          <div className="flex items-center bg-[#ede5db] p-0.5 rounded-xl text-xs font-bold shrink-0 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => onSelectFilter('verified')}
-              className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                currentFilter === 'verified'
-                  ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              Verified Only
-            </button>
-            {period !== 'today' && (
-              <button
-                type="button"
-                onClick={() => onSelectFilter('all')}
-                className={`px-3 py-1 rounded-lg transition-all cursor-pointer ${
-                  currentFilter === 'all'
-                    ? 'bg-white text-stone-900 shadow-2xs font-extrabold'
-                    : 'text-stone-600 hover:text-stone-900'
-                }`}
-              >
-                All Claims
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Accessible Timeframe Switcher: All-time | Today (Centered in Leaderboard column) */}
@@ -179,7 +145,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
           <span>
             {activeCategory === 'All'
               ? `Showing all ${profiles.length} currently loaded profile${profiles.length === 1 ? '' : 's'}.`
-              : `Showing ${categoryFilteredProfiles.length} of ${profiles.length} loaded profile${profiles.length === 1 ? '' : 's'} in "${activeCategory}".`}
+              : `Showing ${categoryFilteredProfiles.length} of ${profiles.length} loaded profile${profiles.length === 1 ? '' : 's'} in "${activeCategory}" (filters loaded pages only).`}
           </span>
           <span className="font-mono-numbers font-semibold">
             Total records: {totalCount}

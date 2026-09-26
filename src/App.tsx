@@ -67,7 +67,6 @@ export default function App() {
   const [verifiedTotalCount, setVerifiedTotalCount] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState<boolean>(false);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
-  const [filterMode, setFilterMode] = useState<'verified' | 'all'>('verified');
 
   // Form & Order State
   const [initialClaimAmount, setInitialClaimAmount] = useState<number | undefined>(undefined);
@@ -137,7 +136,7 @@ export default function App() {
   const loadLeaderboard = async (
     pageOffset = 0,
     pageSize = 20,
-    filter = filterMode,
+    filter = 'verified',
     isAppend = false,
     targetPeriod: RankPeriod = currentPeriod
   ) => {
@@ -201,15 +200,7 @@ export default function App() {
     setCurrentPeriod(newPeriod);
     setCurrentPage(1);
     setProfiles([]);
-    const effectiveFilter = newPeriod === 'today' ? 'verified' : filterMode;
-    loadLeaderboard(0, 20, effectiveFilter, false, newPeriod);
-  };
-
-  const handleFilterChange = (newFilter: 'verified' | 'all') => {
-    if (currentPeriod === 'today') return;
-    setFilterMode(newFilter);
-    setCurrentPage(1);
-    loadLeaderboard(0, 20, newFilter, false, currentPeriod);
+    loadLeaderboard(0, 20, 'verified', false, newPeriod);
   };
 
   const handleLoadMore = () => {
@@ -217,7 +208,7 @@ export default function App() {
     setIsLoadingMore(true);
     const nextPage = currentPage + 1;
     setCurrentPage(nextPage);
-    loadLeaderboard((nextPage - 1) * 20, 20, currentPeriod === 'today' ? 'verified' : filterMode, true, currentPeriod);
+    loadLeaderboard((nextPage - 1) * 20, 20, 'verified', true, currentPeriod);
   };
 
   // Load Permanent All-Time Top 3 & Top Profile
@@ -400,7 +391,7 @@ export default function App() {
       lastRefreshedIstDate = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCDate();
       loadGlobalActivity();
       loadAllTimeTop3();
-      loadLeaderboard(0, 20, currentPeriod === 'today' ? 'verified' : filterMode, false, currentPeriod);
+      loadLeaderboard(0, 20, 'verified', false, currentPeriod);
       scheduleNext();
     };
 
@@ -432,7 +423,7 @@ export default function App() {
       if (timer) clearTimeout(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentPeriod, filterMode]);
+  }, [currentPeriod]);
 
   const navigate = (path: string) => {
     window.history.pushState({}, '', path);
@@ -563,7 +554,7 @@ export default function App() {
 
     window.history.pushState({}, '', `/?rank=${profile.id}`);
 
-    loadLeaderboard(0, 20, filterMode, false);
+    loadLeaderboard(0, 20, 'verified', false);
     loadAllTimeTop3();
     loadActivities();
     loadGlobalActivity();
@@ -738,7 +729,7 @@ export default function App() {
                   minAmountToBeatTop={minAmountToBeatTop}
                   isLoadingMinAmount={isLoadingLeaderboard && profiles.length === 0}
                   hasLeaderboardError={leaderboardError}
-                  onRetryLeaderboard={() => loadLeaderboard(0, 20, currentPeriod === 'today' ? 'verified' : filterMode, false, currentPeriod)}
+                  onRetryLeaderboard={() => loadLeaderboard(0, 20, 'verified', false, currentPeriod)}
                   onClaimAmount={handleHeroClaim}
                   currencyMode={currencyMode}
                   canClaim={paymentConfig.enabled && paymentConfig.taxReady}
@@ -769,13 +760,11 @@ export default function App() {
                       onClaimSpecificRank={(target) => handleOpenDrawerWithClaim(target)}
                       isLoading={isLoadingLeaderboard}
                       hasError={leaderboardError}
-                      onRetry={() => loadLeaderboard(0, 20, currentPeriod === 'today' ? 'verified' : filterMode, false, currentPeriod)}
+                      onRetry={() => loadLeaderboard(0, 20, 'verified', false, currentPeriod)}
                       totalCount={totalCount}
                       hasMore={hasMore}
                       onLoadMore={handleLoadMore}
                       isLoadingMore={isLoadingMore}
-                      currentFilter={filterMode}
-                      onSelectFilter={handleFilterChange}
                       currencyMode={currencyMode}
                       minAmountToBeatTop={minAmountToBeatTop}
                       period={currentPeriod}

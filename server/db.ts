@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import { UserProfile, Nomination, ActivityEvent, PurchaseRecord, ReportRecord, AnalyticsSummary, LiveStats, ContactMessage, NotificationSubscription, ClaimHistoryRecord, GlobalActivityData, HourlyActivityBucket, DayActivityBucket, LazyDilemma } from '../src/types.ts';
-import { PostgresDatabase, hashToken, verifyOwnerToken } from './db/postgres.ts';
+import { PostgresDatabase, hashToken, verifyOwnerToken, getIstTodayWindow } from './db/postgres.ts';
 
 const DATA_FILE = path.join(process.cwd(), 'server-data.json');
 
@@ -679,6 +679,9 @@ export class LazyDatabase {
     topAmount: number;
     minAmountToBeatTop: number;
     filter: 'verified' | 'all';
+    periodStartUtc?: string;
+    periodEndUtc?: string;
+    rankingBasis?: string;
   } {
     const period = options?.period || 'all';
     const filter = options?.filter || 'verified';
@@ -697,6 +700,91 @@ export class LazyDatabase {
       const pageSize = Math.max(1, Math.min(100, options?.pageSize || 20));
       offset = (page - 1) * pageSize;
       limit = pageSize;
+    }
+
+    // All-time top amount and minimum to beat top are ALWAYS all-time verified figures
+    const allTimeVerified = this.state.profiles.filter(p => p.isVerified && p.amount > 0 && p.moderationStatus !== 'removed');
+    allTimeVerified.sort((a, b) => {
+      if (b.amount !== a.amount) return b.amount - a.amount;
+      const timeA = new Date(a.firstVerifiedAt || a.verifiedAt || a.createdAt).getTime();
+      const timeB = new Date(b.firstVerifiedAt || b.verifiedAt || b.createdAt).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      return a.id.localeCompare(b.id);
+    });
+    const allTimeTopAmount = allTimeVerified.length > 0 ? allTimeVerified[0].amount : 0;
+    const minAmountToBeatTop = allTimeTopAmount + 1;
+
+    if (period === 'today') {
+      const { startTodayMs, endTodayMs, startTodayUtc, endTodayUtc } = getIstTodayWindow();
+      const qualifying: (UserProfile & { periodAmountINR: number; earliestCreditMs: number })[] = [];
+
+      for (const p of this.state.profiles) {
+        if (!p.isVerified || p.amount <= 0 || p.moderationStatus === 'removed' || p.reason === '[Content Removed]') {
+          continue;
+        }
+        let todayAmount = 0;
+        let earliestCreditMs = Infinity;
+
+        if (p.claimHistory && p.claimHistory.length > 0) {
+          for (const ch of p.claimHistory) {
+            const t = new Date(ch.timestamp).getTime();
+            if (t >= startTodayMs && t < endTodayMs) {
+              todayAmount += ch.amount;
+              if (t < earliestCreditMs) earliestCreditMs = t;
+            }
+          }
+        } else if (p.verifiedAt) {
+          const t = new Date(p.verifiedAt).getTime();
+          if (t >= startTodayMs && t < endTodayMs) {
+            todayAmount = p.amount;
+            earliestCreditMs = t;
+          }
+        }
+
+        if (todayAmount > 0) {
+          qualifying.push({
+            ...p,
+            periodAmountINR: todayAmount,
+            earliestCreditMs: earliestCreditMs === Infinity ? startTodayMs : earliestCreditMs
+          });
+        }
+      }
+
+      // Sort by todayAmount DESC, earliestCreditMs ASC, id ASC
+      qualifying.sort((a, b) => {
+        if (b.periodAmountINR !== a.periodAmountINR) return b.periodAmountINR - a.periodAmountINR;
+        if (a.earliestCreditMs !== b.earliestCreditMs) return a.earliestCreditMs - b.earliestCreditMs;
+        return a.id.localeCompare(b.id);
+      });
+
+      const totalCount = qualifying.length;
+      const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+      const paginated = qualifying.slice(offset, offset + limit).map((p, idx) => ({
+        ...this.sanitizeProfile(p),
+        // rank and amount retain ALL-TIME values
+        periodRank: offset + idx + 1,
+        periodAmountINR: p.periodAmountINR,
+        periodCreditSettledAt: new Date(p.earliestCreditMs).toISOString()
+      }));
+      const hasMore = offset + paginated.length < totalCount;
+
+      return {
+        profiles: paginated,
+        totalCount,
+        page,
+        pageSize: limit,
+        offset,
+        limit,
+        totalPages,
+        hasMore,
+        period: 'today',
+        topAmount: allTimeTopAmount,
+        minAmountToBeatTop,
+        filter: 'verified',
+        periodStartUtc: startTodayUtc,
+        periodEndUtc: endTodayUtc,
+        rankingBasis: 'net_settled_credits_today_ist'
+      };
     }
 
     const cutoff = LazyDatabase.getPeriodCutoff(period);
@@ -727,10 +815,6 @@ export class LazyDatabase {
       ...p,
       rank: idx + 1
     }));
-
-    // Period-accurate #1 amount and minimum required to take #1
-    const periodTopAmount = mappedVerified.length > 0 ? mappedVerified[0].amount : 0;
-    const periodMinAmountToBeatTop = periodTopAmount > 0 ? periodTopAmount + 1 : 1;
 
     let allEntries: UserProfile[] = mappedVerified;
 
@@ -772,8 +856,8 @@ export class LazyDatabase {
       totalPages,
       hasMore,
       period,
-      topAmount: periodTopAmount,
-      minAmountToBeatTop: periodMinAmountToBeatTop,
+      topAmount: allTimeTopAmount,
+      minAmountToBeatTop,
       filter
     };
   }

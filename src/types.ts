@@ -41,6 +41,9 @@ export interface UserProfile {
   rankExpiresAt?: string; // Daily period cycle indicator
   lazyReason?: string; // Predefined selected Lazy Reason (e.g. 'Procrastination Master', 'Bed Connoisseur')
   lazyStreakDays?: number; // Consecutive days maintaining a Top 10 position to encourage retention
+  periodAmountINR?: number; // Verified paid amount in INR for the active period (e.g. Today net amount)
+  periodRank?: number; // 1-indexed derived rank for the active period
+  periodCreditSettledAt?: string; // Earliest qualifying credit timestamp in period
 }
 
 export interface Nomination {
@@ -246,6 +249,9 @@ export interface LeaderboardResponse {
   topAmount: number;
   minAmountToBeatTop: number;
   filter?: 'verified' | 'all';
+  periodStartUtc?: string;
+  periodEndUtc?: string;
+  rankingBasis?: string;
   timestamp: string;
 }
 

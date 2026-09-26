@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS rank_ledger (
 CREATE INDEX IF NOT EXISTS idx_rank_ledger_profile_id ON rank_ledger (profile_id);
 CREATE INDEX IF NOT EXISTS idx_rank_ledger_order_id ON rank_ledger (order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS rank_ledger_one_credit_per_order ON rank_ledger(order_id) WHERE type = 'CREDIT';
+CREATE INDEX IF NOT EXISTS idx_rank_ledger_created_at ON rank_ledger (created_at);
+CREATE INDEX IF NOT EXISTS idx_rank_ledger_settled_credits ON rank_ledger (created_at) WHERE type = 'CREDIT' AND status = 'SETTLED';
 
 -- 5. Claim History Table (Audit Trail of User Rank Events)
 CREATE TABLE IF NOT EXISTS claim_history (

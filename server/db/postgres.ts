@@ -123,6 +123,40 @@ export function verifyOwnerToken(stored: string | undefined | null, provided: st
   return constantTimeMatch(stored, cleanProvided);
 }
 
+/**
+ * Calculates current IST day boundaries in UTC.
+ * Today is precisely [00:00 IST today, 00:00 IST tomorrow).
+ * IST is UTC+05:30.
+ */
+export function getIstTodayWindow(): {
+  startTodayUtc: string;
+  endTodayUtc: string;
+  startTodayMs: number;
+  endTodayMs: number;
+  istDateStr: string;
+} {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const nowUtc = Date.now();
+  const nowIst = new Date(nowUtc + IST_OFFSET_MS);
+
+  const istMidnightUtcMs = Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate());
+  const startTodayMs = istMidnightUtcMs - IST_OFFSET_MS;
+  const endTodayMs = startTodayMs + 24 * 60 * 60 * 1000;
+
+  const yyyy = nowIst.getUTCFullYear();
+  const mm = String(nowIst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(nowIst.getUTCDate()).padStart(2, '0');
+  const istDateStr = `${yyyy}-${mm}-${dd}`;
+
+  return {
+    startTodayUtc: new Date(startTodayMs).toISOString(),
+    endTodayUtc: new Date(endTodayMs).toISOString(),
+    startTodayMs,
+    endTodayMs,
+    istDateStr
+  };
+}
+
 export class PostgresDatabase {
   private pool: pg.Pool | null = null;
   private isInitialized = false;
@@ -204,6 +238,20 @@ export class PostgresDatabase {
           const mig003Sql = fs.readFileSync(mig003Path, 'utf-8');
           await client.query(mig003Sql);
           console.log('[PostgreSQL] Migration 003_final_polish applied successfully.');
+        }
+
+        // 5. Check and apply migration 004_today_leaderboard if not already recorded
+        const mig004Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '004_today_leaderboard'"
+        );
+        if (mig004Res.rows.length === 0) {
+          const mig004Path = path.join(process.cwd(), 'server', 'db', 'migrations', '004_today_leaderboard.sql');
+          if (!fs.existsSync(mig004Path)) {
+            throw new Error('Required migration 004_today_leaderboard.sql is missing.');
+          }
+          const mig004Sql = fs.readFileSync(mig004Path, 'utf-8');
+          await client.query(mig004Sql);
+          console.log('[PostgreSQL] Migration 004_today_leaderboard applied successfully.');
         }
 
         this.isInitialized = true;
@@ -949,6 +997,7 @@ export class PostgresDatabase {
 
   /**
    * Authoritative Leaderboard query from PostgreSQL
+   * Supports period: 'all' | 'today'
    */
   public async getLeaderboard(options?: {
     period?: string;
@@ -963,20 +1012,158 @@ export class PostgresDatabase {
     hasMore: boolean;
     page: number;
     pageSize: number;
+    totalPages: number;
+    period: 'all' | 'today';
     topAmount: number;
     minAmountToBeatTop: number;
+    filter: 'verified' | 'all';
+    periodStartUtc?: string;
+    periodEndUtc?: string;
+    rankingBasis?: string;
   }> {
-    if (options?.period && options.period !== 'all') {
-      throw new Error("Only all-time leaderboard is available; period must be 'all' or absent.");
+    const rawPeriod = options?.period || 'all';
+    if (rawPeriod !== 'all' && rawPeriod !== 'today') {
+      throw new Error("Unsupported period; supported periods are 'all' and 'today'.");
     }
+    const period = rawPeriod as 'all' | 'today';
+
     if (!this.pool) {
-      return { profiles: [], totalCount: 0, hasMore: false, page: 1, pageSize: 20, topAmount: 0, minAmountToBeatTop: 1 };
+      return {
+        profiles: [],
+        totalCount: 0,
+        hasMore: false,
+        page: 1,
+        pageSize: 20,
+        totalPages: 1,
+        period,
+        topAmount: 0,
+        minAmountToBeatTop: 1,
+        filter: 'verified'
+      };
     }
 
     const limit = Math.min(Math.max(1, options?.limit || options?.pageSize || 20), 100);
     const offset = Math.max(0, options?.offset ?? (options?.page ? (options.page - 1) * limit : 0));
     const isVerifiedOnly = options?.filter !== 'all';
 
+    // Top amount and minAmountToBeatTop are ALWAYS authoritative ALL-TIME values
+    const topRes = await this.pool.query(
+      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
+    );
+    const topAmount = topRes.rows.length > 0 ? Number(topRes.rows[0].amount) : 0;
+    const minAmountToBeatTop = topAmount + 1;
+
+    if (period === 'today') {
+      const { startTodayUtc, endTodayUtc } = getIstTodayWindow();
+
+      const countQuery = `
+        WITH today_credits AS (
+          SELECT profile_id, order_id, amount
+          FROM rank_ledger
+          WHERE type = 'CREDIT' AND status = 'SETTLED'
+            AND created_at >= $1 AND created_at < $2
+        ),
+        order_debits AS (
+          SELECT l.order_id, SUM(ABS(l.amount)) AS debit_amount
+          FROM rank_ledger l
+          JOIN today_credits tc ON l.order_id = tc.order_id
+          WHERE l.type IN ('DEBIT_REFUND', 'DEBIT_CHARGEBACK') AND l.status = 'SETTLED'
+          GROUP BY l.order_id
+        ),
+        profile_today_orders AS (
+          SELECT
+            tc.profile_id,
+            GREATEST(0, tc.amount - COALESCE(od.debit_amount, 0)) AS order_net_amount
+          FROM today_credits tc
+          LEFT JOIN order_debits od ON tc.order_id = od.order_id
+        ),
+        profile_today_totals AS (
+          SELECT
+            profile_id,
+            SUM(order_net_amount) AS today_amount
+          FROM profile_today_orders
+          GROUP BY profile_id
+          HAVING SUM(order_net_amount) > 0
+        )
+        SELECT COUNT(*) as cnt
+        FROM profile_today_totals ptt
+        JOIN profiles p ON p.id = ptt.profile_id
+        WHERE p.moderation_status = 'active' AND p.is_verified = TRUE;
+      `;
+      const countRes = await this.pool.query(countQuery, [startTodayUtc, endTodayUtc]);
+      const totalCount = parseInt(countRes.rows[0]?.cnt || '0', 10);
+
+      const dataQuery = `
+        WITH today_credits AS (
+          SELECT profile_id, order_id, amount, created_at AS credit_time
+          FROM rank_ledger
+          WHERE type = 'CREDIT' AND status = 'SETTLED'
+            AND created_at >= $1 AND created_at < $2
+        ),
+        order_debits AS (
+          SELECT l.order_id, SUM(ABS(l.amount)) AS debit_amount
+          FROM rank_ledger l
+          JOIN today_credits tc ON l.order_id = tc.order_id
+          WHERE l.type IN ('DEBIT_REFUND', 'DEBIT_CHARGEBACK') AND l.status = 'SETTLED'
+          GROUP BY l.order_id
+        ),
+        profile_today_orders AS (
+          SELECT
+            tc.profile_id,
+            tc.credit_time,
+            GREATEST(0, tc.amount - COALESCE(od.debit_amount, 0)) AS order_net_amount
+          FROM today_credits tc
+          LEFT JOIN order_debits od ON tc.order_id = od.order_id
+        ),
+        profile_today_totals AS (
+          SELECT
+            profile_id,
+            SUM(order_net_amount) AS today_amount,
+            MIN(credit_time) AS earliest_credit_time
+          FROM profile_today_orders
+          GROUP BY profile_id
+          HAVING SUM(order_net_amount) > 0
+        )
+        SELECT
+          p.*,
+          ptt.today_amount,
+          ptt.earliest_credit_time,
+          ROW_NUMBER() OVER (
+            ORDER BY ptt.today_amount DESC, ptt.earliest_credit_time ASC, p.id ASC
+          ) as dynamic_period_rank
+        FROM profile_today_totals ptt
+        JOIN profiles p ON p.id = ptt.profile_id
+        WHERE p.moderation_status = 'active' AND p.is_verified = TRUE
+        ORDER BY ptt.today_amount DESC, ptt.earliest_credit_time ASC, p.id ASC
+        LIMIT $3 OFFSET $4;
+      `;
+      const res = await this.pool.query(dataQuery, [startTodayUtc, endTodayUtc, limit, offset]);
+      const profiles = res.rows.map(r => ({
+        ...this.mapProfile(r),
+        rank: Number(r.rank), // all-time rank is preserved
+        periodRank: Number(r.dynamic_period_rank),
+        periodAmountINR: Number(r.today_amount),
+        periodCreditSettledAt: r.earliest_credit_time ? new Date(r.earliest_credit_time).toISOString() : undefined
+      }));
+
+      return {
+        profiles,
+        totalCount,
+        hasMore: offset + profiles.length < totalCount,
+        page: Math.floor(offset / limit) + 1,
+        pageSize: limit,
+        totalPages: Math.ceil(totalCount / limit) || 1,
+        period: 'today',
+        topAmount,
+        minAmountToBeatTop,
+        filter: 'verified',
+        periodStartUtc: startTodayUtc,
+        periodEndUtc: endTodayUtc,
+        rankingBasis: 'net_settled_credits_today_ist'
+      };
+    }
+
+    // ALL-TIME Leaderboard
     const whereClause = isVerifiedOnly
       ? "WHERE moderation_status = 'active' AND is_verified = TRUE"
       : "WHERE moderation_status = 'active'";
@@ -997,19 +1184,17 @@ export class PostgresDatabase {
       rank: Number(r.dynamic_rank || r.rank)
     }));
 
-    const topRes = await this.pool.query(
-      "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
-    );
-    const topAmount = topRes.rows.length > 0 ? Number(topRes.rows[0].amount) : 0;
-
     return {
       profiles,
       totalCount,
       hasMore: offset + profiles.length < totalCount,
       page: Math.floor(offset / limit) + 1,
       pageSize: limit,
+      totalPages: Math.ceil(totalCount / limit) || 1,
+      period: 'all',
       topAmount,
-      minAmountToBeatTop: topAmount + 1
+      minAmountToBeatTop,
+      filter: isVerifiedOnly ? 'verified' : 'all'
     };
   }
 
@@ -1269,35 +1454,54 @@ export class PostgresDatabase {
       };
     }
 
-    const now = new Date();
-    const currentHour = now.getHours();
+    const { startTodayUtc, endTodayUtc } = getIstTodayWindow();
+    const nowIst = new Date(Date.now() + 5.5 * 3600 * 1000);
+    const currentIstHour = nowIst.getUTCHours();
 
-    const claimsRes = await this.pool.query(`
-      SELECT
-        id,
-        amount,
-        created_at,
-        EXTRACT(HOUR FROM created_at) as hour,
-        created_at::date as claim_date
-      FROM rank_ledger
-      WHERE type = 'CREDIT' AND status = 'SETTLED'
-      ORDER BY created_at DESC
-    `);
+    // 1. Claims today & Total amount today in IST window
+    const todayRes = await this.pool.query(
+      `SELECT COUNT(*) as claims_today, COALESCE(SUM(amount), 0) as total_amount_today
+       FROM rank_ledger
+       WHERE type = 'CREDIT' AND status = 'SETTLED'
+         AND created_at >= $1 AND created_at < $2`,
+      [startTodayUtc, endTodayUtc]
+    );
+    const claimsToday = parseInt(todayRes.rows[0]?.claims_today || '0', 10);
+    const totalAmountToday = parseFloat(todayRes.rows[0]?.total_amount_today || '0');
 
-    const allClaims = claimsRes.rows.map(r => ({
-      id: r.id,
-      amount: parseFloat(r.amount),
-      createdAt: new Date(r.created_at),
-      hour: parseInt(r.hour, 10),
-      dateStr: new Date(r.created_at).toISOString().slice(0, 10)
-    }));
+    // 2. Lifetime claims total
+    const totalClaimsRes = await this.pool.query(
+      `SELECT COUNT(*) as claims_total FROM rank_ledger WHERE type = 'CREDIT' AND status = 'SETTLED'`
+    );
+    const claimsTotal = parseInt(totalClaimsRes.rows[0]?.claims_total || '0', 10);
 
-    const todayStr = now.toISOString().slice(0, 10);
-    const todayClaims = allClaims.filter(c => c.dateStr === todayStr);
+    // 3. Hourly activity in today's IST window (0 to 23 IST hours)
+    const hourlyRes = await this.pool.query(
+      `SELECT
+         EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata')::int as hour,
+         COUNT(*) as count,
+         COALESCE(SUM(amount), 0) as amount
+       FROM rank_ledger
+       WHERE type = 'CREDIT' AND status = 'SETTLED'
+         AND created_at >= $1 AND created_at < $2
+       GROUP BY hour`,
+      [startTodayUtc, endTodayUtc]
+    );
 
-    const claimsToday = todayClaims.length;
-    const claimsTotal = allClaims.length;
-    const totalAmountToday = todayClaims.reduce((acc, c) => acc + c.amount, 0);
+    const hourlyMap = new Map<number, { count: number; amount: number }>();
+    let peakClaims = 0;
+    let peakHourIndex = currentIstHour;
+
+    for (const row of hourlyRes.rows) {
+      const h = Number(row.hour);
+      const count = parseInt(row.count, 10);
+      const amt = parseFloat(row.amount);
+      hourlyMap.set(h, { count, amount: amt });
+      if (count > peakClaims) {
+        peakClaims = count;
+        peakHourIndex = h;
+      }
+    }
 
     const formatHour = (h: number): string => {
       if (h === 0) return '12 AM';
@@ -1306,25 +1510,16 @@ export class PostgresDatabase {
       return `${h - 12} PM`;
     };
 
-    let peakClaims = 0;
-    let peakHourIndex = currentHour;
-
     const hourlyActivity: HourlyActivityBucket[] = [];
     for (let h = 0; h < 24; h++) {
-      const claimsInHour = todayClaims.filter(c => c.hour === h);
-      const count = claimsInHour.length;
-      const amt = claimsInHour.reduce((acc, c) => acc + c.amount, 0);
-
+      const data = hourlyMap.get(h);
+      const count = data?.count || 0;
+      const amt = data?.amount || 0;
       let intensity = 0;
       if (count >= 5) intensity = 4;
       else if (count >= 3) intensity = 3;
       else if (count >= 2) intensity = 2;
       else if (count >= 1) intensity = 1;
-
-      if (count > peakClaims) {
-        peakClaims = count;
-        peakHourIndex = h;
-      }
 
       hourlyActivity.push({
         hour: h,
@@ -1332,21 +1527,46 @@ export class PostgresDatabase {
         claimsCount: count,
         amount: amt,
         intensity,
-        isCurrentHour: h === currentHour
+        isCurrentHour: h === currentIstHour
       });
+    }
+
+    // 4. Recent 7 days activity in IST
+    const sevenDaysAgoMs = Date.now() - 7 * 24 * 3600 * 1000;
+    const sevenDaysAgoIst = new Date(sevenDaysAgoMs + 5.5 * 3600 * 1000);
+    const start7DaysUtc = new Date(Date.UTC(sevenDaysAgoIst.getUTCFullYear(), sevenDaysAgoIst.getUTCMonth(), sevenDaysAgoIst.getUTCDate()) - 5.5 * 3600 * 1000).toISOString();
+
+    const recentDaysRes = await this.pool.query(
+      `SELECT
+         TO_CHAR(created_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') as date_str,
+         COUNT(*) as count,
+         COALESCE(SUM(amount), 0) as amount
+       FROM rank_ledger
+       WHERE type = 'CREDIT' AND status = 'SETTLED'
+         AND created_at >= $1
+       GROUP BY date_str`,
+      [start7DaysUtc]
+    );
+
+    const recentDaysMap = new Map<string, { count: number; amount: number }>();
+    for (const r of recentDaysRes.rows) {
+      recentDaysMap.set(r.date_str, { count: parseInt(r.count, 10), amount: parseFloat(r.amount) });
     }
 
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const recentDays: DayActivityBucket[] = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dStr = d.toISOString().slice(0, 10);
-      const dayName = dayNames[d.getDay()];
+      const dIst = new Date(Date.now() + 5.5 * 3600 * 1000 - i * 24 * 3600 * 1000);
+      const yyyy = dIst.getUTCFullYear();
+      const mm = String(dIst.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(dIst.getUTCDate()).padStart(2, '0');
+      const dStr = `${yyyy}-${mm}-${dd}`;
+      const dayName = dayNames[dIst.getUTCDay()];
       const isToday = i === 0;
 
-      const dayClaims = allClaims.filter(c => c.dateStr === dStr);
-      const count = isToday ? claimsToday : dayClaims.length;
-      const amt = isToday ? totalAmountToday : dayClaims.reduce((acc, c) => acc + c.amount, 0);
+      const data = recentDaysMap.get(dStr);
+      const count = isToday ? claimsToday : (data?.count || 0);
+      const amt = isToday ? totalAmountToday : (data?.amount || 0);
 
       let intensity = 0;
       if (count >= 12) intensity = 4;
@@ -1368,9 +1588,13 @@ export class PostgresDatabase {
       ? `${formatHour(peakHourIndex)} – ${formatHour((peakHourIndex + 1) % 24)}`
       : 'None recorded yet';
 
+    // 5. Latest claim minutes ago
+    const latestRes = await this.pool.query(
+      `SELECT created_at FROM rank_ledger WHERE type = 'CREDIT' AND status = 'SETTLED' ORDER BY created_at DESC LIMIT 1`
+    );
     let latestClaimMinutesAgo: number | null = null;
-    if (allClaims.length > 0) {
-      const diffMs = now.getTime() - allClaims[0].createdAt.getTime();
+    if (latestRes.rows.length > 0) {
+      const diffMs = Date.now() - new Date(latestRes.rows[0].created_at).getTime();
       latestClaimMinutesAgo = Math.max(0, Math.floor(diffMs / 60000));
     }
 
@@ -1388,7 +1612,7 @@ export class PostgresDatabase {
       peakHour,
       latestClaimMinutesAgo,
       activeParticipantsNow,
-      updatedAt: now.toISOString()
+      updatedAt: new Date().toISOString()
     };
   }
 

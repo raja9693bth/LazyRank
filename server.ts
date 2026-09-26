@@ -171,10 +171,13 @@ async function startServer() {
 
   // Leaderboard endpoint (Canonical source of paid ranks with server pagination & period filtering)
   app.get('/api/leaderboard', asyncHandler(async (req: Request, res: Response) => {
-    const period = req.query.period ?? 'all';
-    if (period !== 'all') {
-      return res.status(400).json({ error: 'Only all-time leaderboard is available.' });
+    const rawPeriod = (req.query.period as string) || 'all';
+    if (rawPeriod !== 'all' && rawPeriod !== 'today') {
+      return res.status(400).json({
+        error: "Unsupported period parameter. Supported periods are 'all' and 'today'."
+      });
     }
+    const period = rawPeriod as 'all' | 'today';
     const page = req.query.page ? parseInt(req.query.page as string, 10) : undefined;
     const pageSize = req.query.pageSize ? parseInt(req.query.pageSize as string, 10) : undefined;
     const offset = req.query.offset !== undefined ? parseInt(req.query.offset as string, 10) : undefined;
@@ -182,14 +185,14 @@ async function startServer() {
     const filter = (req.query.filter as 'verified' | 'all') || 'verified';
 
     if (db.isPostgresAuthoritative()) {
-      const data = await db.pg.getLeaderboard({ period: 'all', page, pageSize, offset, limit, filter });
+      const data = await db.pg.getLeaderboard({ period, page, pageSize, offset, limit, filter });
       return res.json({
         ...data,
         timestamp: new Date().toISOString()
       });
     }
 
-    const data = db.getLeaderboard({ period: 'all', page, pageSize, offset, limit, filter });
+    const data = db.getLeaderboard({ period, page, pageSize, offset, limit, filter });
     res.json({
       ...data,
       timestamp: new Date().toISOString()

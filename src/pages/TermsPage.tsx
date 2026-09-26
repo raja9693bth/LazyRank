@@ -132,8 +132,8 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
           To protect leaderboard integrity and prevent fraudulent exploitation:
         </p>
         <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm text-zinc-700 pl-1">
-          <li><strong>Immediate Rank Recalculation:</strong> If any payment is refunded, reversed by a banking partner, or voided for any reason, that payment amount is immediately deducted from the associated profile's cumulative verified total. All leaderboard ranks are automatically recalculated.</li>
-          <li><strong>Chargeback Penalty:</strong> If an unwarranted or fraudulent chargeback is filed against a legitimately delivered placement, the associated profile will be permanently removed from the leaderboard.</li>
+          <li><strong>Verified Reversal & Ledger Adjustment:</strong> When a payment refund or chargeback is authoritatively verified and confirmed by our payment gateway, the settled refund amount is debited from the profile's cumulative verified ledger. Leaderboard ranks are then dynamically recalculated based on actual verified totals.</li>
+          <li><strong>Dispute Review Process:</strong> Bank disputes undergo documented merchant review against gateway telemetry and proof of digital fulfillment. Confirmed settled chargebacks adjust the ledger accordingly; unverified or pending inquiries do not trigger premature profile debit or removal.</li>
         </ul>
       </section>
 

@@ -373,7 +373,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                   className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] pl-11 pr-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 font-mono-numbers placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
                 />
               </div>
-              <p className="text-[10px] text-stone-400 mt-0.5">Required for Cashfree payment receipt</p>
+              <p className="text-[10px] text-stone-400 mt-0.5">Requires a 10-digit Indian mobile number for Cashfree processing</p>
             </div>
 
             <div>
@@ -388,7 +388,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                 onChange={(e) => setCustomerEmail(e.target.value)}
                 className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] px-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
               />
-              <p className="text-[10px] text-stone-400 mt-0.5">For payment confirmation receipt & support inquiries</p>
+              <p className="text-[10px] text-stone-400 mt-0.5">Optional: For on-demand downloadable receipt & support verification</p>
             </div>
           </div>
 

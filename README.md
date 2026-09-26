@@ -121,6 +121,7 @@ The base schema is defined in `server/db/schema.sql`. Additive migrations are lo
 - `004_today_leaderboard.sql`: IST boundary indexes for high-performance daily window leaderboard aggregations.
 - `005_operational_workflows.sql`: Operational outbox table, outbox indexes, and failure tracking.
 - `006_outbox_delivery.sql`: Durable per-channel delivery tracking (`outbox_channel_deliveries`) and configuration status guards (`SKIPPED_NO_CHANNELS`, `WAITING_CONFIG`).
+- `007_reconciliation_retries.sql`: Additive reconciliation retry tracking (`reconciliation_attempts`, `next_reconcile_at`, `reconciliation_error`) and partial indexes to `payment_orders` and `refund_reversals` for fair, bounded recovery without 24h starvation.
 
 ---
 

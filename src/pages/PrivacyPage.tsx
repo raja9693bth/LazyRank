@@ -38,15 +38,15 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
         <div className="space-y-2.5 text-xs sm:text-sm text-zinc-700">
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">A. Public Profile Information</strong>
-            When you claim or upgrade a rank, you provide a public display name, an optional statement/reason of laziness, and optional public links (Instagram handle, LinkedIn profile URL, personal website). This information is published publicly on our leaderboard and share cards.
+            When you claim or upgrade a rank, you provide a public display name, an optional statement/reason of laziness, and optional public links (Instagram handle, LinkedIn profile URL, X / Twitter profile handle, personal website). This information is published publicly on our leaderboard and share cards.
           </div>
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">B. Customer Checkout Details</strong>
-            When initiating a payment, you provide your mobile phone number (required by banking networks and payment gateways for UPI/card processing) and an optional email address. These details are used exclusively to process your payment via the gateway and to associate your digital receipt.
+            When initiating a payment, you provide your mobile phone number (required by banking networks and payment gateways for UPI/card processing) and an optional email address. These details are used exclusively to process your payment via the gateway and to associate your on-demand downloadable digital receipt. Automated customer email notification pipelines are currently inactive/unwired; receipts are accessible on-demand directly from the platform.
           </div>
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">C. Contact & Support Inquiries</strong>
-            If you optionally subscribe to notification alerts or submit an inquiry through our customer support desk, we collect your email address, inquiry subject, and message contents to review and respond to you.
+            If you submit an inquiry through our customer support desk, we collect your email address, inquiry subject, and message contents to review and respond to you. Automated promotional email distribution is not operated.
           </div>
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">D. Transaction & Order Metadata</strong>

@@ -20,7 +20,7 @@ The system processes real Indian Rupee (INR) transactions via Cashfree and refle
 
 1. **Neon PostgreSQL:** The authoritative, system-of-record operational database for all orders, profiles, rank settlement ledger entries, refunds, and contact inquiries.
 2. **Cashfree Merchant Dashboard:** The gateway settlement and banking rail record. Cashfree handles bank/UPI authorization, merchant payout cycles, and dispute lifecycles.
-3. **Customer Browser Storage (`localStorage` / `sessionStorage`):** Client-side custody of raw cryptographic tokens (`lazy_owner_*`, `ord_acc_*`). Pending checkout credentials live in `sessionStorage` and successful owner tokens live in `localStorage.lazy_tokens` keyed by profile ID. The backend server **never** stores recoverable raw owner tokens—only one-way SHA-256 hashes (`owner_token_hash`).
+3. **Customer Browser Storage (`localStorage` / `sessionStorage`):** Client-side custody of raw cryptographic tokens formatted strictly as `lazy_` + 64 hexadecimal characters (`lazy_[0-9a-f]{64}`). Pending checkout credentials live in `sessionStorage` and successful owner tokens live in `localStorage.lazy_tokens` keyed by profile ID. The backend server **never** stores recoverable raw owner tokens—only one-way SHA-256 hashes (`owner_token_hash`).
 
 ---
 
@@ -39,9 +39,9 @@ The system processes real Indian Rupee (INR) transactions via Cashfree and refle
 | **Customer Inquiries** | `contact_inquiries` | `id`, `name`, `email`, `subject`, `order_id`, `message`, `client_ip`, `status`, `created_at` | **Customer Support** | Submitted via `/contact` or support desk. |
 | **Content Abuse Reports** | `reports` | `id`, `target_id`, `target_type`, `reason`, `details`, `client_ip`, `status`, `created_at` | **Moderation** | Stores reports on targets (`profile`, `comment`, `nomination`). Accessible only to authenticated admin. |
 | **Notification Preferences** | `notification_preferences` | `id`, `email`, `profile_id`, `notify_displaced`, `notify_daily_summary`, `created_at` | **Internal** | Stored preferences schema. Customer-facing email delivery is inactive/unprovisioned; customer subscribe endpoints return HTTP 503 unavailable. |
-| **Founder Alert Outbox** | `operational_outbox` | `id`, `event_type`, `order_id`, `attempts`, `delivery_status`, `next_attempt_at`, `lease_expires_at`, `last_error`, `payload`, `created_at`, `sent_at` | **Internal Operations** (Admin only) | Asynchronous founder alert queue for verified payment claims. Statuses: `PENDING`, `PROCESSING`, `DELIVERED`, `FAILED`, `EXHAUSTED`, `SKIPPED_NO_CHANNELS`, `WAITING_CONFIG`. Code-native founder alerts are distinct from customer email delivery. When channels are unconfigured, events enter `SKIPPED_NO_CHANNELS` without blasting historical alerts. |
+| **Founder Alert Outbox** | `operational_outbox` | `id`, `event_type`, `order_id`, `attempts`, `delivery_status`, `next_attempt_at`, `lease_expires_at`, `last_error`, `payload`, `created_at`, `sent_at` | **Internal Operations** (Admin only) | Asynchronous founder alert queue for verified payment claims. Statuses: `PENDING`, `PROCESSING`, `DELIVERED`, `FAILED`, `EXHAUSTED`, `SKIPPED_NO_CHANNELS`, `WAITING_CONFIG`. Code-native founder alerts are distinct from customer email delivery. When channels are unconfigured, events enter `SKIPPED_NO_CHANNELS` without blasting historical alerts. Alert payloads strictly contain zero customer PII (only order ID, profile ID, rank, amount, and timestamp). |
 | **Outbox Channel Deliveries** | `outbox_channel_deliveries` | `id`, `outbox_id`, `channel`, `delivery_status`, `attempts`, `last_error`, `sent_at`, `created_at` | **Internal Operations** (Admin only) | Independent per-channel delivery tracking (`telegram`, `discord`). Success on one channel is durably preserved if another channel fails. |
-| **Profile Owner Credential** | Browser `sessionStorage` & `localStorage.lazy_tokens` / Server `profiles.owner_token_hash` | Browser: raw token. Server: SHA-256 hash | **Zero-Knowledge Credential** | Pending checkout credentials live in `sessionStorage`; completed claim tokens live in `localStorage.lazy_tokens` keyed by profile ID. The server only holds the SHA-256 hash. If customer clears browser data, the server cannot regenerate or recover the token. No automatic lost-token resets or email delivery exist. Manual support verification requires proof of payment. |
+| **Profile Owner Credential** | Browser `sessionStorage` & `localStorage.lazy_tokens` / Server `profiles.owner_token_hash` | Browser: raw token (`lazy_` + 64 hex characters). Server: SHA-256 hash | **Zero-Knowledge Credential** | Pending checkout credentials live in `sessionStorage`; completed claim tokens live in `localStorage.lazy_tokens` keyed by profile ID. The server only holds the SHA-256 hash. If customer clears browser data, the server cannot regenerate or recover the token. No automatic lost-token resets or email delivery exist. Manual support verification requires proof of payment. |
 | **Operational Integrations** | None (No CRM / No Automated Tax Invoices) | N/A | **N/A** | There is NO automated CRM integration (e.g. n8n/Zapier) and NO automated tax invoice generator. Only digital payment fulfillment confirmation receipts are generated on request via `/api/payment/receipt/:orderId`. |
 
 ---
@@ -140,12 +140,12 @@ WHERE l.type = 'CREDIT'
 - The server stores only SHA-256 hashes (`owner_token_hash`).
 - If a customer clears browser storage or loses their device:
   1. Verify customer identity via order ID and payment proof matching `payment_orders.customer_email` or `payment_orders.cf_payment_id`.
-  2. Generate a fresh cryptographically random 64-char hex token.
+  2. Generate a fresh cryptographically random token following the strict format `lazy_` + 64 hexadecimal characters (`lazy_[0-9a-f]{64}`).
   3. Compute its SHA-256 hash and update `profiles.owner_token_hash`.
   4. Provide the new token securely to the verified customer.
   5. Never claim the previous token was recovered.
 
 ### Privacy & Data Protection Invariants
-- **NEVER** expose customer email, phone, owner tokens, or hashes in public leaderboards, public API responses, or Telegram/Discord alert notifications.
+- **NEVER** expose customer email, phone, owner tokens, or hashes in public leaderboards, public API responses, or Telegram/Discord alert notifications. All founder alert outbox messages are strictly zero-PII.
 - **NEVER** forward raw webhook JSON payloads to unauthenticated endpoints or third-party webhooks.
 - Provide payment confirmation receipts upon request via `/api/payment/receipt/:orderId`. A payment confirmation receipt confirms commercial digital fulfillment; it is not a tax invoice under Section 31 of the CGST Act.

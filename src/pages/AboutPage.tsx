@@ -52,7 +52,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
               <span>Deterministic Tie-Breaking</span>
             </div>
             <p className="text-zinc-600">
-              If two profiles have identical cumulative verified amounts, the profile that achieved that verified total earlier takes precedence.
+              If two profiles have identical cumulative verified amounts, the profile with the earlier first verified payment timestamp (<code>first_verified_at ASC</code>) takes precedence. If timestamps match, the stable database profile ID (<code>id ASC</code>) deterministically breaks the tie.
             </p>
           </div>
 

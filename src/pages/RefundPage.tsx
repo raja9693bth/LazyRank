@@ -137,7 +137,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
           5. Chargebacks & Dispute Policy
         </h2>
         <p>
-          We strongly urge users to contact our support team at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> first before initiating a bank chargeback. Unwarranted chargebacks on legitimately verified and delivered digital services cause unnecessary banking overhead. Where a fraudulent chargeback is filed, the associated profile and placement will be permanently terminated.
+          We strongly urge users to contact our support team at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="text-amber-800 font-bold hover:underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> before initiating a bank chargeback so billing questions can be resolved promptly. If a formal bank dispute is filed, it undergoes documented review against gateway transaction logs and delivery records. Once a dispute is officially upheld and settled by the payment processor as a chargeback, the refunded amount is debited from the cumulative verified ledger and the profile rank adjusts accordingly.
         </p>
       </section>
 

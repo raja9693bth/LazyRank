@@ -47,13 +47,21 @@ export function getWittyTag(profile: { name: string; reason?: string; lazyReason
 export const USD_EXCHANGE_RATE = 85;
 
 /**
- * Illustrative USD calculation: Math.round(inr / 85)
- * Always formatted with ~$ prefix
+ * Illustrative USD calculation (~$1 = ₹85).
+ * Amounts below $1 (such as ₹1) show exact cents (e.g. ~$0.01) and NEVER ~$0.
+ * Amounts >= $1 show rounded whole dollar values.
+ * Note: USD display is purely illustrative. All checkouts and quotes are processed strictly in INR.
  */
 export function formatIllustrativeUSD(amountINR: number): string {
-  const usd = Math.round(amountINR / USD_EXCHANGE_RATE);
+  if (amountINR <= 0) return '~$0.00';
+  const rawUsd = amountINR / USD_EXCHANGE_RATE;
+  if (rawUsd < 1) {
+    return `~$${rawUsd.toFixed(2)}`;
+  }
+  const usd = Math.round(rawUsd);
   return `~$${usd.toLocaleString('en-US')}`;
 }
+
 
 /**
  * Formats currency for display based on selected mode.

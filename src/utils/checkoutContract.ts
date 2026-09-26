@@ -24,17 +24,41 @@ function getLocalStorage(storage?: Storage): Storage | null {
   return null;
 }
 
+// Cryptographic Service Access (Strictly no Math.random fallback)
+function getCrypto(): Crypto | null {
+  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+    return window.crypto;
+  }
+  if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
+    return globalThis.crypto;
+  }
+  return null;
+}
+
+export function isCryptoAvailable(): boolean {
+  return getCrypto() !== null;
+}
+
 // Generate exactly 64 lowercase hexadecimal characters with the given prefix
 export function makeHex64(prefix: 'lazy' | 'ord'): string {
-  const bytes = new Uint8Array(32);
-  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
-    window.crypto.getRandomValues(bytes);
-  } else if (typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues) {
-    globalThis.crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < 32; i++) bytes[i] = Math.floor(Math.random() * 256);
+  const c = getCrypto();
+  if (!c) {
+    throw new Error('Secure browser cryptography is unavailable. Cannot generate security tokens.');
   }
+  const bytes = new Uint8Array(32);
+  c.getRandomValues(bytes);
   return `${prefix}_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export function makeIdempotencyKey(): string {
+  const c = getCrypto();
+  if (!c) {
+    throw new Error('Secure browser cryptography is unavailable. Cannot generate idempotency key.');
+  }
+  const bytes = new Uint8Array(8);
+  c.getRandomValues(bytes);
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `idem_${Date.now()}_${hex}`;
 }
 
 export function storePendingCheckout(record: PendingCheckout, storage?: Storage): void {
@@ -176,10 +200,26 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
     minAmountToBeatTop = 1
   } = options;
 
+  // 1. CRYPTO AVAILABILITY CHECK: Fail closed if browser crypto is unavailable
+  if (!isCryptoAvailable()) {
+    return {
+      status: 'ERROR',
+      error: 'Secure browser cryptography is required to initiate checkout. Please use a modern browser.'
+    };
+  }
+
+  // 2. DYNAMIC CONSENT ENFORCEMENT: Fail immediately if consent is not accepted
+  if (input.consentAccepted !== true) {
+    return {
+      status: 'ERROR',
+      error: 'Please read and agree to the Terms & Conditions and Privacy Policy, and acknowledge the Refund Policy.'
+    };
+  }
+
   const targetProfileId = input.profileId;
   const isUpgrade = Boolean(targetProfileId);
 
-  // For existing profile upgrade: Must have saved owner token
+  // 3. EXISTING PROFILE UPGRADE: Must have authentic saved owner token
   let storedToken: string | null = null;
   if (targetProfileId) {
     storedToken = getSavedOwnerToken(targetProfileId, localStorage);
@@ -191,7 +231,7 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
     }
   }
 
-  // Check if identical retry
+  // 4. RETRY TRACKING: Check if identical retry
   const isIdenticalRetry =
     Boolean(lastAttempt) &&
     lastAttempt!.name === input.name.trim() &&
@@ -199,19 +239,23 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
     lastAttempt!.phone === input.customerPhone &&
     lastAttempt!.profileId === targetProfileId;
 
-  // Preserve tokens on identical retry; generate fresh on new or changed parameters
+  // 5. TOKEN ALLOCATION: Preserve tokens on identical retry; generate fresh on new or changed parameters
   let activeIdempKey = isIdenticalRetry && currentIdempotencyKey ? currentIdempotencyKey : null;
   if (!activeIdempKey) {
-    const randomHex =
-      typeof globalThis !== 'undefined' && globalThis.crypto?.getRandomValues
-        ? Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('')
-        : Math.random().toString(16).substring(2, 10);
-    activeIdempKey = `idem_${Date.now()}_${randomHex}`;
+    try {
+      activeIdempKey = makeIdempotencyKey();
+    } catch (err: any) {
+      return { status: 'ERROR', error: err.message };
+    }
   }
 
   let activeOrderToken = isIdenticalRetry && currentOrderAccessToken ? currentOrderAccessToken : null;
   if (!activeOrderToken) {
-    activeOrderToken = makeHex64('ord');
+    try {
+      activeOrderToken = makeHex64('ord');
+    } catch (err: any) {
+      return { status: 'ERROR', error: err.message };
+    }
   }
 
   let activeOwnerToken: string;
@@ -220,7 +264,11 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
   } else if (isIdenticalRetry && currentPendingOwnerToken) {
     activeOwnerToken = currentPendingOwnerToken;
   } else {
-    activeOwnerToken = makeHex64('lazy');
+    try {
+      activeOwnerToken = makeHex64('lazy');
+    } catch (err: any) {
+      return { status: 'ERROR', error: err.message };
+    }
   }
 
   const tokens: CheckoutTokens = {
@@ -230,7 +278,7 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
     isUpgrade
   };
 
-  // Back up in sessionStorage BEFORE network request
+  // 6. PRE-FLIGHT BACKUP: Back up in sessionStorage BEFORE network request
   const checkoutRecord: PendingCheckout = {
     ownerToken: activeOwnerToken,
     orderAccessToken: activeOrderToken,
@@ -262,7 +310,7 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
         ownerToken: isUpgrade ? storedToken : undefined,
         pendingOwnerToken: isUpgrade ? undefined : activeOwnerToken,
         orderAccessToken: activeOrderToken,
-        consentAccepted: true,
+        consentAccepted: input.consentAccepted,
         consentTimestamp: input.consentTimestamp,
         consentVersion: input.consentVersion
       })

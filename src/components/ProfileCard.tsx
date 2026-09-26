@@ -33,32 +33,75 @@ function getInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-// URL Scheme Validators
-function safeWebsiteUrl(url?: string): string | null {
+// Strict URL Scheme Validators using native URL constructor
+export function safeWebsiteUrl(url?: string): string | null {
   if (!url || typeof url !== 'string') return null;
   const trimmed = url.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(\/.*)?$/i.test(trimmed)) return `https://${trimmed}`;
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (parsed.hostname.includes('.') && parsed.hostname.length >= 3) {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
   return null;
 }
 
-function safeLinkedInUrl(input?: string): string | null {
+export function safeLinkedInUrl(input?: string): string | null {
   if (!input || typeof input !== 'string') return null;
   const trimmed = input.trim();
-  if (/^https?:\/\/(www\.)?linkedin\.com/i.test(trimmed)) return trimmed;
-  const clean = trimmed.replace(/^@/, '');
-  if (/^[a-zA-Z0-9._-]+$/i.test(clean)) return `https://linkedin.com/in/${clean}`;
+  if (!trimmed) return null;
+
+  // Handle bare handle/username (no slashes, colons, dots)
+  if (!trimmed.includes('/') && !trimmed.includes(':') && !trimmed.includes('.')) {
+    const clean = trimmed.replace(/^@/, '');
+    if (/^[a-zA-Z0-9_-]+$/i.test(clean)) return `https://www.linkedin.com/in/${clean}`;
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const hostname = parsed.hostname.toLowerCase();
+    // Allow ONLY exact hostnames: linkedin.com and www.linkedin.com
+    if (hostname === 'linkedin.com' || hostname === 'www.linkedin.com') {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
   return null;
 }
 
-function safeInstagramUrl(input?: string): string | null {
+export function safeInstagramUrl(input?: string): string | null {
   if (!input || typeof input !== 'string') return null;
   const trimmed = input.trim();
-  if (/^https?:\/\/(www\.)?instagram\.com/i.test(trimmed)) return trimmed;
-  const clean = trimmed.replace(/^@/, '');
-  if (/^[a-zA-Z0-9._]+$/i.test(clean)) return `https://instagram.com/${clean}`;
+  if (!trimmed) return null;
+
+  // Handle bare handle/username (no slashes, colons, dots)
+  if (!trimmed.includes('/') && !trimmed.includes(':') && !trimmed.includes('.')) {
+    const clean = trimmed.replace(/^@/, '');
+    if (/^[a-zA-Z0-9_]+$/i.test(clean)) return `https://www.instagram.com/${clean}`;
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const hostname = parsed.hostname.toLowerCase();
+    // Allow ONLY exact hostnames: instagram.com and www.instagram.com
+    if (hostname === 'instagram.com' || hostname === 'www.instagram.com') {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
   return null;
 }
+
 
 const AVATAR_COLORS = [
   'bg-amber-100 text-amber-900 border-amber-200',

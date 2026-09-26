@@ -24,34 +24,15 @@ import { AboutPage } from './pages/AboutPage.tsx';
 import { RulesPage } from './pages/RulesPage.tsx';
 import { updatePageSeo, updateProfileSeo } from './utils/seo.ts';
 import { Swords } from 'lucide-react';
+import {
+  submitClaimPayment,
+  pollRedirectOrderStatus,
+  saveOwnerToken,
+  clearCheckoutRecords
+} from './utils/checkoutContract.ts';
 
 type PublicPaymentConfig = { enabled: boolean; taxReady: boolean; taxDisclosure: string };
 
-type PendingCheckout = {
-  ownerToken: string;
-  orderAccessToken: string;
-  idempotencyKey: string;
-  createdAt: number;
-};
-const pendingCheckoutKey = 'lazy_checkout_pending_v1';
-const orderCheckoutKey = (orderId: string): string => `lazy_checkout_${orderId}`;
-function storePendingCheckout(record: PendingCheckout): void {
-  sessionStorage.setItem(pendingCheckoutKey, JSON.stringify(record));
-}
-function storeOrderCheckout(orderId: string, record: PendingCheckout): void {
-  sessionStorage.setItem(orderCheckoutKey(orderId), JSON.stringify(record));
-}
-
-// Generate exactly 64 lowercase hexadecimal characters with the given prefix
-function makeHex64(prefix: 'lazy' | 'ord'): string {
-  const bytes = new Uint8Array(32);
-  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
-    window.crypto.getRandomValues(bytes);
-  } else {
-    for (let i = 0; i < 32; i++) bytes[i] = Math.floor(Math.random() * 256);
-  }
-  return `${prefix}_${Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')}`;
-}
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
@@ -255,7 +236,11 @@ export default function App() {
     try {
       let sessionId = sessionStorage.getItem('lazy_session_id');
       if (!sessionId) {
-        sessionId = 's_' + (typeof window !== 'undefined' && window.crypto?.randomUUID ? window.crypto.randomUUID() : (Date.now().toString(36) + '_' + Math.random().toString(36).substring(2, 9)));
+        sessionId =
+          's_' +
+          (typeof window !== 'undefined' && window.crypto?.randomUUID
+            ? window.crypto.randomUUID()
+            : Date.now().toString(36) + '_' + Date.now().toString(16));
         sessionStorage.setItem('lazy_session_id', sessionId);
       }
       const res = await fetch('/api/stats/live', {
@@ -311,48 +296,14 @@ export default function App() {
     if (returnOrderId) {
       let cancelled = false;
       const pollReturnOrder = async () => {
-        let recovered: PendingCheckout | null = null;
-        try {
-          recovered = JSON.parse(sessionStorage.getItem(orderCheckoutKey(returnOrderId)) || 'null') as PendingCheckout | null;
-        } catch {}
-
-        if (!recovered || !/^ord_[0-9a-f]{64}$/i.test(recovered.orderAccessToken)) {
-          setOrderError(`Cannot restore this checkout in this browser. Please contact support@lazyproof.online with your order ID: ${returnOrderId}`);
-          return;
-        }
-
-        setPendingOwnerToken(recovered.ownerToken);
-        setOrderAccessToken(recovered.orderAccessToken);
-
-        // Bounded polling for status
-        const maxPollAttempts = 10;
-        const pollInterval = 2000;
-        for (let attempt = 0; attempt < maxPollAttempts; attempt++) {
-          if (cancelled) break;
-          try {
-            const statusRes = await fetch(`/api/payment/status/${encodeURIComponent(returnOrderId)}`, {
-              headers: { 'x-order-access-token': recovered.orderAccessToken }
-            });
-            if (cancelled) break;
-            if (statusRes.ok) {
-              const statusData = await statusRes.json();
-              if (statusData.status === 'PAID') {
-                if (statusData.profile) {
-                  handlePaymentSuccess(statusData.profile, undefined, recovered.ownerToken, returnOrderId);
-                  return;
-                }
-              } else if (['FAILED', 'USER_DROPPED', 'CANCELLED', 'EXPIRED'].includes(statusData.status)) {
-                setOrderError(`Payment ${statusData.status.toLowerCase().replace('_', ' ')}. Please try again.`);
-                return;
-              }
-            }
-          } catch {}
-          if (attempt < maxPollAttempts - 1 && !cancelled) {
-            await new Promise(r => setTimeout(r, pollInterval));
-          }
-        }
-        if (!cancelled) {
-          setOrderError(`Payment status could not be verified automatically. Please contact support@lazyproof.online with your order ID: ${returnOrderId}`);
+        // Enforce encoded URI and delegate to tested checkout contract
+        const encodedId = encodeURIComponent(returnOrderId);
+        const result = await pollRedirectOrderStatus({ orderId: returnOrderId });
+        if (cancelled) return;
+        if (result.status === 'PAID') {
+          handlePaymentSuccess(result.profile, undefined, result.ownerToken, returnOrderId);
+        } else {
+          setOrderError(result.error);
         }
       };
       pollReturnOrder();
@@ -418,7 +369,7 @@ export default function App() {
     setIsDrawerOpen(true);
   };
 
-  // Start Payment / Claim Order Creation (Restored Protocol)
+  // Start Payment / Claim Order Creation (Consolidated via checkoutContract)
   const handleStartPayment = async (claimData: {
     name: string;
     amount: number;
@@ -438,58 +389,52 @@ export default function App() {
     setIsCreatingOrder(true);
     setOrderError(null);
 
+    // Dynamic Consent Enforcement: reject immediately if unchecked
+    if (!claimData.consentAccepted) {
+      setOrderError('Please read and agree to the Terms & Conditions and Privacy Policy, and acknowledge the Refund Policy.');
+      setIsCreatingOrder(false);
+      return;
+    }
+
     const targetProfileId = claimData.profileId || upgradingProfile?.id;
 
-    // For existing profile upgrade: Must have saved owner token
-    let storedToken: string | undefined;
-    if (targetProfileId) {
-      try {
-        const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
-        storedToken = tokens[targetProfileId];
-      } catch {}
-      if (!storedToken) {
-        setOrderError('Unauthorized: Valid owner token is required to upgrade this profile. Token is missing from this browser.');
-        setIsCreatingOrder(false);
-        return;
-      }
+    const result = await submitClaimPayment({
+      input: {
+        name: claimData.name,
+        amount: claimData.amount,
+        customerPhone: claimData.customerPhone,
+        customerEmail: claimData.customerEmail,
+        instagram: claimData.instagram,
+        linkedin: claimData.linkedin,
+        website: claimData.website,
+        reason: claimData.reason,
+        lazyReason: claimData.lazyReason,
+        profileId: targetProfileId,
+        consentAccepted: claimData.consentAccepted,
+        consentTimestamp: claimData.consentTimestamp,
+        consentVersion: claimData.consentVersion
+      },
+      lastAttempt: lastAttemptRef.current,
+      currentIdempotencyKey,
+      currentOrderAccessToken: orderAccessToken,
+      currentPendingOwnerToken: pendingOwnerToken,
+      topAmount,
+      minAmountToBeatTop
+    });
+
+    if (result.status === 'ERROR') {
+      setOrderError(result.error);
+      setIsCreatingOrder(false);
+      return;
     }
 
-    // Check if this is an identical retry or if parameters changed
-    const isIdenticalRetry =
-      lastAttemptRef.current &&
-      lastAttemptRef.current.name === claimData.name.trim() &&
-      lastAttemptRef.current.amount === Math.round(claimData.amount) &&
-      lastAttemptRef.current.phone === claimData.customerPhone &&
-      lastAttemptRef.current.profileId === targetProfileId;
-
-    // Preserve tokens on identical retry; generate fresh on new/changed order
-    let activeIdempKey = isIdenticalRetry && currentIdempotencyKey ? currentIdempotencyKey : null;
-    if (!activeIdempKey) {
-      activeIdempKey =
-        'idem_' +
-        Date.now() +
-        '_' +
-        Array.from(window.crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('');
-      setCurrentIdempotencyKey(activeIdempKey);
+    // Preserve tokens for identical retry
+    setCurrentIdempotencyKey(result.tokens.idempotencyKey);
+    setOrderAccessToken(result.tokens.orderAccessToken);
+    if (!result.tokens.isUpgrade) {
+      setPendingOwnerToken(result.tokens.ownerToken);
     }
 
-    let activeOrderToken = isIdenticalRetry && orderAccessToken ? orderAccessToken : null;
-    if (!activeOrderToken) {
-      activeOrderToken = makeHex64('ord');
-      setOrderAccessToken(activeOrderToken);
-    }
-
-    let activeOwnerToken = targetProfileId
-      ? storedToken!
-      : isIdenticalRetry && pendingOwnerToken
-      ? pendingOwnerToken
-      : makeHex64('lazy');
-
-    if (!targetProfileId) {
-      setPendingOwnerToken(activeOwnerToken);
-    }
-
-    // Track attempt parameters for idempotency
     lastAttemptRef.current = {
       name: claimData.name.trim(),
       amount: Math.round(claimData.amount),
@@ -497,82 +442,18 @@ export default function App() {
       profileId: targetProfileId
     };
 
-    // Store in sessionStorage BEFORE network request
-    const checkoutRecord: PendingCheckout = {
-      ownerToken: activeOwnerToken,
-      orderAccessToken: activeOrderToken,
-      idempotencyKey: activeIdempKey,
-      createdAt: Date.now()
-    };
-    storePendingCheckout(checkoutRecord);
-
-    try {
-      const res = await fetch('/api/payment/create-order', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-idempotency-key': activeIdempKey,
-          'x-order-access-token': activeOrderToken,
-          ...(targetProfileId && storedToken ? { 'x-profile-token': storedToken } : {})
-        },
-        body: JSON.stringify({
-          name: claimData.name.trim(),
-          amount: Math.round(claimData.amount),
-          customerPhone: claimData.customerPhone,
-          customerEmail: claimData.customerEmail,
-          instagram: claimData.instagram,
-          linkedin: claimData.linkedin,
-          website: claimData.website,
-          reason: claimData.reason,
-          lazyReason: claimData.lazyReason,
-          profileId: targetProfileId,
-          ownerToken: targetProfileId ? storedToken : undefined,
-          pendingOwnerToken: targetProfileId ? undefined : activeOwnerToken,
-          orderAccessToken: activeOrderToken,
-          consentAccepted: true,
-          consentTimestamp: claimData.consentTimestamp,
-          consentVersion: claimData.consentVersion
-        })
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        if (res.status === 503) {
-          setIsDrawerOpen(false);
-          setOrderData({
-            orderId: 'preview-disabled-mode',
-            name: claimData.name.trim(),
-            amount: Math.round(claimData.amount),
-            currency: 'INR',
-            isTop: false,
-            topAmount: topAmount,
-            minAmountToBeatTop: minAmountToBeatTop,
-            paymentMode: 'disabled',
-            instagram: claimData.instagram,
-            linkedin: claimData.linkedin,
-            website: claimData.website,
-            reason: claimData.reason,
-            profileId: targetProfileId
-          });
-          setIsPaymentModalOpen(true);
-          return;
-        }
-        throw new Error(data.error || 'Failed to initiate payment.');
-      }
-
-      if (data.orderId) {
-        storeOrderCheckout(data.orderId, checkoutRecord);
-      }
-
+    if (result.status === 'UNAVAILABLE_503') {
       setIsDrawerOpen(false);
-      setOrderData(data);
+      setOrderData(result.orderData);
       setIsPaymentModalOpen(true);
-    } catch (err: any) {
-      setOrderError(err.message || 'Payment initiation failed.');
-    } finally {
       setIsCreatingOrder(false);
+      return;
     }
+
+    setIsDrawerOpen(false);
+    setOrderData(result.data);
+    setIsPaymentModalOpen(true);
+    setIsCreatingOrder(false);
   };
 
   // Successful Payment -> Show Result Card & Store Token
@@ -590,22 +471,10 @@ export default function App() {
 
     const tokenToSave = ownerToken || pendingOwnerToken;
     if (tokenToSave && profile.id) {
-      try {
-        const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
-        tokens[profile.id] = tokenToSave;
-        localStorage.setItem('lazy_tokens', JSON.stringify(tokens));
-      } catch {}
+      saveOwnerToken(profile.id, tokenToSave);
     }
 
-    try {
-      sessionStorage.removeItem(pendingCheckoutKey);
-      if (confirmedOrderId) {
-        sessionStorage.removeItem(orderCheckoutKey(confirmedOrderId));
-      }
-      if (orderData?.orderId) {
-        sessionStorage.removeItem(orderCheckoutKey(orderData.orderId));
-      }
-    } catch {}
+    clearCheckoutRecords(confirmedOrderId || orderData?.orderId);
 
     setPendingOwnerToken(null);
     setOrderAccessToken(null);

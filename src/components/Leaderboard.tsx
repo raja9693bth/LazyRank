@@ -207,7 +207,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-stone-600 mt-1 max-w-md leading-relaxed">
-                    Be the first verified participant to establish the permanent #1 position in LAZY history.
+                    Dynamic sponsored placement · Rank adjusts as new bids are verified
                   </p>
                 </div>
               </div>

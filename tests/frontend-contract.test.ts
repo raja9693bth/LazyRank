@@ -5,11 +5,19 @@ import {
   submitClaimPayment,
   pollRedirectOrderStatus,
   makeHex64,
+  makeIdempotencyKey,
+  isCryptoAvailable,
   PENDING_CHECKOUT_KEY,
   orderCheckoutKey,
   saveOwnerToken,
   getSavedOwnerToken
 } from '../src/utils/checkoutContract.ts';
+import {
+  safeLinkedInUrl,
+  safeInstagramUrl,
+  safeWebsiteUrl
+} from '../src/components/ProfileCard.tsx';
+import { formatIllustrativeUSD } from '../src/utils/showcase.ts';
 
 console.log('\n========================================================');
 console.log('RUNNING SUITE 8: FRONTEND CONTRACT SMOKE TESTS');
@@ -34,9 +42,11 @@ class MemoryStorage implements Storage {
 
 async function runFrontendContractTests() {
   // ----------------------------------------------------
-  // 1. Token Format & Cryptographic Randomness
+  // 1. Token Format & Cryptographic Randomness (Zero Math.random)
   // ----------------------------------------------------
   console.log('--- 1. Token Hex Format Invariants ---');
+  assert.ok(isCryptoAvailable(), 'Browser / Node cryptographic services must be available');
+
   const sampleLazy = makeHex64('lazy');
   assert.ok(
     /^lazy_[0-9a-f]{64}$/.test(sampleLazy),
@@ -54,7 +64,10 @@ async function runFrontendContractTests() {
   // Verify uniqueness
   const sampleLazy2 = makeHex64('lazy');
   assert.notStrictEqual(sampleLazy, sampleLazy2, 'Generated tokens must be distinct random sequences');
-  pass('makeHex64 generates cryptographically compliant lazy_ and ord_ 64-hex tokens');
+
+  const sampleIdemp = makeIdempotencyKey();
+  assert.ok(/^idem_\d+_[0-9a-f]{16}$/.test(sampleIdemp), 'Idempotency key strictly cryptographically generated');
+  pass('makeHex64 & makeIdempotencyKey generate cryptographically compliant lazy_, ord_, and idem_ tokens');
 
   // ----------------------------------------------------
   // 2. New Claim Contract: Payload, Headers & Pre-Fetch Backup
@@ -122,6 +135,7 @@ async function runFrontendContractTests() {
   assert.strictEqual(reqBody.customerName, undefined, 'Must NEVER send `customerName`');
   assert.strictEqual(reqBody.amount, 100, 'Must send whole INR rupee amount');
   assert.strictEqual(typeof reqBody.amount, 'number', 'Amount must be a numeric integer');
+  assert.strictEqual(reqBody.consentAccepted, true, 'Transmits actual boolean consent');
 
   // Verify token placement for new claim
   assert.ok(/^lazy_[0-9a-f]{64}$/.test(reqBody.pendingOwnerToken), 'Must send pendingOwnerToken with 64 hex chars');
@@ -137,6 +151,42 @@ async function runFrontendContractTests() {
   const orderBackup = mockSessionStorage.getItem(orderCheckoutKey('cf_order_test_12345'));
   assert.ok(orderBackup, 'Order checkout record must be stored by orderId in sessionStorage');
   pass('New claim create-order sends name, pendingOwnerToken, orderAccessToken, headers, and backs up sessionStorage');
+
+  // ----------------------------------------------------
+  // 2B. Dynamic Consent Enforcement (Negative Assertion)
+  // ----------------------------------------------------
+  console.log('\n--- 2B. Negative Assertion: Dynamic Consent Rejection ---');
+  let consentRejectedFetchCalled = false;
+  const mockFetchConsentCheck: typeof fetch = async () => {
+    consentRejectedFetchCalled = true;
+    return { ok: true, status: 200, json: async () => ({}) } as any;
+  };
+
+  const rejectedConsentResult = await submitClaimPayment({
+    input: {
+      name: 'Consent Reject Test',
+      amount: 100,
+      customerPhone: '9876543210',
+      consentAccepted: false, // FALSE: user did not check consent
+      consentTimestamp: new Date().toISOString(),
+      consentVersion: '2026-09-24'
+    },
+    lastAttempt: null,
+    currentIdempotencyKey: null,
+    currentOrderAccessToken: null,
+    currentPendingOwnerToken: null,
+    sessionStorage: mockSessionStorage,
+    localStorage: mockLocalStorage,
+    fetchFn: mockFetchConsentCheck
+  });
+
+  assert.strictEqual(rejectedConsentResult.status, 'ERROR', 'Order initiation must fail when consent is false');
+  assert.ok(
+    (rejectedConsentResult as any).error.includes('Terms & Conditions'),
+    'Error message must state that terms and privacy agreement is required'
+  );
+  assert.strictEqual(consentRejectedFetchCalled, false, 'Must NOT invoke network fetch when consent is unchecked');
+  pass('Dynamic consent enforcement rejects unaccepted consent before network call');
 
   // ----------------------------------------------------
   // 3. Existing Profile Upgrade Contract (Security & Tokens)
@@ -461,9 +511,60 @@ async function runFrontendContractTests() {
   pass('Redirect restoration accurately terminates on EXPIRED / FAILED without fake success');
 
   // ----------------------------------------------------
-  // 7. Static Source Contract Invariants
+  // 7. Strict Social Link URL Validation
   // ----------------------------------------------------
-  console.log('\n--- 7. Static Source Contract Invariants ---');
+  console.log('\n--- 7. Strict Social Link URL Validation ---');
+  // Phishing / bypass attempts MUST return null
+  assert.strictEqual(safeLinkedInUrl('https://linkedin.com.attacker.com/in/victim'), null, 'Rejects linkedin.com subdomain phishing');
+  assert.strictEqual(safeLinkedInUrl('https://linkedin.com.evil.example/in/user'), null, 'Rejects evil.example domain variation');
+  assert.strictEqual(safeLinkedInUrl('https://notlinkedin.com/in/user'), null, 'Rejects unrelated domain');
+  assert.strictEqual(safeLinkedInUrl('javascript:alert(1)'), null, 'Rejects javascript scheme');
+
+  assert.strictEqual(safeInstagramUrl('https://instagram.com.attacker.com/profile'), null, 'Rejects instagram.com subdomain phishing');
+  assert.strictEqual(safeInstagramUrl('https://instagram.com.evil.example/user'), null, 'Rejects evil.example domain variation');
+  assert.strictEqual(safeInstagramUrl('https://fakeinstagram.com/user'), null, 'Rejects fakeinstagram domain');
+  assert.strictEqual(safeInstagramUrl('javascript:alert(1)'), null, 'Rejects javascript scheme');
+
+  // Legitimate URLs MUST pass
+  assert.strictEqual(safeLinkedInUrl('https://www.linkedin.com/in/johndoe'), 'https://www.linkedin.com/in/johndoe');
+  assert.strictEqual(safeLinkedInUrl('https://linkedin.com/in/johndoe'), 'https://linkedin.com/in/johndoe');
+  assert.strictEqual(safeLinkedInUrl('@johndoe'), 'https://www.linkedin.com/in/johndoe');
+
+  assert.strictEqual(safeInstagramUrl('https://www.instagram.com/slothmaster'), 'https://www.instagram.com/slothmaster');
+  assert.strictEqual(safeInstagramUrl('https://instagram.com/slothmaster'), 'https://instagram.com/slothmaster');
+  assert.strictEqual(safeInstagramUrl('@slothmaster'), 'https://www.instagram.com/slothmaster');
+  pass('Strict social link URL validation allows exact hostnames and rejects malicious/phishing variations');
+
+  // ----------------------------------------------------
+  // 8. Illustrative USD Pricing Formatting
+  // ----------------------------------------------------
+  console.log('\n--- 8. Illustrative USD Pricing Formatting ---');
+  assert.strictEqual(formatIllustrativeUSD(1), '~$0.01', '₹1 displays as ~$0.01 cents (NEVER ~$0)');
+  assert.strictEqual(formatIllustrativeUSD(50), '~$0.59', '₹50 displays as ~$0.59 cents');
+  assert.strictEqual(formatIllustrativeUSD(85), '~$1', '₹85 displays as ~$1');
+  assert.strictEqual(formatIllustrativeUSD(1000), '~$12', '₹1000 displays as ~$12');
+  assert.notStrictEqual(formatIllustrativeUSD(1), '~$0', '₹1 must never display as ~$0');
+  pass('Illustrative USD formatting shows exact cents for sub-dollar amounts and never ~$0');
+
+  // ----------------------------------------------------
+  // 9. Truthful Leaderboard Wording Invariants
+  // ----------------------------------------------------
+  console.log('\n--- 9. Leaderboard Truthful Wording ---');
+  const lbContent = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'Leaderboard.tsx'), 'utf-8');
+  assert.ok(
+    lbContent.includes('Dynamic sponsored placement · Rank adjusts as new bids are verified'),
+    'Leaderboard empty state uses truthful dynamic ranking description'
+  );
+  assert.ok(
+    !lbContent.includes('permanent #1 position'),
+    'Leaderboard does not promise permanent #1 position'
+  );
+  pass('Leaderboard copy uses truthful dynamic placement wording without permanent rank promises');
+
+  // ----------------------------------------------------
+  // 10. Static Source Contract Invariants
+  // ----------------------------------------------------
+  console.log('\n--- 10. Static Source Contract Invariants ---');
   const appSrc = fs.readFileSync(path.join(process.cwd(), 'src', 'App.tsx'), 'utf-8');
 
   // Request & Status Invariants

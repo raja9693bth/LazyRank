@@ -19,6 +19,7 @@ interface PaymentModalProps {
     instagram?: string;
     linkedin?: string;
     website?: string;
+    twitter?: string;
     reason?: string;
     paymentMode?: string;
   } | null;
@@ -206,6 +207,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           instagram: orderData.instagram,
           linkedin: orderData.linkedin,
           website: orderData.website,
+          twitter: orderData.twitter,
           reason: orderData.reason,
           profileId: orderData.profileId,
           ownerToken: storedOwnerToken

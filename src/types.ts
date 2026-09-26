@@ -20,6 +20,7 @@ export interface UserProfile {
   instagram?: string; // Optional Instagram handle or URL (e.g., @username)
   linkedin?: string; // Optional LinkedIn profile URL or handle
   website?: string; // Optional Website URL (e.g., https://example.com)
+  twitter?: string; // Optional X / Twitter profile URL or handle (e.g., @handle)
   reason?: string; // Optional short laziness statement
   title?: string; // Humorous title or label
   badge?: string; // Badge for #1, top ranks, or verified

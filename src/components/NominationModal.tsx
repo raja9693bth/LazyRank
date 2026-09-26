@@ -349,7 +349,7 @@ export const NominationModal: React.FC<NominationModalProps> = ({
         </div>
 
         {/* Segmented Tab Switcher */}
-        <div className="flex rounded-xl bg-zinc-100/90 p-1 mt-3.5 shrink-0" role="tablist" aria-label="Nomination and notification options">
+        <div className="flex rounded-xl bg-zinc-100/90 p-1 mt-3.5 shrink-0" role="tablist" aria-label="Nomination options">
           <button
             type="button"
             role="tab"
@@ -381,25 +381,6 @@ export const NominationModal: React.FC<NominationModalProps> = ({
           >
             <Swords className="w-3.5 h-3.5 text-amber-700" />
             <span>Challenge</span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'notify'}
-            aria-controls="panel-notify"
-            id="tab-notify-btn"
-            onClick={() => setActiveTab('notify')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-1 ${
-              activeTab === 'notify'
-                ? 'bg-white text-zinc-900 shadow-2xs'
-                : 'text-zinc-600 hover:text-zinc-900'
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5 text-amber-600" />
-            <span>Notify Me</span>
-            <span className="ml-1 px-1.5 py-0.2 text-[9px] font-black uppercase rounded-full bg-amber-100 text-amber-900 border border-amber-200">
-              Alerts
-            </span>
           </button>
         </div>
 
@@ -701,182 +682,37 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                 {/* Post-challenge CTA */}
                 <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/70 text-center">
                   <p className="text-[11px] text-amber-900 font-medium">
-                    Sent the link? Sign up to receive an email the moment they challenge back or take a rank!
+                    Sent the link? All rank changes and challenges update live in real time on the leaderboard.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('notify')}
-                    className="mt-1.5 inline-flex items-center gap-1 text-xs font-bold text-amber-950 underline hover:opacity-85 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-950 rounded"
-                  >
-                    <Bell className="w-3 h-3" />
-                    <span>Turn On 'Notify Me' Alerts →</span>
-                  </button>
                 </div>
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 3: NOTIFY ME (SECURE BACKEND SUBSCRIPTION) */}
+        {/* TAB 3: NOTIFY ME (HONEST STATUS) */}
         {activeTab === 'notify' && (
-          <div id="panel-notify" role="tabpanel" aria-labelledby="tab-notify-btn" className="mt-4">
-            {notifySuccess ? (
-              <div className="py-5 px-4 rounded-xl bg-emerald-50/80 border border-emerald-200 text-center animate-in fade-in duration-200">
-                <div className="w-11 h-11 mx-auto rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mb-2.5">
-                  <CheckCircle2 className="w-6 h-6" />
-                </div>
-                <h3 className="text-sm font-extrabold text-zinc-900">
-                  Notification Preference Saved
-                </h3>
-                <p className="mt-1 text-xs text-zinc-600 max-w-xs mx-auto leading-relaxed">
-                  {notifyMessage || 'Notification preference saved. Email delivery is not active yet.'}
-                </p>
-                <div className="mt-2.5 inline-block text-[11px] font-mono-numbers text-emerald-900 font-semibold bg-emerald-100/70 py-1 px-3 rounded-md">
-                  {notifyEmail}
-                </div>
-
-                <div className="mt-5 flex items-center justify-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNotifySuccess(false)}
-                    aria-label="Edit notification preferences"
-                    className="px-3.5 py-2 rounded-xl border border-zinc-200 bg-white hover:bg-zinc-50 text-xs font-bold text-zinc-700 cursor-pointer shadow-2xs transition-colors min-h-[38px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
-                  >
-                    Edit Alerts
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onClose}
-                    aria-label="Close notification confirmation"
-                    className="px-4 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-xs font-extrabold text-white cursor-pointer shadow-2xs transition-colors min-h-[38px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
-                  >
-                    Done
-                  </button>
-                </div>
+          <div id="panel-notify" role="tabpanel" aria-labelledby="tab-challenge-btn" className="mt-4">
+            <div className="py-6 px-4 rounded-xl bg-stone-50 border border-stone-200 text-center">
+              <div className="w-11 h-11 mx-auto rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mb-2.5">
+                <Bell className="w-5 h-5 text-amber-700" />
               </div>
-            ) : (
-              <form onSubmit={handleNotifySubmit} className="space-y-3.5">
-                <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/80 flex items-start gap-2.5">
-                  <BellRing className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                  <p className="text-[11px] leading-relaxed text-amber-950 font-medium">
-                    Save your notification preference. Automated email delivery is not active yet and will be enabled following provider setup.
-                  </p>
-                </div>
-
-                <div>
-                  <label htmlFor="notify-email-input" className="block text-xs font-bold text-zinc-700 mb-1">
-                    Your Email Address <span className="text-rose-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      id="notify-email-input"
-                      type="email"
-                      placeholder="e.g. rohan@gmail.com"
-                      value={notifyEmail}
-                      onChange={(e) => {
-                        setNotifyEmail(e.target.value);
-                        setNotifyError(null);
-                      }}
-                      required
-                      autoComplete="email"
-                      className="w-full rounded-xl border border-zinc-300 bg-zinc-50/60 pl-9 pr-3.5 py-2.5 text-sm font-medium text-zinc-900 focus:bg-white focus:border-zinc-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label htmlFor="notify-name-input" className="block text-xs font-bold text-zinc-700 mb-1">
-                    Leaderboard Name (Optional)
-                  </label>
-                  <input
-                    id="notify-name-input"
-                    type="text"
-                    placeholder="e.g. Rohan (matches your claimed name)"
-                    value={notifyName}
-                    onChange={(e) => setNotifyName(e.target.value)}
-                    maxLength={40}
-                    className="w-full rounded-xl border border-zinc-300 bg-zinc-50/60 px-3.5 py-2.5 text-sm font-medium text-zinc-900 focus:bg-white focus:border-zinc-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
-                  />
-                  <p className="mt-1 text-[10px] text-zinc-400">
-                    Matches your rank claim or friend nominations on the leaderboard.
-                  </p>
-                </div>
-
-                {/* Checkbox Options */}
-                <div className="space-y-2 pt-1">
-                  <label className="flex items-start gap-2.5 cursor-pointer select-none group">
-                    <input
-                      type="checkbox"
-                      id="notify-outranked-checkbox"
-                      checked={notifyOnOutranked}
-                      onChange={(e) => setNotifyOnOutranked(e.target.checked)}
-                      className="mt-0.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 cursor-pointer w-4 h-4"
-                    />
-                    <div className="text-xs">
-                      <span className="font-bold text-zinc-900 group-hover:text-zinc-950">
-                        Outranked Alert
-                      </span>
-                      <p className="text-[11px] text-zinc-500">
-                        Email me when someone pays more and takes my spot
-                      </p>
-                    </div>
-                  </label>
-
-                  <label className="flex items-start gap-2.5 cursor-pointer select-none group">
-                    <input
-                      type="checkbox"
-                      id="notify-nomination-checkbox"
-                      checked={notifyOnNomination}
-                      onChange={(e) => setNotifyOnNomination(e.target.checked)}
-                      className="mt-0.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 cursor-pointer w-4 h-4"
-                    />
-                    <div className="text-xs">
-                      <span className="font-bold text-zinc-900 group-hover:text-zinc-950">
-                        Friend Nomination Alert
-                      </span>
-                      <p className="text-[11px] text-zinc-500">
-                        Email me when someone challenges or nominates me
-                      </p>
-                    </div>
-                  </label>
-                </div>
-
-                {/* Error message */}
-                {notifyError && (
-                  <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>{notifyError}</span>
-                  </div>
-                )}
-
-                {/* Security info */}
-                <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 pt-0.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                  <span>Secure & spam-free. We only email you for verified ranking events.</span>
-                </div>
-
+              <h3 className="text-sm font-extrabold text-zinc-900">
+                Email Delivery Inactive
+              </h3>
+              <p className="mt-1.5 text-xs text-zinc-600 max-w-xs mx-auto leading-relaxed">
+                Automated customer email alerts are currently inactive. All rank changes, challenges, and crown updates reflect immediately in real time on the live leaderboard.
+              </p>
+              <div className="mt-4">
                 <button
-                  id="notify-submit-btn"
-                  type="submit"
-                  disabled={isSubmittingNotify || !notifyEmail.trim()}
-                  aria-label="Turn on email notifications for ranking events"
-                  className="w-full mt-2 flex items-center justify-center gap-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 py-3 px-4 text-xs font-extrabold text-white transition-all active:scale-98 cursor-pointer disabled:opacity-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
+                  type="button"
+                  onClick={() => setActiveTab('challenge')}
+                  className="px-4 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-xs font-extrabold text-white cursor-pointer shadow-2xs transition-colors"
                 >
-                  {isSubmittingNotify ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Saving preferences...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Bell className="w-4 h-4" />
-                      <span>Turn On Notifications</span>
-                    </>
-                  )}
+                  Go to Challenge
                 </button>
-              </form>
-            )}
+              </div>
+            </div>
           </div>
         )}
       </div>

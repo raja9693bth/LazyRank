@@ -103,6 +103,32 @@ export function safeInstagramUrl(input?: string): string | null {
   return null;
 }
 
+export function safeTwitterUrl(input?: string): string | null {
+  if (!input || typeof input !== 'string') return null;
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // Handle bare handle/username
+  if (!trimmed.includes('/') && !trimmed.includes(':') && !trimmed.includes('.')) {
+    const clean = trimmed.replace(/^@/, '');
+    if (/^[a-zA-Z0-9_]{1,15}$/i.test(clean)) return `https://x.com/${clean}`;
+    return null;
+  }
+
+  try {
+    const parsed = new URL(trimmed.startsWith('http://') || trimmed.startsWith('https://') ? trimmed : `https://${trimmed}`);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    const hostname = parsed.hostname.toLowerCase();
+    // Allow ONLY exact hostnames: x.com, www.x.com, twitter.com, www.twitter.com
+    if (hostname === 'x.com' || hostname === 'www.x.com' || hostname === 'twitter.com' || hostname === 'www.twitter.com') {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 
 const AVATAR_COLORS = [
   'bg-amber-100 text-amber-900 border-amber-200',
@@ -142,6 +168,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
   const websiteLink = safeWebsiteUrl(profile.website);
   const linkedinLink = safeLinkedInUrl(profile.linkedin);
   const instagramLink = safeInstagramUrl(profile.instagram);
+  const twitterLink = safeTwitterUrl(profile.twitter);
 
   return (
     <article
@@ -270,7 +297,21 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 </span>
               )}
 
-              {/* X icon is intentionally omitted until Commit 3 wires optional X field end to end (omitted rather than showing dead link: X profile not connected) */}
+              {/* X / Twitter (rendered only when valid stored handle/link exists) */}
+              {twitterLink ? (
+                <a
+                  href={twitterLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={`${profile.name}'s X (Twitter) profile`}
+                  className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-700 hover:text-stone-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
+                >
+                  <span className="font-bold text-xs">𝕏</span>
+                </a>
+              ) : (
+                /* X profile not connected */
+                null
+              )}
             </div>
           </div>
         </div>

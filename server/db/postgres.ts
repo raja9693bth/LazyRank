@@ -4,6 +4,7 @@ import path from 'path';
 import crypto from 'crypto';
 import {
   UserProfile,
+  Nomination,
   PurchaseRecord,
   ClaimHistoryRecord,
   LiveStats,
@@ -44,6 +45,7 @@ export interface CreateOrderParams {
   instagram?: string;
   linkedin?: string;
   website?: string;
+  twitter?: string;
   reason?: string;
   lazyReason?: string;
   paymentMode?: string;
@@ -254,6 +256,20 @@ export class PostgresDatabase {
           console.log('[PostgreSQL] Migration 004_today_leaderboard applied successfully.');
         }
 
+        // 6. Check and apply migration 005_operational_workflows if not already recorded
+        const mig005Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '005_operational_workflows'"
+        );
+        if (mig005Res.rows.length === 0) {
+          const mig005Path = path.join(process.cwd(), 'server', 'db', 'migrations', '005_operational_workflows.sql');
+          if (!fs.existsSync(mig005Path)) {
+            throw new Error('Required migration 005_operational_workflows.sql is missing.');
+          }
+          const mig005Sql = fs.readFileSync(mig005Path, 'utf-8');
+          await client.query(mig005Sql);
+          console.log('[PostgreSQL] Migration 005_operational_workflows applied successfully.');
+        }
+
         this.isInitialized = true;
         console.log('[PostgreSQL] Database schema verified and up to date.');
         return true;
@@ -282,10 +298,10 @@ export class PostgresDatabase {
       INSERT INTO payment_orders (
         order_id, profile_id, owner_token_hash, order_access_token_hash, quote_snapshot, name, amount, currency, status,
         payment_mode, provider, idempotency_key, customer_email, customer_phone,
-        instagram, linkedin, website, reason, lazy_reason,
+        instagram, linkedin, website, twitter, reason, lazy_reason,
         consent_accepted, consent_timestamp, consent_version,
         created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW())
       ON CONFLICT (order_id) DO UPDATE SET
         name = EXCLUDED.name,
         amount = EXCLUDED.amount,
@@ -294,6 +310,7 @@ export class PostgresDatabase {
         instagram = COALESCE(EXCLUDED.instagram, payment_orders.instagram),
         linkedin = COALESCE(EXCLUDED.linkedin, payment_orders.linkedin),
         website = COALESCE(EXCLUDED.website, payment_orders.website),
+        twitter = COALESCE(EXCLUDED.twitter, payment_orders.twitter),
         reason = COALESCE(EXCLUDED.reason, payment_orders.reason),
         lazy_reason = COALESCE(EXCLUDED.lazy_reason, payment_orders.lazy_reason),
         idempotency_key = COALESCE(EXCLUDED.idempotency_key, payment_orders.idempotency_key),
@@ -322,6 +339,7 @@ export class PostgresDatabase {
       order.instagram || null,
       order.linkedin || null,
       order.website || null,
+      order.twitter || null,
       order.reason || null,
       order.lazyReason || null,
       Boolean(order.consentAccepted),
@@ -352,6 +370,7 @@ export class PostgresDatabase {
       instagram: r.instagram || undefined,
       linkedin: r.linkedin || undefined,
       website: r.website || undefined,
+      twitter: r.twitter || undefined,
       reason: r.reason || undefined,
       lazyReason: r.lazy_reason || undefined,
       consentAccepted: Boolean(r.consent_accepted),
@@ -515,16 +534,18 @@ export class PostgresDatabase {
             instagram = COALESCE($2, instagram),
             linkedin = COALESCE($3, linkedin),
             website = COALESCE($4, website),
-            reason = COALESCE($5, reason),
-            lazy_reason = COALESCE($6, lazy_reason),
+            twitter = COALESCE($5, twitter),
+            reason = COALESCE($6, reason),
+            lazy_reason = COALESCE($7, lazy_reason),
             is_verified = TRUE,
             updated_at = NOW()
-          WHERE id = $7`,
+          WHERE id = $8`,
           [
             params.amount,
             order.instagram,
             order.linkedin,
             order.website,
+            order.twitter,
             order.reason,
             order.lazy_reason,
             targetProfileId
@@ -541,9 +562,9 @@ export class PostgresDatabase {
 
         await client.query(
           `INSERT INTO profiles (
-            id, user_id, name, amount, rank, instagram, linkedin, website, reason, lazy_reason,
+            id, user_id, name, amount, rank, instagram, linkedin, website, twitter, reason, lazy_reason,
             is_verified, first_verified_at, owner_token_hash, moderation_status, created_at, updated_at
-          ) VALUES ($1, $2, $3, $4, 999999, $5, $6, $7, $8, $9, TRUE, NOW(), $10, 'active', NOW(), NOW())`,
+          ) VALUES ($1, $2, $3, $4, 999999, $5, $6, $7, $8, $9, $10, TRUE, NOW(), $11, 'active', NOW(), NOW())`,
           [
             targetProfileId,
             userId,
@@ -552,6 +573,7 @@ export class PostgresDatabase {
             order.instagram,
             order.linkedin,
             order.website,
+            order.twitter,
             order.reason,
             order.lazy_reason,
             ownerTokenHash
@@ -613,7 +635,30 @@ export class PostgresDatabase {
         ]
       );
 
+      // 8. Enqueue Operational Outbox Event in the SAME ACID transaction
+      const outboxId = 'out_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+      const outboxPayload = {
+        orderId: params.orderId,
+        profileId: targetProfileId,
+        name: finalProfile.name,
+        amount: params.amount,
+        rank: finalProfile.rank,
+        timestamp: new Date().toISOString()
+      };
+      await client.query(`
+        INSERT INTO operational_outbox (
+          id, event_type, order_id, delivery_status, attempts, next_attempt_at, payload, created_at
+        ) VALUES (
+          $1, 'payment_settled', $2, 'PENDING', 0, NOW(), $3, NOW()
+        ) ON CONFLICT (event_type, order_id) DO NOTHING
+      `, [outboxId, params.orderId, JSON.stringify(outboxPayload)]);
+
       await client.query('COMMIT');
+
+      // Asynchronously trigger outbox dispatcher without blocking payment return
+      this.dispatchOperationalOutbox().catch(err => {
+        console.error('[Outbox] Background dispatch error:', err);
+      });
 
       return {
         success: true,
@@ -1256,6 +1301,7 @@ export class PostgresDatabase {
       instagram: row.instagram || undefined,
       linkedin: row.linkedin || undefined,
       website: row.website || undefined,
+      twitter: row.twitter || undefined,
       reason: row.reason || undefined,
       title: row.title || undefined,
       badge: row.badge || undefined,
@@ -1371,6 +1417,270 @@ export class PostgresDatabase {
   }
 
   /**
+   * Durable Social Voting in PostgreSQL
+   * Fingerprints voter by client IP + User-Agent + server salt to prevent duplicate votes.
+   */
+  public async voteProfile(
+    profileId: string,
+    clientIp: string,
+    userAgent?: string
+  ): Promise<{ success: boolean; profile?: UserProfile; message: string }> {
+    if (!this.pool) throw new Error('Database unavailable');
+    const profRes = await this.pool.query('SELECT * FROM profiles WHERE id = $1', [profileId]);
+    if (profRes.rows.length === 0) {
+      return { success: false, message: 'Profile not found' };
+    }
+    const row = profRes.rows[0];
+    if (row.moderation_status === 'removed' || row.reason === '[Content Removed]') {
+      return { success: false, message: 'Profile not available' };
+    }
+
+    const salt = process.env.VOTE_SECRET || 'lazyproof_vote_salt_2026';
+    const voterFingerprint = crypto
+      .createHash('sha256')
+      .update(`${clientIp}:${userAgent || ''}:${salt}`)
+      .digest('hex');
+
+    const voteId = 'vote_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    const insertRes = await this.pool.query(
+      `INSERT INTO profile_votes (id, profile_id, voter_fingerprint, created_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (profile_id, voter_fingerprint) DO NOTHING
+       RETURNING id`,
+      [voteId, profileId, voterFingerprint]
+    );
+
+    if (insertRes.rowCount === 0) {
+      return { success: false, message: 'You already voted for this person!' };
+    }
+
+    const updateRes = await this.pool.query(
+      `UPDATE profiles
+       SET votes_count = COALESCE(votes_count, 0) + 1, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [profileId]
+    );
+
+    return {
+      success: true,
+      profile: this.mapProfile(updateRes.rows[0]),
+      message: 'Vote recorded!'
+    };
+  }
+
+  /**
+   * Durable Challenge / Nomination Persistence
+   */
+  public async createNominationChallenge(params: {
+    nomineeName: string;
+    reason: string;
+    nominatorName?: string;
+    targetAmount?: number;
+    lazyReason?: string;
+  }): Promise<Nomination> {
+    if (!this.pool) throw new Error('Database unavailable');
+    const nomId = 'nom_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+    const nominator = params.nominatorName?.trim() || 'A Friend';
+    const nominee = params.nomineeName.trim();
+    const reason = params.reason.trim();
+    const lazyReason = params.lazyReason?.trim() || null;
+    const targetAmount = params.targetAmount || ((await this.getTopAmount()) + 1);
+
+    await this.pool.query(
+      `INSERT INTO nominations (
+         id, nominator_name, nominee_name, target_amount, reason, lazy_reason, status, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())`,
+      [nomId, nominator, nominee, targetAmount, reason, lazyReason]
+    );
+
+    return {
+      id: nomId,
+      nomineeName: nominee,
+      nominatorName: nominator,
+      reason,
+      lazyReason: lazyReason || undefined,
+      targetAmount,
+      status: 'active',
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Durable Notification Preference Persistence
+   */
+  public async saveNotificationPreference(params: {
+    email: string;
+    profileId?: string;
+    notifyDisplaced?: boolean;
+    notifyDailySummary?: boolean;
+  }): Promise<{ id: string; success: boolean }> {
+    if (!this.pool) throw new Error('Database unavailable');
+    const id = 'notif_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    await this.pool.query(
+      `INSERT INTO notification_preferences (
+         id, email, profile_id, notify_displaced, notify_daily_summary, created_at
+       ) VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [
+        id,
+        params.email.trim().toLowerCase(),
+        params.profileId || null,
+        params.notifyDisplaced !== false,
+        Boolean(params.notifyDailySummary)
+      ]
+    );
+    return { id, success: true };
+  }
+
+  /**
+   * Transactional Operational Outbox Worker
+   * Dispatches founder alerts asynchronously with row-level locks, bounded retries, and timeouts.
+   */
+  public async dispatchOperationalOutbox(): Promise<{ processed: number; delivered: number; failed: number }> {
+    if (!this.pool) return { processed: 0, delivered: 0, failed: 0 };
+    let processed = 0;
+    let delivered = 0;
+    let failed = 0;
+
+    const client = await this.pool.connect();
+    let eventsToDispatch: Array<{ id: string; event_type: string; order_id: string; attempts: number; payload: any }> = [];
+    try {
+      await client.query('BEGIN');
+      const selectRes = await client.query(`
+        SELECT id, event_type, order_id, attempts, payload
+        FROM operational_outbox
+        WHERE (
+          delivery_status IN ('PENDING', 'FAILED') AND next_attempt_at <= NOW()
+        ) OR (
+          delivery_status = 'PROCESSING' AND lease_expires_at IS NOT NULL AND lease_expires_at <= NOW()
+        )
+        ORDER BY created_at ASC
+        LIMIT 10
+        FOR UPDATE SKIP LOCKED
+      `);
+
+      if (selectRes.rows.length > 0) {
+        const ids = selectRes.rows.map(r => r.id);
+        await client.query(`
+          UPDATE operational_outbox
+          SET delivery_status = 'PROCESSING',
+              lease_expires_at = NOW() + INTERVAL '30 seconds',
+              attempts = attempts + 1
+          WHERE id = ANY($1)
+        `, [ids]);
+        eventsToDispatch = selectRes.rows;
+      }
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK').catch(() => {});
+      console.error('[Outbox] Failed to claim outbox items:', txErr);
+      return { processed: 0, delivered: 0, failed: 0 };
+    } finally {
+      client.release();
+    }
+
+    if (eventsToDispatch.length === 0) {
+      return { processed: 0, delivered: 0, failed: 0 };
+    }
+
+    for (const ev of eventsToDispatch) {
+      processed++;
+      try {
+        const payload = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+        await this.sendFounderAlert(payload);
+        await this.pool.query(`
+          UPDATE operational_outbox
+          SET delivery_status = 'DELIVERED',
+              sent_at = NOW(),
+              lease_expires_at = NULL,
+              last_error = NULL
+          WHERE id = $1
+        `, [ev.id]);
+        delivered++;
+      } catch (err: any) {
+        failed++;
+        const errMsg = err?.message || String(err);
+        const newAttempts = ev.attempts + 1;
+        const newStatus = newAttempts >= 5 ? 'EXHAUSTED' : 'FAILED';
+        await this.pool.query(`
+          UPDATE operational_outbox
+          SET delivery_status = $1,
+              next_attempt_at = NOW() + ($2 * INTERVAL '30 seconds'),
+              lease_expires_at = NULL,
+              last_error = $3
+          WHERE id = $4
+        `, [newStatus, newAttempts, errMsg.slice(0, 500), ev.id]).catch(() => {});
+      }
+    }
+
+    return { processed, delivered, failed };
+  }
+
+  /**
+   * Code-native founder alert sender (Telegram and/or Discord)
+   */
+  private async sendFounderAlert(payload: any): Promise<void> {
+    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+    const tgChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+    const discordUrl = process.env.DISCORD_WEBHOOK_URL;
+
+    // If neither channel is configured, outbox dispatch resolves cleanly without error
+    if ((!tgToken || !tgChatId) && !discordUrl) {
+      return;
+    }
+
+    const orderId = payload.orderId || 'Unknown';
+    const name = payload.name || 'Anonymous';
+    const amount = payload.amount || 0;
+    const rank = payload.rank || 0;
+    const timestamp = payload.timestamp || new Date().toISOString();
+
+    const alertText = `🚀 LazyProof Verified Payment\n• Order: ${orderId}\n• Name: ${name}\n• Amount: ₹${amount}\n• Rank: #${rank}\n• Time: ${timestamp}`;
+
+    const dispatchPromises: Promise<any>[] = [];
+
+    if (tgToken && tgChatId) {
+      const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+      dispatchPromises.push(
+        fetch(tgUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: tgChatId,
+            text: alertText
+          }),
+          signal: AbortSignal.timeout(5000)
+        }).then(async res => {
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new Error(`Telegram error ${res.status}: ${body.slice(0, 150)}`);
+          }
+        })
+      );
+    }
+
+    if (discordUrl) {
+      dispatchPromises.push(
+        fetch(discordUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: `🚀 **LazyProof Verified Payment**\n• **Order**: \`${orderId}\`\n• **Name**: ${name}\n• **Amount**: ₹${amount}\n• **Rank**: #${rank}\n• **Time**: ${timestamp}`
+          }),
+          signal: AbortSignal.timeout(5000)
+        }).then(async res => {
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new Error(`Discord error ${res.status}: ${body.slice(0, 150)}`);
+          }
+        })
+      );
+    }
+
+    await Promise.all(dispatchPromises);
+  }
+
+  /**
    * Authoritative Protected Admin Data
    */
   public async getAdminData(limit = 50, offset = 0): Promise<any> {
@@ -1397,6 +1707,12 @@ export class PostgresDatabase {
     const repRes = await this.pool.query(
       `SELECT id, target_id, target_type, reason, details, status, created_at
        FROM reports ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    );
+
+    const nomRes = await this.pool.query(
+      `SELECT id, nominator_name, nominee_name, target_amount, reason, lazy_reason, status, created_at
+       FROM nominations ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
       [limit, offset]
     );
 
@@ -1461,11 +1777,23 @@ export class PostgresDatabase {
       createdAt: new Date(r.created_at).toISOString()
     }));
 
+    const nominations = nomRes.rows.map(n => ({
+      id: n.id,
+      nominatorName: n.nominator_name,
+      nomineeName: n.nominee_name,
+      targetAmount: n.target_amount ? Number(n.target_amount) : null,
+      reason: n.reason,
+      lazyReason: n.lazy_reason || undefined,
+      status: n.status,
+      createdAt: new Date(n.created_at).toISOString()
+    }));
+
     return {
       profiles,
       orders,
       inquiries,
       reports,
+      nominations,
       stats,
       liveStats: stats,
       analytics: {

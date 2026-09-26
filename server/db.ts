@@ -314,6 +314,7 @@ interface DatabaseState {
       instagram?: string;
       linkedin?: string;
       website?: string;
+      twitter?: string;
       reason?: string;
       lazyReason?: string;
       paymentRef?: string;
@@ -913,6 +914,7 @@ export class LazyDatabase {
     instagram?: string;
     linkedin?: string;
     website?: string;
+    twitter?: string;
     reason?: string;
     lazyReason?: string;
     idempotencyKey?: string;
@@ -1095,6 +1097,31 @@ export class LazyDatabase {
     return undefined;
   }
 
+  public normalizeTwitter(raw?: string): string | undefined {
+    if (!raw || typeof raw !== 'string') return undefined;
+    const trimmed = raw.replace(/[\x00-\x1F\x7F]/g, '').trim();
+    if (/^(javascript|data|vbscript|file|blob):/i.test(trimmed)) {
+      return undefined;
+    }
+    const clean = trimmed.replace(/^@/, '');
+    if (!clean.includes('/') && !clean.includes(':') && !clean.includes('.')) {
+      if (/^[a-zA-Z0-9_]{1,15}$/.test(clean)) {
+        return `https://x.com/${clean}`;
+      }
+      return undefined;
+    }
+    try {
+      const urlStr = clean.startsWith('http://') || clean.startsWith('https://') ? clean : `https://${clean}`;
+      const parsed = new URL(urlStr);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+      const host = parsed.hostname.toLowerCase();
+      if (host === 'x.com' || host === 'www.x.com' || host === 'twitter.com' || host === 'www.twitter.com') {
+        return parsed.href;
+      }
+    } catch {}
+    return undefined;
+  }
+
   /**
    * SERVER-AUTHORITATIVE VERIFICATION & CLAIM (v2.0 Core Mechanic)
    * Handles payment verification atomically.
@@ -1109,12 +1136,13 @@ export class LazyDatabase {
     instagram?: string;
     linkedin?: string;
     website?: string;
+    twitter?: string;
     reason?: string;
     lazyReason?: string;
     profileId?: string; // Optional if existing user upgrades
     ownerToken?: string; // Ownership credential to prevent IDOR
   }): { success: boolean; profile?: UserProfile; previousTop?: UserProfile; message?: string } {
-    const { name, amount, paymentRef, orderId, instagram, linkedin, website, reason, lazyReason, profileId, ownerToken } = params;
+    const { name, amount, paymentRef, orderId, instagram, linkedin, website, twitter, reason, lazyReason, profileId, ownerToken } = params;
 
     // Defense-in-depth: Reject any settlement mutation when payment is disabled
     const paymentMode = (process.env.PAYMENT_MODE || 'disabled').toLowerCase().trim();
@@ -1176,6 +1204,7 @@ export class LazyDatabase {
     const normInsta = this.normalizeInstagram(instagram);
     const normLinkedIn = this.normalizeLinkedIn(linkedin);
     const normWeb = this.normalizeWebsite(website);
+    const normTwitter = this.normalizeTwitter(twitter);
 
     if (targetProfile) {
       // Upgrade existing profile: accumulate amount
@@ -1183,6 +1212,7 @@ export class LazyDatabase {
       if (normInsta) targetProfile.instagram = normInsta;
       if (normLinkedIn) targetProfile.linkedin = normLinkedIn;
       if (normWeb) targetProfile.website = normWeb;
+      if (normTwitter) targetProfile.twitter = normTwitter;
       if (reason && reason.trim().length > 0) targetProfile.reason = reason.trim();
       if (lazyReason && lazyReason.trim().length > 0) targetProfile.lazyReason = lazyReason.trim();
       targetProfile.isVerified = true;
@@ -1204,6 +1234,7 @@ export class LazyDatabase {
         instagram: normInsta,
         linkedin: normLinkedIn,
         website: normWeb,
+        twitter: normTwitter,
         reason: reason?.trim() || 'Paid to prove laziness. No excuses.',
         lazyReason: lazyReason?.trim() || undefined,
         isVerified: true,
@@ -1385,10 +1416,12 @@ export class LazyDatabase {
     name: string;
     instagram?: string;
     website?: string;
+    twitter?: string;
     reason?: string;
   }): UserProfile {
     const normInsta = this.normalizeInstagram(params.instagram);
     const normWeb = this.normalizeWebsite(params.website);
+    const normTwitter = this.normalizeTwitter(params.twitter);
     const newId = generateId('p');
     const newUserId = generateId('u');
     const ownerToken = crypto.randomBytes(24).toString('hex');
@@ -1401,6 +1434,7 @@ export class LazyDatabase {
       rank: 0,
       instagram: normInsta,
       website: normWeb,
+      twitter: normTwitter,
       reason: params.reason?.trim() || 'Claim initiated — awaiting payment verification.',
       isVerified: false,
       badge: 'Not Yet Proven',
@@ -1591,6 +1625,17 @@ export class LazyDatabase {
 
     this.state.notificationSubscriptions.push(newSub);
     this.saveData();
+
+    if (this.isPostgresAuthoritative()) {
+      this.pg.saveNotificationPreference({
+        email: cleanEmail,
+        notifyDisplaced: notifyOnOutranked,
+        notifyDailySummary: false
+      }).catch(err => {
+        console.error('[PostgreSQL] Save notification preference error:', err);
+      });
+    }
+
     return {
       success: true,
       message: 'Notification preference saved. Email delivery is not active yet.',

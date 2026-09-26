@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS profiles (
   instagram VARCHAR(100),
   linkedin VARCHAR(255),
   website VARCHAR(255),
+  twitter VARCHAR(255),
   reason VARCHAR(255),
   title VARCHAR(120),
   badge VARCHAR(60),
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS payment_orders (
   instagram VARCHAR(100),
   linkedin VARCHAR(255),
   website VARCHAR(255),
+  twitter VARCHAR(255),
   reason VARCHAR(255),
   lazy_reason VARCHAR(120),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -243,3 +245,32 @@ CREATE TABLE IF NOT EXISTS daily_snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS idx_daily_snapshots_profile ON daily_snapshots (profile_id);
+
+-- 15. Operational Outbox Table for Durable Event Dispatch (Founder Alerts)
+CREATE TABLE IF NOT EXISTS operational_outbox (
+  id VARCHAR(64) PRIMARY KEY,
+  event_type VARCHAR(50) NOT NULL,
+  order_id VARCHAR(64) NOT NULL REFERENCES payment_orders(order_id) ON DELETE CASCADE,
+  delivery_status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (delivery_status IN ('PENDING', 'PROCESSING', 'DELIVERED', 'FAILED', 'EXHAUSTED')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  lease_expires_at TIMESTAMPTZ,
+  last_error TEXT,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  sent_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_event_order ON operational_outbox (event_type, order_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_pending_dispatch ON operational_outbox (delivery_status, next_attempt_at) WHERE delivery_status IN ('PENDING', 'PROCESSING', 'FAILED');
+
+-- 16. Durable Profile Votes Table for Rate-Limited, Idempotent Social Voting
+CREATE TABLE IF NOT EXISTS profile_votes (
+  id VARCHAR(64) PRIMARY KEY,
+  profile_id VARCHAR(64) NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+  voter_fingerprint VARCHAR(128) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_profile_voter UNIQUE (profile_id, voter_fingerprint)
+);
+
+CREATE INDEX IF NOT EXISTS idx_profile_votes_profile_id ON profile_votes (profile_id);

@@ -329,7 +329,7 @@ async function startServer() {
     }
 
     const {
-      name, amount, instagram, linkedin, website, reason, lazyReason,
+      name, amount, instagram, linkedin, website, twitter, reason, lazyReason,
       profileId, customerEmail, customerPhone, consentAccepted,
       ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
     } = req.body;
@@ -468,6 +468,7 @@ async function startServer() {
         instagram: existingOrder.instagram,
         linkedin: existingOrder.linkedin,
         website: existingOrder.website,
+        twitter: existingOrder.twitter,
         reason: existingOrder.reason,
         lazyReason: existingOrder.lazyReason
       });
@@ -488,6 +489,7 @@ async function startServer() {
       instagram: db.normalizeInstagram(instagram),
       linkedin: db.normalizeLinkedIn(linkedin),
       website: db.normalizeWebsite(website),
+      twitter: db.normalizeTwitter(twitter),
       reason: reason?.trim(),
       lazyReason: lazyReason?.trim(),
       idempotencyKey,
@@ -538,6 +540,7 @@ async function startServer() {
         instagram: db.normalizeInstagram(instagram),
         linkedin: db.normalizeLinkedIn(linkedin),
         website: db.normalizeWebsite(website),
+        twitter: db.normalizeTwitter(twitter),
         reason: reason?.trim(),
         lazyReason: lazyReason?.trim()
       });
@@ -1195,7 +1198,7 @@ async function startServer() {
   }));
 
   // Challenge / Friend Nomination
-  app.post('/api/challenge', (req: Request, res: Response) => {
+  app.post('/api/challenge', asyncHandler(async (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 20, 60000)) {
       return res.status(429).json({ error: 'Too many challenges created. Please slow down.' });
@@ -1215,6 +1218,17 @@ async function startServer() {
       return res.status(400).json({ error: 'Please keep challenge content respectful.' });
     }
 
+    if (db.isPostgresAuthoritative()) {
+      const nomination = await db.pg.createNominationChallenge({
+        nomineeName: nomineeName.trim(),
+        reason: reason || 'Too lazy to even defend themselves.',
+        nominatorName: nominatorName?.trim(),
+        targetAmount: targetAmount ? parseInt(targetAmount, 10) : undefined,
+        lazyReason: lazyReason?.trim()
+      });
+      return res.json({ success: true, nomination });
+    }
+
     const nomination = db.createNominationChallenge(
       nomineeName,
       reason || 'Too lazy to even defend themselves.',
@@ -1224,7 +1238,7 @@ async function startServer() {
     );
 
     res.json({ success: true, nomination });
-  });
+  }));
 
   // Secure 'Notify Me' email subscription endpoint
   // Allows users to sign up for email notifications when outranked or when nominated by friends
@@ -1431,8 +1445,9 @@ async function startServer() {
   }));
 
   // Vote for laziness (+1 social appreciation)
-  app.post('/api/vote', (req: Request, res: Response) => {
+  app.post('/api/vote', asyncHandler(async (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
+    const userAgent = req.headers['user-agent'] as string | undefined;
     if (!checkRateLimit(clientIp, 30, 60000)) {
       return res.status(429).json({ error: 'Voting rate limit reached. Please wait.' });
     }
@@ -1442,6 +1457,14 @@ async function startServer() {
       return res.status(400).json({ error: 'Valid profile ID is required.' });
     }
 
+    if (db.isPostgresAuthoritative()) {
+      const result = await db.pg.voteProfile(profileId.trim(), clientIp, userAgent);
+      if (!result.success && result.message === 'Profile not found') {
+        return res.status(404).json({ error: 'Profile not found.' });
+      }
+      return res.json(result);
+    }
+
     const prof = db.getProfile(profileId.trim());
     if (!prof) {
       return res.status(404).json({ error: 'Profile not found.' });
@@ -1449,7 +1472,7 @@ async function startServer() {
 
     const result = db.voteLazy(profileId.trim(), clientIp);
     res.json(result);
-  });
+  }));
 
   // Report content (Strict target existence validation and character limits)
   app.post('/api/report', async (req: Request, res: Response, next: NextFunction) => {

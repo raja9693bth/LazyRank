@@ -135,6 +135,7 @@ export interface ClaimOrderInput {
   instagram?: string;
   linkedin?: string;
   website?: string;
+  twitter?: string;
   reason?: string;
   lazyReason?: string;
   profileId?: string;
@@ -304,6 +305,7 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
         instagram: input.instagram,
         linkedin: input.linkedin,
         website: input.website,
+        twitter: input.twitter,
         reason: input.reason,
         lazyReason: input.lazyReason,
         profileId: targetProfileId,
@@ -334,6 +336,7 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
             instagram: input.instagram,
             linkedin: input.linkedin,
             website: input.website,
+            twitter: input.twitter,
             reason: input.reason,
             profileId: targetProfileId
           },

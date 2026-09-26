@@ -42,6 +42,11 @@ try {
   execSync('npx tsx tests/frontend-contract.test.ts', { stdio: 'inherit' });
 
   console.log('\n========================================================');
+  console.log('RUNNING SUITE 9: PHASE 4 OPERATIONAL WORKFLOWS & DURABLE DATA (10 TESTS)');
+  console.log('========================================================\n');
+  execSync('npx tsx tests/phase4-operational-workflows.test.ts', { stdio: 'inherit' });
+
+  console.log('\n========================================================');
   console.log('MASTER TEST SUITE RESULT: ALL ASSERTIONS PASSED (100%)');
   console.log('========================================================\n');
   process.exit(0);

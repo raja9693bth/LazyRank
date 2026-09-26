@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserProfile, getLazyReasonEmoji } from '../types.ts';
 import { ShareCardPreview, CardTemplateType } from './ShareCardPreview.tsx';
-import { safeWebsiteUrl, safeLinkedInUrl, safeInstagramUrl } from './ProfileCard.tsx';
+import { safeWebsiteUrl, safeLinkedInUrl, safeInstagramUrl, safeTwitterUrl } from './ProfileCard.tsx';
 import {
   Share2,
   Copy,
@@ -588,7 +588,8 @@ export const ResultView: React.FC<ResultViewProps> = ({
             const igUrl = safeInstagramUrl(profile.instagram);
             const liUrl = safeLinkedInUrl(profile.linkedin);
             const webUrl = safeWebsiteUrl(profile.website);
-            if (!igUrl && !liUrl && !webUrl) return null;
+            const twUrl = safeTwitterUrl(profile.twitter);
+            if (!igUrl && !liUrl && !webUrl && !twUrl) return null;
 
             return (
               <div className="flex items-center justify-center gap-3 pt-2 text-xs text-zinc-600 flex-wrap">
@@ -605,7 +606,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   </a>
                 )}
 
-                {igUrl && (liUrl || webUrl) && (
+                {igUrl && (liUrl || webUrl || twUrl) && (
                   <span className="text-zinc-300">·</span>
                 )}
 
@@ -622,7 +623,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   </a>
                 )}
 
-                {liUrl && webUrl && (
+                {liUrl && (webUrl || twUrl) && (
                   <span className="text-zinc-300">·</span>
                 )}
 
@@ -636,6 +637,23 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   >
                     <Globe className="w-3.5 h-3.5" />
                     <span>Website</span>
+                  </a>
+                )}
+
+                {webUrl && twUrl && (
+                  <span className="text-zinc-300">·</span>
+                )}
+
+                {twUrl && (
+                  <a
+                    href={twUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Visit X profile"
+                    className="inline-flex items-center gap-1 text-zinc-700 hover:text-zinc-950 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
+                  >
+                    <span className="font-bold text-xs">𝕏</span>
+                    <span>X</span>
                   </a>
                 )}
               </div>
@@ -714,12 +732,12 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
             <button
               type="button"
-              onClick={() => onOpenChallenge(profile.rank, 'notify', profile.name)}
-              aria-label="Set alert to be notified if outranked"
+              onClick={() => onOpenChallenge(profile.rank, 'challenge', profile.name)}
+              aria-label="Challenge a friend"
               className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white hover:bg-stone-50 border border-stone-200 text-stone-800 text-xs font-bold transition-all active:scale-98 cursor-pointer min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800 focus-visible:ring-offset-2"
             >
-              <Bell className="w-3.5 h-3.5 text-amber-600" />
-              <span>Notify If Outranked</span>
+              <Swords className="w-3.5 h-3.5 text-amber-700" />
+              <span>Challenge Friend</span>
             </button>
           </div>
 
@@ -1292,13 +1310,13 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
           <button
             type="button"
-            onClick={() => onOpenChallenge(profile.rank, 'notify', profile.name)}
-            aria-label="Get email notifications if outranked"
+            onClick={() => onOpenChallenge(profile.rank, 'challenge', profile.name)}
+            aria-label="Challenge a friend to beat your rank"
             className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 px-4 py-3 rounded-xl bg-white hover:bg-zinc-50 border border-zinc-200 text-zinc-800 text-xs font-bold transition-all active:scale-95 cursor-pointer min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
-            title="Get email alerts if someone outranks you or nominates you"
+            title="Challenge a friend to beat your rank on LAZY"
           >
-            <Bell className="w-4 h-4 text-amber-600" />
-            <span>Notify Me</span>
+            <Swords className="w-4 h-4 text-amber-700" />
+            <span>Challenge Friend</span>
           </button>
         </div>
 

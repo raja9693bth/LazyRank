@@ -20,6 +20,7 @@ interface ActionPanelProps {
     instagram?: string;
     linkedin?: string;
     website?: string;
+    twitter?: string;
     reason?: string;
     lazyReason?: string;
     profileId?: string;
@@ -58,6 +59,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   const [instagram, setInstagram] = useState('');
   const [linkedin, setLinkedin] = useState('');
   const [website, setWebsite] = useState('');
+  const [twitter, setTwitter] = useState('');
   const [reason, setReason] = useState('');
   const [showOptionalLinks, setShowOptionalLinks] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -89,11 +91,12 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       setInstagram(upgradingProfile.instagram || '');
       setLinkedin(upgradingProfile.linkedin || '');
       setWebsite(upgradingProfile.website || '');
+      setTwitter(upgradingProfile.twitter || '');
       setReason(upgradingProfile.reason || '');
       if (upgradingProfile.lazyReason) {
         setCategory(upgradingProfile.lazyReason);
       }
-      if (upgradingProfile.instagram || upgradingProfile.linkedin || upgradingProfile.website || upgradingProfile.reason) {
+      if (upgradingProfile.instagram || upgradingProfile.linkedin || upgradingProfile.website || upgradingProfile.twitter || upgradingProfile.reason) {
         setShowOptionalLinks(true);
       }
     }
@@ -178,6 +181,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       instagram: instagram.trim() || undefined,
       linkedin: linkedin.trim() || undefined,
       website: website.trim() || undefined,
+      twitter: twitter.trim() || undefined,
       reason: reason.trim() || undefined,
       lazyReason: category || undefined,
       profileId: upgradingProfile?.id,
@@ -448,6 +452,24 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                       className="w-full rounded-lg border border-[#ede5da] bg-white px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:border-stone-800 focus:outline-none"
                     />
                   </div>
+                </div>
+
+                {/* X (Twitter) Profile */}
+                <div>
+                  <label htmlFor="claim-twitter-input" className="block text-[11px] font-bold text-stone-600 mb-0.5 flex items-center gap-1">
+                    <span className="font-bold">𝕏</span>
+                    <span>X (Twitter) Profile</span>
+                    <span className="text-[10px] text-stone-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    id="claim-twitter-input"
+                    type="text"
+                    placeholder="@handle or https://x.com/username"
+                    value={twitter}
+                    onChange={(e) => setTwitter(e.target.value)}
+                    maxLength={100}
+                    className="w-full rounded-lg border border-[#ede5da] bg-white px-2.5 py-1.5 text-xs font-medium text-stone-900 focus:border-stone-800 focus:outline-none"
+                  />
                 </div>
 
                 {/* Short Laziness Reason */}

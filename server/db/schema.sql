@@ -251,7 +251,7 @@ CREATE TABLE IF NOT EXISTS operational_outbox (
   id VARCHAR(64) PRIMARY KEY,
   event_type VARCHAR(50) NOT NULL,
   order_id VARCHAR(64) NOT NULL REFERENCES payment_orders(order_id) ON DELETE CASCADE,
-  delivery_status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (delivery_status IN ('PENDING', 'PROCESSING', 'DELIVERED', 'FAILED', 'EXHAUSTED')),
+  delivery_status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (delivery_status IN ('PENDING', 'PROCESSING', 'DELIVERED', 'FAILED', 'EXHAUSTED', 'SKIPPED_NO_CHANNELS', 'WAITING_CONFIG')),
   attempts INTEGER NOT NULL DEFAULT 0,
   next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   lease_expires_at TIMESTAMPTZ,
@@ -264,7 +264,22 @@ CREATE TABLE IF NOT EXISTS operational_outbox (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_outbox_event_order ON operational_outbox (event_type, order_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending_dispatch ON operational_outbox (delivery_status, next_attempt_at) WHERE delivery_status IN ('PENDING', 'PROCESSING', 'FAILED');
 
--- 16. Durable Profile Votes Table for Rate-Limited, Idempotent Social Voting
+-- 16. Outbox Channel Deliveries Table for Independent Per-Channel Tracking
+CREATE TABLE IF NOT EXISTS outbox_channel_deliveries (
+  id VARCHAR(64) PRIMARY KEY,
+  outbox_id VARCHAR(64) NOT NULL REFERENCES operational_outbox(id) ON DELETE CASCADE,
+  channel VARCHAR(30) NOT NULL CHECK (channel IN ('telegram', 'discord')),
+  delivery_status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (delivery_status IN ('PENDING', 'DELIVERED', 'FAILED', 'EXHAUSTED')),
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  sent_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_outbox_channel UNIQUE (outbox_id, channel)
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_channel_status ON outbox_channel_deliveries (channel, delivery_status);
+
+-- 17. Durable Profile Votes Table for Rate-Limited, Idempotent Social Voting
 CREATE TABLE IF NOT EXISTS profile_votes (
   id VARCHAR(64) PRIMARY KEY,
   profile_id VARCHAR(64) NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,

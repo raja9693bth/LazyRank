@@ -50,7 +50,7 @@ interface ResultViewProps {
   nextRankProfile?: UserProfile | null;
   minAmountToBeatTop?: number;
   onBackToLeaderboard: () => void;
-  onOpenChallenge: (targetRank?: number, initialTab?: 'challenge' | 'notify' | 'reason', defaultName?: string) => void;
+  onOpenChallenge: (targetRank?: number, initialTab?: 'challenge' | 'reason', defaultName?: string) => void;
   onUpgradeRank: (profile: UserProfile) => void;
   onProfileUpdated?: (updated: UserProfile) => void;
 }

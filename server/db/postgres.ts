@@ -12,6 +12,7 @@ import {
   HourlyActivityBucket,
   DayActivityBucket
 } from '../../src/types.ts';
+import { toSafePaise } from '../payments/provider.js';
 
 const { Pool } = pg;
 
@@ -20,6 +21,8 @@ export interface SettlePaymentParams {
   providerPaymentId: string;
   provider: string;
   amount: number;
+  currency?: string;
+  status?: string;
   paymentMethod?: string;
   signatureVerified: boolean;
   rawPayload?: any;
@@ -31,6 +34,7 @@ export interface RefundParams {
   providerRefundId?: string;
   amount: number;
   reason: string;
+  currency?: string;
 }
 
 export interface CreateOrderParams {
@@ -270,6 +274,20 @@ export class PostgresDatabase {
           console.log('[PostgreSQL] Migration 005_operational_workflows applied successfully.');
         }
 
+        // 7. Check and apply migration 006_outbox_delivery if not already recorded
+        const mig006Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '006_outbox_delivery'"
+        );
+        if (mig006Res.rows.length === 0) {
+          const mig006Path = path.join(process.cwd(), 'server', 'db', 'migrations', '006_outbox_delivery.sql');
+          if (!fs.existsSync(mig006Path)) {
+            throw new Error('Required migration 006_outbox_delivery.sql is missing.');
+          }
+          const mig006Sql = fs.readFileSync(mig006Path, 'utf-8');
+          await client.query(mig006Sql);
+          console.log('[PostgreSQL] Migration 006_outbox_delivery applied successfully.');
+        }
+
         this.isInitialized = true;
         console.log('[PostgreSQL] Database schema verified and up to date.');
         return true;
@@ -477,16 +495,36 @@ export class PostgresDatabase {
         return { success: false, message: 'Order state is not settleable' };
       }
 
-      // Verify amount matches order amount in integer paise
-      const toPaise = (amt: number): number => {
-        if (!Number.isFinite(amt)) throw new Error('Invalid amount');
-        const paise = Math.round(amt * 100);
-        if (Math.abs(amt * 100 - paise) >= 1e-8) throw new Error('Sub-paise amount');
-        return paise;
-      };
-      if (toPaise(Number(order.amount)) !== toPaise(params.amount)) {
+      // Require nonempty providerPaymentId
+      if (!params.providerPaymentId || typeof params.providerPaymentId !== 'string' || params.providerPaymentId.trim().length === 0) {
         await client.query('ROLLBACK');
-        return { success: false, message: 'Paid amount does not match registered order amount.' };
+        return { success: false, message: 'Nonempty providerPaymentId is strictly required.' };
+      }
+
+      // Require provider currency INR (fail closed on absent currency)
+      if (!params.currency || params.currency !== 'INR') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Provider payment currency must be INR.' };
+      }
+
+      // Require stored order currency INR
+      if (order.currency !== 'INR') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Stored order currency must be INR.' };
+      }
+
+      // Require provider status PAID
+      if (params.status !== 'PAID') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Provider payment status must be PAID.' };
+      }
+
+      // Verify exact integer paise equality using strict minor-unit validator
+      const orderPaise = toSafePaise(Number(order.amount));
+      const paramPaise = toSafePaise(params.amount);
+      if (orderPaise === null || paramPaise === null || orderPaise !== paramPaise) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Paid amount does not match registered order amount or invalid minor-unit.' };
       }
 
       // 2. Insert into payment_transactions (provider_payment_id has UNIQUE constraint)
@@ -876,9 +914,19 @@ export class PostgresDatabase {
       }
 
       const order = orderRes.rows[0];
-      const orderPaise = Math.round(Number(order.amount) * 100);
-      const refundPaise = Math.round(params.amount * 100);
+      const orderPaise = toSafePaise(Number(order.amount));
+      const refundPaise = toSafePaise(params.amount);
+      if (orderPaise === null || refundPaise === null) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Invalid order or refund amount.' };
+      }
       const profileId = order.profile_id;
+
+      // Validate currency parameter (fail closed if not INR)
+      if (params.currency !== 'INR') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Currency mismatch: expected INR.' };
+      }
 
       // Locate precisely the PENDING reservation by (order_id, merchant_refund_id)
       const reservationRes = await client.query(
@@ -892,10 +940,10 @@ export class PostgresDatabase {
       }
 
       const reservation = reservationRes.rows[0];
-      const resPaise = Math.round(Number(reservation.amount) * 100);
+      const resPaise = toSafePaise(Number(reservation.amount));
 
       // Validate exact integer paise match
-      if (resPaise !== refundPaise) {
+      if (resPaise === null || resPaise !== refundPaise) {
         await client.query('ROLLBACK');
         return { success: false, message: `Refund amount mismatch: reservation has ${resPaise} paise, but received ${refundPaise} paise.` };
       }
@@ -1426,47 +1474,72 @@ export class PostgresDatabase {
     userAgent?: string
   ): Promise<{ success: boolean; profile?: UserProfile; message: string }> {
     if (!this.pool) throw new Error('Database unavailable');
-    const profRes = await this.pool.query('SELECT * FROM profiles WHERE id = $1', [profileId]);
-    if (profRes.rows.length === 0) {
-      return { success: false, message: 'Profile not found' };
-    }
-    const row = profRes.rows[0];
-    if (row.moderation_status === 'removed' || row.reason === '[Content Removed]') {
-      return { success: false, message: 'Profile not available' };
-    }
 
-    const salt = process.env.VOTE_SECRET || 'lazyproof_vote_salt_2026';
+    const voteSecret = process.env.VOTE_SECRET?.trim();
+    if (process.env.NODE_ENV === 'production') {
+      if (!voteSecret || voteSecret === 'lazyproof_vote_salt_2026' || voteSecret.length < 16) {
+        return { success: false, message: 'Voting feature is temporarily unavailable.' };
+      }
+    }
+    const salt = voteSecret || 'lazyproof_vote_salt_test_only';
     const voterFingerprint = crypto
       .createHash('sha256')
       .update(`${clientIp}:${userAgent || ''}:${salt}`)
       .digest('hex');
 
-    const voteId = 'vote_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-    const insertRes = await this.pool.query(
-      `INSERT INTO profile_votes (id, profile_id, voter_fingerprint, created_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (profile_id, voter_fingerprint) DO NOTHING
-       RETURNING id`,
-      [voteId, profileId, voterFingerprint]
-    );
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const profRes = await client.query('SELECT * FROM profiles WHERE id = $1 FOR UPDATE', [profileId]);
+      if (profRes.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Profile not found' };
+      }
+      const row = profRes.rows[0];
+      if (row.moderation_status === 'removed' || row.reason === '[Content Removed]') {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Profile not available' };
+      }
 
-    if (insertRes.rowCount === 0) {
-      return { success: false, message: 'You already voted for this person!' };
+      const voteId = 'vote_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+      const insertRes = await client.query(
+        `INSERT INTO profile_votes (id, profile_id, voter_fingerprint, created_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (profile_id, voter_fingerprint) DO NOTHING
+         RETURNING id`,
+        [voteId, profileId, voterFingerprint]
+      );
+
+      if (insertRes.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'You already voted for this person!' };
+      }
+
+      const updateRes = await client.query(
+        `UPDATE profiles
+         SET votes_count = COALESCE(votes_count, 0) + 1, updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [profileId]
+      );
+
+      if (updateRes.rowCount !== 1) {
+        await client.query('ROLLBACK');
+        return { success: false, message: 'Failed to update vote count.' };
+      }
+
+      await client.query('COMMIT');
+      return {
+        success: true,
+        profile: this.mapProfile(updateRes.rows[0]),
+        message: 'Vote recorded!'
+      };
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
     }
-
-    const updateRes = await this.pool.query(
-      `UPDATE profiles
-       SET votes_count = COALESCE(votes_count, 0) + 1, updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [profileId]
-    );
-
-    return {
-      success: true,
-      profile: this.mapProfile(updateRes.rows[0]),
-      message: 'Vote recorded!'
-    };
   }
 
   /**
@@ -1534,7 +1607,8 @@ export class PostgresDatabase {
 
   /**
    * Transactional Operational Outbox Worker
-   * Dispatches founder alerts asynchronously with row-level locks, bounded retries, and timeouts.
+   * Dispatches founder alerts asynchronously with row-level locks, bounded retries, timeouts,
+   * and independent per-channel delivery tracking.
    */
   public async dispatchOperationalOutbox(): Promise<{ processed: number; delivered: number; failed: number }> {
     if (!this.pool) return { processed: 0, delivered: 0, failed: 0 };
@@ -1543,11 +1617,22 @@ export class PostgresDatabase {
     let failed = 0;
 
     const client = await this.pool.connect();
-    let eventsToDispatch: Array<{ id: string; event_type: string; order_id: string; attempts: number; payload: any }> = [];
+    let eventsToDispatch: Array<{ id: string; event_type: string; order_id: string; attempts: number; payload: any; created_at: Date }> = [];
     try {
       await client.query('BEGIN');
+      // Controlled policy for old events: do not automatically blast historical alerts older than 24 hours
+      // Expire old pending/processing items older than 24 hours to EXHAUSTED
+      await client.query(`
+        UPDATE operational_outbox
+        SET delivery_status = 'EXHAUSTED',
+            last_error = 'Alert expired: event was created more than 24 hours ago',
+            lease_expires_at = NULL
+        WHERE delivery_status IN ('PENDING', 'PROCESSING', 'FAILED')
+          AND created_at < NOW() - INTERVAL '24 hours'
+      `);
+
       const selectRes = await client.query(`
-        SELECT id, event_type, order_id, attempts, payload
+        SELECT id, event_type, order_id, attempts, payload, created_at
         FROM operational_outbox
         WHERE (
           delivery_status IN ('PENDING', 'FAILED') AND next_attempt_at <= NOW()
@@ -1583,11 +1668,92 @@ export class PostgresDatabase {
       return { processed: 0, delivered: 0, failed: 0 };
     }
 
+    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+    const tgChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
+    const discordUrl = process.env.DISCORD_WEBHOOK_URL;
+    const tgConfigured = Boolean(tgToken && tgChatId);
+    const discordConfigured = Boolean(discordUrl);
+
     for (const ev of eventsToDispatch) {
       processed++;
-      try {
-        const payload = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
-        await this.sendFounderAlert(payload);
+
+      // When neither channel is configured, retain an explicit skipped-configuration state
+      // Do NOT call it DELIVERED or silently discard it!
+      if (!tgConfigured && !discordConfigured) {
+        await this.pool.query(`
+          UPDATE operational_outbox
+          SET delivery_status = 'SKIPPED_NO_CHANNELS',
+              lease_expires_at = NULL,
+              last_error = 'No founder notification channels configured (TELEGRAM_BOT_TOKEN/TELEGRAM_ADMIN_CHAT_ID or DISCORD_WEBHOOK_URL)'
+          WHERE id = $1
+        `, [ev.id]).catch(() => {});
+        continue;
+      }
+
+      // Check existing channel deliveries for this outbox event
+      const deliveriesRes = await this.pool.query(
+        'SELECT channel, delivery_status FROM outbox_channel_deliveries WHERE outbox_id = $1',
+        [ev.id]
+      ).catch(() => ({ rows: [] }));
+      const channelStatusMap = new Map<string, string>();
+      for (const row of deliveriesRes.rows) {
+        channelStatusMap.set(row.channel, row.delivery_status);
+      }
+
+      const payload = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+      const configuredChannels: Array<'telegram' | 'discord'> = [];
+      if (tgConfigured) configuredChannels.push('telegram');
+      if (discordConfigured) configuredChannels.push('discord');
+
+      const errors: string[] = [];
+
+      for (const channel of configuredChannels) {
+        // Never re-send a channel whose success was already recorded
+        if (channelStatusMap.get(channel) === 'DELIVERED') {
+          continue;
+        }
+
+        try {
+          if (channel === 'telegram') {
+            await this.sendTelegramAlert(payload, tgToken!, tgChatId!);
+          } else if (channel === 'discord') {
+            await this.sendDiscordAlert(payload, discordUrl!);
+          }
+
+          // Record channel success
+          const cdId = 'cd_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+          await this.pool.query(`
+            INSERT INTO outbox_channel_deliveries (id, outbox_id, channel, delivery_status, attempts, sent_at, created_at)
+            VALUES ($1, $2, $3, 'DELIVERED', 1, NOW(), NOW())
+            ON CONFLICT (outbox_id, channel) DO UPDATE
+            SET delivery_status = 'DELIVERED',
+                attempts = outbox_channel_deliveries.attempts + 1,
+                sent_at = NOW(),
+                last_error = NULL
+          `, [cdId, ev.id, channel]);
+          channelStatusMap.set(channel, 'DELIVERED');
+        } catch (chanErr: any) {
+          const rawMsg = chanErr?.message || String(chanErr);
+          const sanitizedErr = this.sanitizeAlertError(rawMsg);
+          errors.push(`${channel}: ${sanitizedErr}`);
+
+          const cdId = 'cd_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+          await this.pool.query(`
+            INSERT INTO outbox_channel_deliveries (id, outbox_id, channel, delivery_status, attempts, last_error, created_at)
+            VALUES ($1, $2, $3, 'FAILED', 1, $4, NOW())
+            ON CONFLICT (outbox_id, channel) DO UPDATE
+            SET delivery_status = 'FAILED',
+                attempts = outbox_channel_deliveries.attempts + 1,
+                last_error = $4
+          `, [cdId, ev.id, channel, sanitizedErr.slice(0, 300)]).catch(() => {});
+        }
+      }
+
+      // Check if all configured channels are delivered
+      const allDelivered = configuredChannels.every(ch => channelStatusMap.get(ch) === 'DELIVERED');
+
+      if (allDelivered) {
+        delivered++;
         await this.pool.query(`
           UPDATE operational_outbox
           SET delivery_status = 'DELIVERED',
@@ -1595,13 +1761,12 @@ export class PostgresDatabase {
               lease_expires_at = NULL,
               last_error = NULL
           WHERE id = $1
-        `, [ev.id]);
-        delivered++;
-      } catch (err: any) {
+        `, [ev.id]).catch(() => {});
+      } else {
         failed++;
-        const errMsg = err?.message || String(err);
         const newAttempts = ev.attempts + 1;
         const newStatus = newAttempts >= 5 ? 'EXHAUSTED' : 'FAILED';
+        const combinedError = errors.join('; ').slice(0, 500);
         await this.pool.query(`
           UPDATE operational_outbox
           SET delivery_status = $1,
@@ -1609,26 +1774,23 @@ export class PostgresDatabase {
               lease_expires_at = NULL,
               last_error = $3
           WHERE id = $4
-        `, [newStatus, newAttempts, errMsg.slice(0, 500), ev.id]).catch(() => {});
+        `, [newStatus, newAttempts, combinedError, ev.id]).catch(() => {});
       }
     }
 
     return { processed, delivered, failed };
   }
 
-  /**
-   * Code-native founder alert sender (Telegram and/or Discord)
-   */
-  private async sendFounderAlert(payload: any): Promise<void> {
+  private sanitizeAlertError(msg: string): string {
+    let s = msg;
     const tgToken = process.env.TELEGRAM_BOT_TOKEN;
-    const tgChatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
     const discordUrl = process.env.DISCORD_WEBHOOK_URL;
+    if (tgToken) s = s.split(tgToken).join('[REDACTED_BOT_TOKEN]');
+    if (discordUrl) s = s.split(discordUrl).join('[REDACTED_DISCORD_WEBHOOK]');
+    return s;
+  }
 
-    // If neither channel is configured, outbox dispatch resolves cleanly without error
-    if ((!tgToken || !tgChatId) && !discordUrl) {
-      return;
-    }
-
+  private async sendTelegramAlert(payload: any, tgToken: string, tgChatId: string): Promise<void> {
     const orderId = payload.orderId || 'Unknown';
     const name = payload.name || 'Anonymous';
     const amount = payload.amount || 0;
@@ -1636,48 +1798,45 @@ export class PostgresDatabase {
     const timestamp = payload.timestamp || new Date().toISOString();
 
     const alertText = `🚀 LazyProof Verified Payment\n• Order: ${orderId}\n• Name: ${name}\n• Amount: ₹${amount}\n• Rank: #${rank}\n• Time: ${timestamp}`;
+    const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
 
-    const dispatchPromises: Promise<any>[] = [];
+    const res = await fetch(tgUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: tgChatId,
+        text: alertText
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
 
-    if (tgToken && tgChatId) {
-      const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
-      dispatchPromises.push(
-        fetch(tgUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: tgChatId,
-            text: alertText
-          }),
-          signal: AbortSignal.timeout(5000)
-        }).then(async res => {
-          if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            throw new Error(`Telegram error ${res.status}: ${body.slice(0, 150)}`);
-          }
-        })
-      );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Telegram error ${res.status}: ${body.slice(0, 150)}`);
     }
+  }
 
-    if (discordUrl) {
-      dispatchPromises.push(
-        fetch(discordUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content: `🚀 **LazyProof Verified Payment**\n• **Order**: \`${orderId}\`\n• **Name**: ${name}\n• **Amount**: ₹${amount}\n• **Rank**: #${rank}\n• **Time**: ${timestamp}`
-          }),
-          signal: AbortSignal.timeout(5000)
-        }).then(async res => {
-          if (!res.ok) {
-            const body = await res.text().catch(() => '');
-            throw new Error(`Discord error ${res.status}: ${body.slice(0, 150)}`);
-          }
-        })
-      );
+  private async sendDiscordAlert(payload: any, discordUrl: string): Promise<void> {
+    const orderId = payload.orderId || 'Unknown';
+    const name = payload.name || 'Anonymous';
+    const amount = payload.amount || 0;
+    const rank = payload.rank || 0;
+    const timestamp = payload.timestamp || new Date().toISOString();
+
+    const res = await fetch(discordUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: `🚀 **LazyProof Verified Payment**\n• **Order**: \`${orderId}\`\n• **Name**: ${name}\n• **Amount**: ₹${amount}\n• **Rank**: #${rank}\n• **Time**: ${timestamp}`,
+        allowed_mentions: { parse: [] }
+      }),
+      signal: AbortSignal.timeout(5000)
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Discord error ${res.status}: ${body.slice(0, 150)}`);
     }
-
-    await Promise.all(dispatchPromises);
   }
 
   /**
@@ -2047,7 +2206,7 @@ export class PostgresDatabase {
       try {
         // Query up to 20 PENDING / CREATED orders between 5 minutes and 24 hours old
         const pendingOrdersRes = await client.query(
-          `SELECT order_id, amount, status FROM payment_orders
+          `SELECT order_id, amount, currency, status FROM payment_orders
            WHERE status IN ('PENDING', 'CREATED')
              AND created_at <= NOW() - INTERVAL '5 minutes'
              AND created_at >= NOW() - INTERVAL '24 hours'
@@ -2058,14 +2217,24 @@ export class PostgresDatabase {
         for (const order of pendingOrdersRes.rows) {
           try {
             const providerStatus = await provider.getPaymentStatus(order.order_id);
-            if (providerStatus.status === 'PAID' && providerStatus.providerPaymentId) {
-              const toPaise = (amt: number): number => Math.round(amt * 100);
-              if (providerStatus.amount !== undefined && toPaise(providerStatus.amount) === toPaise(Number(order.amount))) {
+            // Require provider status PAID, nonempty providerPaymentId, provider currency exactly INR, stored order currency INR
+            if (
+              providerStatus.status === 'PAID' &&
+              providerStatus.providerPaymentId &&
+              providerStatus.providerPaymentId.trim().length > 0 &&
+              providerStatus.currency === 'INR' &&
+              order.currency === 'INR'
+            ) {
+              const providerPaise = toSafePaise(providerStatus.amount);
+              const orderPaise = toSafePaise(Number(order.amount));
+              if (providerPaise !== null && orderPaise !== null && providerPaise === orderPaise) {
                 const res = await this.settlePaymentAtomic({
                   orderId: order.order_id,
-                  providerPaymentId: providerStatus.providerPaymentId,
+                  providerPaymentId: providerStatus.providerPaymentId.trim(),
                   provider: provider.name || 'cashfree',
                   amount: Number(order.amount),
+                  currency: 'INR',
+                  status: 'PAID',
                   paymentMethod: providerStatus.paymentMethod || 'UPI',
                   signatureVerified: false
                 });
@@ -2079,7 +2248,7 @@ export class PostgresDatabase {
 
         // Query up to 20 PENDING refunds between 5 minutes and 24 hours old
         const pendingRefundsRes = await client.query(
-          `SELECT order_id, merchant_refund_id, id, amount, reason FROM refund_reversals
+          `SELECT order_id, merchant_refund_id, id, amount, currency, reason FROM refund_reversals
            WHERE status = 'PENDING'
              AND created_at <= NOW() - INTERVAL '5 minutes'
              AND created_at >= NOW() - INTERVAL '24 hours'
@@ -2091,18 +2260,46 @@ export class PostgresDatabase {
           const merchantRefId = ref.merchant_refund_id || ref.id;
           try {
             const refundStatus = await provider.getRefundStatus(ref.order_id, merchantRefId);
-            if (refundStatus.status === 'SUCCESS' && refundStatus.providerRefundId) {
+
+            // Validate returned order ID and merchant refund ID against locked reservation
+            if (refundStatus.orderId !== ref.order_id || refundStatus.merchantRefundId !== merchantRefId) {
+              console.warn(`[Reconciliation] Refund metadata mismatch for ${merchantRefId}`);
+              continue;
+            }
+
+            if (refundStatus.status === 'SUCCESS') {
+              if (
+                refundStatus.currency !== 'INR' ||
+                ref.currency !== 'INR' ||
+                !refundStatus.providerRefundId ||
+                refundStatus.providerRefundId.trim().length === 0
+              ) {
+                console.warn(`[Reconciliation] Invalid currency or missing providerRefundId for ${merchantRefId}`);
+                continue;
+              }
+              const providerPaise = toSafePaise(refundStatus.amount);
+              const refPaise = toSafePaise(Number(ref.amount));
+              if (providerPaise === null || refPaise === null || providerPaise !== refPaise) {
+                console.warn(`[Reconciliation] Refund amount mismatch for ${merchantRefId}`);
+                continue;
+              }
+
               const res = await this.reverseRefundAtomic({
                 orderId: ref.order_id,
                 merchantRefundId: merchantRefId,
                 amount: Number(ref.amount),
+                currency: 'INR',
                 reason: ref.reason || 'Reconciled refund',
-                providerRefundId: refundStatus.providerRefundId
+                providerRefundId: refundStatus.providerRefundId.trim()
               });
               if (res.success) reconciledRefunds++;
             } else if (refundStatus.status === 'FAILED') {
+              // Terminal rejection: safely release the reservation
               await this.failRefundReservation(merchantRefId, ref.order_id);
               reconciledRefunds++;
+            } else {
+              // Intermediate / unresolved (PENDING, PENDING_APPROVAL, ONHOLD, etc.): preserve reservation
+              console.log(`[Reconciliation] Refund ${merchantRefId} is in intermediate state: ${refundStatus.status}. Reservation preserved.`);
             }
           } catch (refErr) {
             console.warn(`[Reconciliation] Refund ${merchantRefId} check failed:`, refErr);

@@ -343,8 +343,22 @@ export class CashfreeProvider implements PaymentProvider {
 
     const data: any = await res.json();
     const rawStatus = String(data.refund_status || '').toUpperCase();
-    const status: 'PENDING' | 'SUCCESS' | 'FAILED' =
-      rawStatus === 'SUCCESS' ? 'SUCCESS' : rawStatus === 'PENDING' ? 'PENDING' : 'FAILED';
+    let status: 'PENDING' | 'SUCCESS' | 'FAILED';
+
+    if (rawStatus === 'SUCCESS') {
+      status = 'SUCCESS';
+    } else if (['FAILED', 'CANCELLED', 'REJECTED'].includes(rawStatus)) {
+      status = 'FAILED';
+    } else if (['PENDING', 'ONHOLD', 'PENDING_APPROVAL'].includes(rawStatus)) {
+      status = 'PENDING';
+    } else {
+      console.warn(`[Cashfree] Unrecognized refund status "${rawStatus}" for order ${orderId} / refund ${merchantRefundId}. Preserving reservation as PENDING.`);
+      status = 'PENDING';
+    }
+
+    const refundCurrency = typeof data.refund_currency === 'string'
+      ? data.refund_currency.trim()
+      : (typeof data.currency === 'string' ? data.currency.trim() : '');
 
     return {
       orderId: data.order_id || orderId,
@@ -352,7 +366,7 @@ export class CashfreeProvider implements PaymentProvider {
       providerRefundId: String(data.cf_refund_id || ''),
       status,
       amount: Number(data.refund_amount || 0),
-      currency: 'INR',
+      currency: refundCurrency,
       raw: data
     };
   }

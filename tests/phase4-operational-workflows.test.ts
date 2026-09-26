@@ -64,8 +64,9 @@ async function runPhase4Tests() {
   console.log('\n--- 3. UI Honesty: Customer Email Contract ---');
   const nomModalSrc = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'NominationModal.tsx'), 'utf-8');
   assert.ok(!nomModalSrc.includes('id="tab-notify-btn"'), 'NominationModal must not render customer email tab button in switcher');
-  assert.ok(nomModalSrc.includes('Email Delivery Inactive'), 'NominationModal displays honest inactive status if notify tab is requested');
+  assert.ok(!nomModalSrc.includes('id="panel-notify"'), 'NominationModal completely removes dead Notify tab panel');
   assert.ok(!nomModalSrc.includes("Turn On 'Notify Me' Alerts →"), 'Post-challenge CTA must not invite email alerts');
+  assert.ok(!nomModalSrc.includes("Want email alerts if friends challenge back?"), 'NominationModal removes Want email alerts CTA');
 
   const resultViewSrc = fs.readFileSync(path.join(process.cwd(), 'src', 'components', 'ResultView.tsx'), 'utf-8');
   assert.ok(!resultViewSrc.includes('<span>Notify Me</span>'), 'ResultView must not render customer-facing Notify Me button');
@@ -191,6 +192,8 @@ async function runPhase4Tests() {
     providerPaymentId: 'cf_pay_' + Date.now(),
     provider: 'cashfree',
     amount: 1200,
+    currency: 'INR',
+    status: 'PAID',
     signatureVerified: true
   });
   assert.strictEqual(settleRes.success, true, 'Atomic payment settlement must succeed');
@@ -216,6 +219,8 @@ async function runPhase4Tests() {
     providerPaymentId: 'cf_pay_replay_' + Date.now(),
     provider: 'cashfree',
     amount: 1200,
+    currency: 'INR',
+    status: 'PAID',
     signatureVerified: true
   });
   assert.strictEqual(replayRes.success, true, 'Replay returns idempotent success');
@@ -231,10 +236,10 @@ async function runPhase4Tests() {
   const outboxDelivered = await pool.query('SELECT delivery_status FROM operational_outbox WHERE order_id = $1', [orderId]);
   assert.strictEqual(
     outboxDelivered.rows[0].delivery_status,
-    'DELIVERED',
-    'Outbox event is marked DELIVERED when channels are optional/absent'
+    'SKIPPED_NO_CHANNELS',
+    'Outbox event is marked SKIPPED_NO_CHANNELS when channels are optional/absent'
   );
-  pass('Operational outbox dispatcher claims events with SKIP LOCKED and delivers successfully');
+  pass('Operational outbox dispatcher claims events with SKIP LOCKED and marks SKIPPED_NO_CHANNELS');
 
   // Test 4.6: End-to-End Twitter Persistence via Settle
   console.log('\n--- 4.6 End-to-End Twitter Persistence ---');

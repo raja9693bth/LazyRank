@@ -129,6 +129,8 @@ async function runPostgresIntegrationTests() {
     providerPaymentId: 'cf_pay_test_001',
     provider: 'cashfree',
     amount: 2500,
+    currency: 'INR',
+    status: 'PAID',
     paymentMethod: 'UPI',
     signatureVerified: true
   });
@@ -180,6 +182,8 @@ async function runPostgresIntegrationTests() {
     providerPaymentId: 'cf_pay_test_002',
     provider: 'cashfree',
     amount: 1500,
+    currency: 'INR',
+    status: 'PAID',
     paymentMethod: 'UPI',
     signatureVerified: true
   });
@@ -218,6 +222,8 @@ async function runPostgresIntegrationTests() {
         providerPaymentId: o.cfPayId,
         provider: 'cashfree',
         amount: o.amount,
+        currency: 'INR',
+        status: 'PAID',
         paymentMethod: 'UPI',
         signatureVerified: true
       })
@@ -300,6 +306,8 @@ async function runPostgresIntegrationTests() {
     providerPaymentId: 'cf_tie_a',
     provider: 'cashfree',
     amount: 2222,
+    currency: 'INR',
+    status: 'PAID',
     paymentMethod: 'UPI',
     signatureVerified: true
   });
@@ -320,6 +328,8 @@ async function runPostgresIntegrationTests() {
     providerPaymentId: 'cf_tie_b',
     provider: 'cashfree',
     amount: 2222,
+    currency: 'INR',
+    status: 'PAID',
     paymentMethod: 'UPI',
     signatureVerified: true
   });
@@ -387,12 +397,14 @@ async function runPostgresIntegrationTests() {
   // 11. Partial & Full Refund on Today Ranks
   console.log('\n--- 11. Partial Refund & Today Rank Recalculation ---');
   // Vikram currently has ₹4,000 from two orders (order1: 2500, order2: 1500)
+  const pRefId1 = 'cf_ref_p_' + Date.now();
   await pg.reserveRefundAtomic(orderId2, 1500 * 100, 'mer_ref_partial_001', 'Customer requested partial refund');
   const partialRefundRes = await pg.reverseRefundAtomic({
     orderId: orderId2,
     merchantRefundId: 'mer_ref_partial_001',
-    providerRefundId: 'cf_ref_partial_001',
+    providerRefundId: pRefId1,
     amount: 1500,
+    currency: 'INR',
     reason: 'Customer requested partial refund'
   });
   assert.strictEqual(partialRefundRes.success, true, 'Partial refund must succeed');
@@ -403,12 +415,14 @@ async function runPostgresIntegrationTests() {
   pass('Partial refund properly debited from Today net sponsorship amount');
 
   // Full Refund on Order 1
+  const pRefId2 = 'cf_ref_f_' + Date.now();
   await pg.reserveRefundAtomic(orderId1, 2500 * 100, 'mer_ref_full_001', 'Customer requested full refund');
   const fullRefundRes = await pg.reverseRefundAtomic({
     orderId: orderId1,
     merchantRefundId: 'mer_ref_full_001',
-    providerRefundId: 'cf_ref_full_001',
+    providerRefundId: pRefId2,
     amount: 2500,
+    currency: 'INR',
     reason: 'Customer requested full refund'
   });
   assert.strictEqual(fullRefundRes.success, true, 'Full refund must succeed');

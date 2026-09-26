@@ -1,56 +1,47 @@
 import { execSync } from 'child_process';
 
-try {
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 1: FORENSIC REMEDIATION INVARIANTS (66 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/forensic-remediation.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 2: COMMERCIAL PRODUCTION & PAYMENT GATEWAY (54 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/commercial-production.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 3: REAL POSTGRESQL INTEGRATION SUITE (21 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/postgres-authoritative.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 4: FINAL PRE-GATEWAY COMPLIANCE & PAYMENT CORRECTNESS (12 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/final-compliance-gateway.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 5: PHASE 1 LEGAL IDENTITY & UX TRUTH (8 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/phase1-ux-legal.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 6: PHASE 2 POSTGRESQL MIGRATION & DURABLE DATA (5 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/phase2-durability.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 7: PHASE 3 PAYMENT SECURITY & SETTLEMENT (6 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/phase3-payment-security.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 8: FRONTEND CONTRACT SMOKE TESTS');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/frontend-contract.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('RUNNING SUITE 9: PHASE 4 OPERATIONAL WORKFLOWS & DURABLE DATA (10 TESTS)');
-  console.log('========================================================\n');
-  execSync('npx tsx tests/phase4-operational-workflows.test.ts', { stdio: 'inherit' });
-
-  console.log('\n========================================================');
-  console.log('MASTER TEST SUITE RESULT: ALL ASSERTIONS PASSED (100%)');
-  console.log('========================================================\n');
-  process.exit(0);
-} catch (error: any) {
-  console.error('\nMaster test runner encountered failure:', error?.message);
-  process.exit(1);
+interface SuiteDef {
+  name: string;
+  file: string;
 }
+
+const suites: SuiteDef[] = [
+  { name: 'Suite 1: Forensic Remediation Invariants', file: 'tests/forensic-remediation.test.ts' },
+  { name: 'Suite 2: Commercial Production & Payment Gateway', file: 'tests/commercial-production.test.ts' },
+  { name: 'Suite 3: Authoritative PostgreSQL Integration', file: 'tests/postgres-authoritative.test.ts' },
+  { name: 'Suite 4: Pre-Gateway Compliance & Payment Correctness', file: 'tests/final-compliance-gateway.test.ts' },
+  { name: 'Suite 5: Phase 1 Legal Identity & UX Truth', file: 'tests/phase1-ux-legal.test.ts' },
+  { name: 'Suite 6: Phase 2 PostgreSQL Migration & Durability', file: 'tests/phase2-durability.test.ts' },
+  { name: 'Suite 7: Phase 3 Payment Security & Settlement', file: 'tests/phase3-payment-security.test.ts' },
+  { name: 'Suite 8: Frontend Contract Smoke Tests', file: 'tests/frontend-contract.test.ts' },
+  { name: 'Suite 9: Phase 4 Operational Workflows & Durable Data', file: 'tests/phase4-operational-workflows.test.ts' },
+  { name: 'Suite 10: Phase 5 Reconciliation Safeguards & Final Remediation', file: 'tests/phase5-reconciliation-safeguards.test.ts' }
+];
+
+console.log('\n========================================================');
+console.log(`STARTING MASTER TEST RUNNER (${suites.length} SUITES)`);
+console.log('========================================================\n');
+
+let completed = 0;
+const startTime = Date.now();
+
+for (const suite of suites) {
+  console.log(`\n>>> RUNNING: ${suite.name} (${suite.file})`);
+  const suiteStart = Date.now();
+  try {
+    execSync(`npx tsx ${suite.file}`, { stdio: 'inherit' });
+    completed++;
+    const duration = ((Date.now() - suiteStart) / 1000).toFixed(2);
+    console.log(`>>> COMPLETED: ${suite.name} in ${duration}s`);
+  } catch (error: any) {
+    console.error(`\nFAILED SUITE: ${suite.name} (${suite.file})`);
+    console.error('Master test runner encountered failure:', error?.message);
+    process.exit(1);
+  }
+}
+
+const totalDuration = ((Date.now() - startTime) / 1000).toFixed(2);
+console.log('\n========================================================');
+console.log(`MASTER TEST SUITE RESULT: ALL ${completed}/${suites.length} SUITES PASSED IN ${totalDuration}s`);
+console.log('========================================================\n');
+process.exit(0);

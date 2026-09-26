@@ -1336,10 +1336,10 @@ export class LazyDatabase {
     };
   }
 
-  public async reverseRefund(orderId: string, amount: number, reason: string, merchantRefundId: string, providerRefundId?: string): Promise<boolean> {
+  public async reverseRefund(orderId: string, amount: number, reason: string, merchantRefundId: string, providerRefundId?: string, currency: string = 'INR'): Promise<boolean> {
     if (this.isPostgresAuthoritative()) {
       try {
-        const res = await this.pg.reverseRefundAtomic({ orderId, merchantRefundId, amount, reason, providerRefundId });
+        const res = await this.pg.reverseRefundAtomic({ orderId, merchantRefundId, amount, reason, providerRefundId, currency });
         return res.success;
       } catch (pgErr) {
         console.error('[PostgreSQL] Reverse refund error:', pgErr);

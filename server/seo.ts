@@ -43,15 +43,32 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
     : `Verified Rank #${profile.rank} with an authentic paid claim of ${formattedAmount} on LAZY.`;
 
   const sameAs: string[] = [];
+  if (profile.twitter) {
+    const cleanTwitter = profile.twitter.replace(/^@/, '').replace(/^(https?:\/\/)?(www\.)?(twitter|x)\.com\//, '').trim();
+    if (/^[a-zA-Z0-9_]{1,15}$/.test(cleanTwitter)) {
+      sameAs.push(`https://x.com/${cleanTwitter}`);
+    }
+  }
   if (profile.instagram) {
-    const cleanIg = profile.instagram.replace(/^@/, '').trim();
-    sameAs.push(`https://instagram.com/${cleanIg}`);
+    const cleanIg = profile.instagram.replace(/^@/, '').replace(/^(https?:\/\/)?(www\.)?instagram\.com\//, '').trim();
+    if (/^[a-zA-Z0-9._]{1,30}$/.test(cleanIg)) {
+      sameAs.push(`https://instagram.com/${cleanIg}`);
+    }
   }
   if (profile.linkedin) {
-    sameAs.push(profile.linkedin.startsWith('http') ? profile.linkedin : `https://${profile.linkedin}`);
+    const trimmed = profile.linkedin.trim();
+    if (/^(https?:\/\/)?([a-z]{2,3}\.)?linkedin\.com\/.*$/i.test(trimmed)) {
+      sameAs.push(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+    }
   }
   if (profile.website) {
-    sameAs.push(profile.website.startsWith('http') ? profile.website : `https://${profile.website}`);
+    const trimmed = profile.website.trim();
+    try {
+      const url = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+      if (['http:', 'https:'].includes(url.protocol) && url.hostname.includes('.')) {
+        sameAs.push(url.href);
+      }
+    } catch {}
   }
 
   return {
@@ -97,7 +114,7 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
         inLanguage: 'en-IN',
         publisher: {
           '@type': 'Organization',
-          name: 'LAZY Project',
+          name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
           url: baseUrl
         }
       }

@@ -11,19 +11,12 @@ import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
 import { paymentManager } from './server/payments/index.ts';
 import { prerenderRoute } from './server/prerender.tsx';
 import { validateContact, ContactInput, hashToken, verifyOwnerToken, constantTimeMatch } from './server/db/postgres.ts';
+import { toSafePaise } from './server/payments/provider.ts';
 
 function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) {
   return (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
-}
-
-function toSafePaise(amt: unknown): number | null {
-  if (typeof amt !== 'number' || !Number.isFinite(amt) || amt <= 0) return null;
-  const paise = Math.round(amt * 100);
-  if (!Number.isSafeInteger(paise)) return null;
-  if (Math.abs(amt * 100 - paise) >= 1e-8) return null;
-  return paise;
 }
 
 const BANNED_WORDS = [
@@ -683,7 +676,7 @@ async function startServer() {
         if (providerStatus.status === 'PAID' && order.status !== 'completed' && order.status !== 'PAID') {
           const providerPaise = toSafePaise(providerStatus.amount);
           const orderPaise = toSafePaise(order.amount);
-          if (!providerStatus.providerPaymentId || providerStatus.currency !== 'INR' ||
+          if (!providerStatus.providerPaymentId || providerStatus.currency !== 'INR' || order.currency !== 'INR' ||
               providerPaise === null || orderPaise === null || providerPaise !== orderPaise) {
             return res.status(409).json({ error: 'Provider payment verification mismatch against registered order.' });
           }
@@ -691,9 +684,11 @@ async function startServer() {
           if (db.isPostgresAuthoritative()) {
             const settlement = await db.pg.settlePaymentAtomic({
               orderId,
-              providerPaymentId: providerStatus.providerPaymentId,
+              providerPaymentId: providerStatus.providerPaymentId.trim(),
               provider: 'cashfree',
               amount: providerPaise / 100,
+              currency: 'INR',
+              status: 'PAID',
               paymentMethod: providerStatus.paymentMethod || 'UPI',
               signatureVerified: false
             });
@@ -847,13 +842,19 @@ async function startServer() {
           return res.status(503).json({ error: 'Cannot reconcile refund without merchant refund ID.' });
         }
 
+        const refundCurrency = refundDetails?.currency || verification.currency || 'INR';
+        if (refundCurrency !== 'INR') {
+          return res.status(400).json({ error: 'Refund currency mismatch against INR.' });
+        }
+
         if (refundStatus === 'SUCCESS') {
           const reversed = await db.reverseRefund(
             orderId,
             refundAmount,
             'Cashfree webhook refund confirmation',
             merchantRefundId,
-            providerRefundId
+            providerRefundId,
+            'INR'
           );
           if (!reversed) {
             return res.status(503).json({ error: 'Refund reversal failed to reconcile in database.' });
@@ -891,8 +892,8 @@ async function startServer() {
           if (providerStatus.status !== 'PAID' || !providerStatus.providerPaymentId) {
             return res.status(503).json({ error: 'Gateway payment record not in PAID state.' });
           }
-          if (providerStatus.currency !== 'INR' || (verification.currency && verification.currency !== 'INR')) {
-            return res.status(400).json({ error: 'Payment currency mismatch.' });
+          if (providerStatus.currency !== 'INR' || order.currency !== 'INR' || (verification.currency && verification.currency !== 'INR')) {
+            return res.status(400).json({ error: 'Payment currency mismatch against INR.' });
           }
 
           const providerPaise = toSafePaise(providerStatus.amount);
@@ -914,9 +915,11 @@ async function startServer() {
         if (db.isPostgresAuthoritative()) {
           const settlementResult = await db.pg.settlePaymentAtomic({
             orderId,
-            providerPaymentId,
+            providerPaymentId: providerPaymentId.trim(),
             provider: 'cashfree',
             amount: verifiedAmountINR,
+            currency: 'INR',
+            status: 'PAID',
             paymentMethod,
             signatureVerified: true,
             rawPayload: verification.rawPayload
@@ -1032,12 +1035,18 @@ async function startServer() {
       return res.json({ received: true, processed: true, message: 'Order already completed.' });
     }
 
+    if (order.currency !== 'INR') {
+      return res.status(400).json({ error: 'Order currency must be INR.' });
+    }
+
     if (db.isPostgresAuthoritative()) {
       const settlementResult = await db.pg.settlePaymentAtomic({
         orderId,
-        providerPaymentId: paymentId,
+        providerPaymentId: paymentId.trim(),
         provider: 'generic',
         amount: order.amount,
+        currency: 'INR',
+        status: 'PAID',
         paymentMethod: 'UPI',
         signatureVerified: true,
         rawPayload: body
@@ -1157,7 +1166,15 @@ async function startServer() {
 
         if (providerRes.status === 'SUCCESS') {
           const providerRefundId = providerRes.raw?.cf_refund_id ? String(providerRes.raw.cf_refund_id) : merchantRefundId;
-          const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, providerRefundId);
+          const providerCurrency = providerRes.raw?.refund_currency || providerRes.raw?.currency;
+          if (providerCurrency !== undefined && providerCurrency !== 'INR') {
+            return res.status(400).json({
+              error: 'Refund provider returned non-INR currency.',
+              orderId,
+              refundId: merchantRefundId
+            });
+          }
+          const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, providerRefundId, 'INR');
           if (!reversed) {
             return res.status(500).json({
               error: 'Refund succeeded at gateway but database reconciliation is pending.',
@@ -1186,7 +1203,7 @@ async function startServer() {
     }
 
     // In disabled / mock mode (e.g. test environment)
-    const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId);
+    const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, undefined, 'INR');
     const updatedOrder = await db.getOrderAsync(orderId);
     return res.json({
       success: reversed,
@@ -1240,62 +1257,14 @@ async function startServer() {
     res.json({ success: true, nomination });
   }));
 
-  // Secure 'Notify Me' email subscription endpoint
-  // Allows users to sign up for email notifications when outranked or when nominated by friends
+  // Customer email notification service is currently unavailable until verified outbound email delivery is provisioned.
   const handleNotificationSubscribe = (req: Request, res: Response) => {
     const clientIp = getClientIp(req);
     if (!checkRateLimit(clientIp, 12, 60000)) {
       return res.status(429).json({ error: 'Too many notification requests. Please wait a moment before trying again.' });
     }
-
-    const { email, name, notifyOnOutranked, notifyOnNomination } = req.body;
-
-    if (!email || typeof email !== 'string') {
-      return res.status(400).json({ error: 'Email address is required.' });
-    }
-
-    const trimmedEmail = email.trim();
-    // Strict RFC 5322 regex for email validation
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-    if (trimmedEmail.length > 100 || !emailRegex.test(trimmedEmail)) {
-      return res.status(400).json({ error: 'Please enter a valid email address (e.g. you@example.com).' });
-    }
-
-    if (name && typeof name === 'string') {
-      if (name.trim().length > 40) {
-        return res.status(400).json({ error: 'Name cannot exceed 40 characters.' });
-      }
-      if (containsProfanity(name)) {
-        return res.status(400).json({ error: 'Please keep name respectful.' });
-      }
-    }
-
-    const wantsOutranked = notifyOnOutranked !== false;
-    const wantsNomination = notifyOnNomination !== false;
-
-    if (!wantsOutranked && !wantsNomination) {
-      return res.status(400).json({ error: 'Please select at least one notification alert type.' });
-    }
-
-    const result = db.subscribeNotification({
-      email: trimmedEmail,
-      name: typeof name === 'string' && name.trim() ? name.trim() : undefined,
-      notifyOnOutranked: wantsOutranked,
-      notifyOnNomination: wantsNomination,
-      ip: clientIp
-    });
-
-    res.json({
-      success: true,
-      message: result.message,
-      subscription: {
-        id: result.subscription.id,
-        email: result.subscription.email,
-        name: result.subscription.name,
-        notifyOnOutranked: result.subscription.notifyOnOutranked,
-        notifyOnNomination: result.subscription.notifyOnNomination,
-        createdAt: result.subscription.createdAt
-      }
+    return res.status(503).json({
+      error: 'Customer email notification service is currently unavailable.'
     });
   };
 
@@ -1862,13 +1831,24 @@ async function startServer() {
       const defaultOrigin = process.env.NODE_ENV === 'production' ? 'https://lazyproof.online' : `http://localhost:${process.env.PORT || 3000}`;
       const baseUrl = configuredAppUrl || defaultOrigin;
       let rankId = (req.query.rank as string) || (req.query.profile as string);
+      const isProfilePath = req.path.startsWith('/profile/') || req.path === '/profile';
       if (!rankId && req.path.startsWith('/profile/')) {
-        rankId = req.path.replace('/profile/', '').trim();
+        rankId = req.path.replace(/^\/profile\//, '').replace(/\/+$/, '').trim();
       }
 
       // 1. Dynamic Profile Page (/?rank=:id or /profile/:id)
-      if (rankId) {
-        const profile = db.isPostgresAuthoritative() ? await db.pg.getProfile(rankId) : db.getProfile(rankId);
+      if (rankId || isProfilePath) {
+        if (!rankId) {
+          return res.status(404).type('text/plain').send('Profile not found');
+        }
+
+        let profile = null;
+        try {
+          profile = db.isPostgresAuthoritative() ? await db.pg.getProfile(rankId) : db.getProfile(rankId);
+        } catch (_err) {
+          profile = null;
+        }
+
         if (profile) {
           let template: string;
           if (!isProd && viteInstance) {
@@ -1881,6 +1861,8 @@ async function startServer() {
           const transformedHtml = injectProfileMetadata(template, profile, baseUrl);
           res.setHeader('Content-Type', 'text/html; charset=utf-8');
           return res.send(transformedHtml);
+        } else if (isProfilePath) {
+          return res.status(404).type('text/plain').send('Profile not found');
         }
       }
 
@@ -1920,7 +1902,7 @@ async function startServer() {
   const isKnownSpaPath = (pathname: string): boolean => {
     const clean = pathname.replace(/\/+$/, '') || '/';
     if (staticPagePaths.has(clean)) return true;
-    if (clean.startsWith('/profile/')) return true;
+    if (clean === '/profile' || clean.startsWith('/profile/')) return true;
     return false;
   };
 
@@ -1976,6 +1958,25 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`LAZY v2.0 server running on http://0.0.0.0:${PORT}`);
   });
+
+  // Founder operational alert outbox worker:
+  // Run on startup and every 15 seconds with safe unref and PostgreSQL row-claim locks
+  if (db.isPostgresAuthoritative()) {
+    db.pg.dispatchOperationalOutbox().catch(err => {
+      console.error('[Outbox Worker] Startup dispatch error:', err);
+    });
+  }
+
+  const outboxTimer = setInterval(async () => {
+    if (db.isPostgresAuthoritative()) {
+      try {
+        await db.pg.dispatchOperationalOutbox();
+      } catch (err) {
+        console.error('[Outbox Worker] Scheduled dispatch failed:', err);
+      }
+    }
+  }, 15000);
+  outboxTimer.unref();
 
   // Bounded scheduled reconciliation worker for older CREATED/PENDING payments and PENDING refunds
   // Uses PostgreSQL advisory lock to prevent duplicate multi-replica operations

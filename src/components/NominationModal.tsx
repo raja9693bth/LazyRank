@@ -5,16 +5,10 @@ import {
   Copy,
   Check,
   ArrowRight,
-  Bell,
-  BellRing,
-  Mail,
-  ShieldCheck,
   Loader2,
-  CheckCircle2,
   AlertCircle,
   Tag,
-  Sparkles,
-  Award
+  Sparkles
 } from 'lucide-react';
 import {
   LAZY_REASONS_CATALOG,
@@ -29,7 +23,7 @@ export interface NominationModalProps {
   onClose: () => void;
   targetRank?: number;
   minAmountToBeatTop: number;
-  initialTab?: 'challenge' | 'reason' | 'notify';
+  initialTab?: 'challenge' | 'reason';
   defaultName?: string;
   defaultEmail?: string;
   currentProfile?: UserProfile | null;
@@ -50,11 +44,10 @@ export const NominationModal: React.FC<NominationModalProps> = ({
   minAmountToBeatTop,
   initialTab = 'challenge',
   defaultName = '',
-  defaultEmail = '',
   currentProfile,
   onProfileUpdated
 }) => {
-  const [activeTab, setActiveTab] = useState<'challenge' | 'reason' | 'notify'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'challenge' | 'reason'>(initialTab);
 
   // Lazy Reason Selection State
   const [selectedLazyReason, setSelectedLazyReason] = useState<string>(() => {
@@ -73,16 +66,6 @@ export const NominationModal: React.FC<NominationModalProps> = ({
   const [isGeneratingChallenge, setIsGeneratingChallenge] = useState(false);
   const [challengeError, setChallengeError] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
-
-  // Notify Me Flow State
-  const [notifyEmail, setNotifyEmail] = useState(defaultEmail);
-  const [notifyName, setNotifyName] = useState(defaultName);
-  const [notifyOnOutranked, setNotifyOnOutranked] = useState(true);
-  const [notifyOnNomination, setNotifyOnNomination] = useState(true);
-  const [isSubmittingNotify, setIsSubmittingNotify] = useState(false);
-  const [notifySuccess, setNotifySuccess] = useState(false);
-  const [notifyMessage, setNotifyMessage] = useState('');
-  const [notifyError, setNotifyError] = useState<string | null>(null);
 
   // Escape key handler for accessible modal dismissal
   useEffect(() => {
@@ -110,24 +93,9 @@ export const NominationModal: React.FC<NominationModalProps> = ({
       }
       if (defaultName) {
         setYourName(defaultName);
-        if (!notifyName) setNotifyName(defaultName);
-      }
-      if (defaultEmail && !notifyEmail) {
-        setNotifyEmail(defaultEmail);
-      } else {
-        try {
-          const savedEmail = localStorage.getItem('lazy_notify_email');
-          if (savedEmail && !notifyEmail) {
-            setNotifyEmail(savedEmail);
-          }
-          const savedName = localStorage.getItem('lazy_notify_name');
-          if (savedName && !notifyName) {
-            setNotifyName(savedName);
-          }
-        } catch {}
       }
     }
-  }, [isOpen, initialTab, defaultName, defaultEmail, currentProfile]);
+  }, [isOpen, initialTab, defaultName, currentProfile]);
 
   if (!isOpen) return null;
 
@@ -199,7 +167,7 @@ export const NominationModal: React.FC<NominationModalProps> = ({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(storedToken ? { 'x-profile-token': storedToken } : {})
+            ...(storedToken ? { 'x-owner-token': storedToken } : {})
           },
           body: JSON.stringify({
             profileId: currentProfile.id,
@@ -209,21 +177,18 @@ export const NominationModal: React.FC<NominationModalProps> = ({
         });
 
         const data = await res.json();
-        if (!res.ok || !data.success || !data.profile) {
-          throw new Error(data.error || 'Failed to update lazy reason on server.');
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Failed to update reason on profile.');
         }
 
-        if (onProfileUpdated) {
+        if (onProfileUpdated && data.profile) {
           onProfileUpdated(data.profile);
         }
       }
 
       setReasonSaveSuccess(true);
-      setTimeout(() => {
-        setReasonSaveSuccess(false);
-      }, 3500);
     } catch (err: any) {
-      setReasonSaveError(err?.message || 'Could not save Lazy Reason. Please try again.');
+      setReasonSaveError(err?.message || 'Could not save lazy reason. Please try again.');
     } finally {
       setIsSavingReason(false);
     }
@@ -231,9 +196,19 @@ export const NominationModal: React.FC<NominationModalProps> = ({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(fullChallengeText);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(fullChallengeText);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = fullChallengeText;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
       setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
+      setTimeout(() => setCopiedLink(false), 2500);
+
       fetch('/api/analytics/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -241,69 +216,6 @@ export const NominationModal: React.FC<NominationModalProps> = ({
       }).catch(() => {});
     } catch {
       // Fallback
-    }
-  };
-
-  const handleNotifySubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setNotifyError(null);
-
-    const cleanEmail = notifyEmail.trim();
-    if (!cleanEmail) {
-      setNotifyError('Please enter your email address.');
-      return;
-    }
-
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
-    if (!emailRegex.test(cleanEmail)) {
-      setNotifyError('Please enter a valid email address (e.g. you@example.com).');
-      return;
-    }
-
-    if (!notifyOnOutranked && !notifyOnNomination) {
-      setNotifyError('Please select at least one notification alert type.');
-      return;
-    }
-
-    setIsSubmittingNotify(true);
-    try {
-      const res = await fetch('/api/notifications/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: cleanEmail,
-          name: notifyName.trim() || undefined,
-          notifyOnOutranked,
-          notifyOnNomination
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to register notification preferences.');
-      }
-
-      setNotifySuccess(true);
-      setNotifyMessage(data.message || 'Notification preferences registered successfully.');
-
-      // Persist preferences locally for user convenience
-      try {
-        localStorage.setItem('lazy_notify_email', cleanEmail);
-        if (notifyName.trim()) {
-          localStorage.setItem('lazy_notify_name', notifyName.trim());
-        }
-      } catch {}
-
-      // Track analytics
-      fetch('/api/analytics/track', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ event: 'notifySubscribed' })
-      }).catch(() => {});
-    } catch (err: any) {
-      setNotifyError(err?.message || 'Failed to connect. Please try again.');
-    } finally {
-      setIsSubmittingNotify(false);
     }
   };
 
@@ -323,18 +235,15 @@ export const NominationModal: React.FC<NominationModalProps> = ({
             <div className="p-1.5 rounded-lg bg-amber-100 text-amber-900">
               {activeTab === 'reason' && <Sparkles className="w-4 h-4 text-amber-700" />}
               {activeTab === 'challenge' && <Swords className="w-4 h-4 text-amber-700" />}
-              {activeTab === 'notify' && <BellRing className="w-4 h-4 text-amber-700" />}
             </div>
             <div>
               <h2 id="nomination-modal-title" className="text-sm font-extrabold text-zinc-900 uppercase tracking-wider">
                 {activeTab === 'reason' && 'Lazy Reason Selection'}
                 {activeTab === 'challenge' && 'Challenge a Friend'}
-                {activeTab === 'notify' && 'Leaderboard Alerts'}
               </h2>
               <p className="text-[11px] text-zinc-500">
                 {activeTab === 'reason' && 'Stamp your official verified reason on your public result card.'}
                 {activeTab === 'challenge' && "Dare them to prove they're lazier than you."}
-                {activeTab === 'notify' && 'Get notified when outranked or nominated.'}
               </p>
             </div>
           </div>
@@ -449,73 +358,54 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                 <span>Result Card Live Preview</span>
                 <span className="text-amber-700 font-mono">Public Card Badge</span>
               </div>
-              <div className="bg-white p-3 rounded-lg border border-zinc-200 shadow-2xs flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-amber-100 flex items-center justify-center text-lg shrink-0">
-                    {currentMeta.emoji}
+              <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-zinc-200 shadow-2xs">
+                <span className="text-2xl">{currentMeta.emoji}</span>
+                <div>
+                  <div className="text-xs font-black text-zinc-900">
+                    {currentProfile?.name || yourName || 'Anonymous Legend'}
                   </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-black text-zinc-900 truncate">
-                      {currentProfile?.name || defaultName || 'Your Name'}
-                    </div>
-                    <div className="inline-flex items-center gap-1 mt-0.5 px-2 py-0.5 rounded-full bg-amber-100/90 border border-amber-300 text-amber-950 text-[10px] font-extrabold tracking-wide">
-                      <span>{currentMeta.emoji}</span>
-                      <span>Lazy Reason: {selectedLazyReason}</span>
-                    </div>
+                  <div className="inline-flex items-center gap-1 mt-0.5 text-[11px] font-bold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded-md">
+                    <span>{currentMeta.emoji}</span>
+                    <span>{currentMeta.name}</span>
                   </div>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="text-[10px] font-mono font-bold text-zinc-400">
-                    {currentProfile ? `#${currentProfile.rank}` : '#1'}
-                  </span>
                 </div>
               </div>
             </div>
 
-            {/* Error Message */}
             {reasonSaveError && (
-              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 flex items-center gap-1.5">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                 <span>{reasonSaveError}</span>
               </div>
             )}
 
-            {/* Success Notification */}
             {reasonSaveSuccess && (
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2.5 animate-in fade-in">
-                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                <div>
-                  <p className="font-extrabold">Saved to Public Result Card!</p>
-                  <p className="text-[11px] text-emerald-700">
-                    "{selectedLazyReason}" is now stamped on your verified result card & share poster.
-                  </p>
-                </div>
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-700 flex items-center gap-1.5">
+                <Check className="w-4 h-4 shrink-0 text-emerald-600" />
+                <span>Lazy Reason successfully saved and applied to your public result card!</span>
               </div>
             )}
 
-            {/* Save Button */}
-            <div className="pt-1">
-              <button
-                type="button"
-                id="save-lazy-reason-btn"
-                aria-label={`Apply ${selectedLazyReason} to result card`}
-                onClick={handleSaveLazyReason}
-                disabled={isSavingReason}
-                className="w-full flex items-center justify-center gap-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 py-3 px-4 text-xs font-extrabold text-white transition-all active:scale-98 cursor-pointer disabled:opacity-50 min-h-[44px] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
-              >
-                {isSavingReason ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Saving Reason to Result Card...</span>
-                  </>
-                ) : (
-                  <>
-                    <Award className="w-4 h-4 text-amber-400" />
-                    <span>Apply "{selectedLazyReason}" to Result Card</span>
-                  </>
-                )}
-              </button>
-            </div>
+            {/* Save / Apply Button */}
+            <button
+              type="button"
+              onClick={handleSaveLazyReason}
+              disabled={isSavingReason}
+              aria-label="Save and apply lazy reason"
+              className="w-full flex items-center justify-center gap-2 rounded-xl bg-amber-600 hover:bg-amber-700 py-3 px-4 text-xs font-extrabold text-white transition-all active:scale-98 cursor-pointer shadow-xs disabled:opacity-50 min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-600 focus-visible:ring-offset-2"
+            >
+              {isSavingReason ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Applying Reason...</span>
+                </>
+              ) : (
+                <>
+                  <span>Apply Reason to Result Card</span>
+                  <Check className="w-4 h-4" />
+                </>
+              )}
+            </button>
           </div>
         )}
 
@@ -524,28 +414,35 @@ export const NominationModal: React.FC<NominationModalProps> = ({
           <div id="panel-challenge" role="tabpanel" aria-labelledby="tab-challenge-btn" className="mt-4 flex-1 overflow-y-auto pr-1">
             {!challengeGenerated ? (
               <form onSubmit={handleGenerate} className="space-y-3.5">
+                <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 flex items-start gap-2.5">
+                  <Swords className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <div className="text-[11px] leading-relaxed text-amber-950">
+                    <span className="font-extrabold">Friendly Peer Roast:</span> Generate a customized invite link challenging your friend to take the leaderboard.
+                  </div>
+                </div>
+
                 <div>
-                  <label htmlFor="challenge-friend-name" className="block text-xs font-bold text-zinc-700 mb-1">
+                  <label htmlFor="friend-name-input" className="block text-xs font-bold text-zinc-700 mb-1">
                     Friend's Name <span className="text-rose-500">*</span>
                   </label>
                   <input
-                    id="challenge-friend-name"
+                    id="friend-name-input"
                     type="text"
-                    placeholder="e.g. Rohan"
+                    required
+                    placeholder="e.g. Vikram"
                     value={friendName}
                     onChange={(e) => setFriendName(e.target.value)}
                     maxLength={30}
-                    required
                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50/60 px-3.5 py-2.5 text-sm font-medium text-zinc-900 focus:bg-white focus:border-zinc-950 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950"
                   />
                 </div>
 
                 <div>
-                  <label htmlFor="challenge-your-name" className="block text-xs font-bold text-zinc-700 mb-1">
+                  <label htmlFor="your-name-input" className="block text-xs font-bold text-zinc-700 mb-1">
                     Your Name (Optional)
                   </label>
                   <input
-                    id="challenge-your-name"
+                    id="your-name-input"
                     type="text"
                     placeholder="e.g. Rahul"
                     value={yourName}
@@ -618,7 +515,7 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                   )}
                 </button>
 
-                {/* Prompt to switch to Lazy Reason or Notify */}
+                {/* Prompt to switch to Lazy Reason */}
                 <div className="pt-2 text-center flex flex-col gap-1">
                   <button
                     type="button"
@@ -627,14 +524,6 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                   >
                     <Tag className="w-3 h-3" />
                     <span>Want to pick your own Lazy Reason for your result card? Select Reason →</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('notify')}
-                    className="inline-flex items-center justify-center gap-1.5 text-[11px] font-semibold text-zinc-600 hover:text-zinc-950 hover:underline cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800 rounded"
-                  >
-                    <Bell className="w-3 h-3" />
-                    <span>Want email alerts if friends challenge back? Notify Me →</span>
                   </button>
                 </div>
               </form>
@@ -687,32 +576,6 @@ export const NominationModal: React.FC<NominationModalProps> = ({
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {/* TAB 3: NOTIFY ME (HONEST STATUS) */}
-        {activeTab === 'notify' && (
-          <div id="panel-notify" role="tabpanel" aria-labelledby="tab-challenge-btn" className="mt-4">
-            <div className="py-6 px-4 rounded-xl bg-stone-50 border border-stone-200 text-center">
-              <div className="w-11 h-11 mx-auto rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mb-2.5">
-                <Bell className="w-5 h-5 text-amber-700" />
-              </div>
-              <h3 className="text-sm font-extrabold text-zinc-900">
-                Email Delivery Inactive
-              </h3>
-              <p className="mt-1.5 text-xs text-zinc-600 max-w-xs mx-auto leading-relaxed">
-                Automated customer email alerts are currently inactive. All rank changes, challenges, and crown updates reflect immediately in real time on the live leaderboard.
-              </p>
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('challenge')}
-                  className="px-4 py-2 rounded-xl bg-zinc-950 hover:bg-zinc-800 text-xs font-extrabold text-white cursor-pointer shadow-2xs transition-colors"
-                >
-                  Go to Challenge
-                </button>
-              </div>
-            </div>
           </div>
         )}
       </div>

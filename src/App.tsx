@@ -110,7 +110,7 @@ export default function App() {
   // Navigation & Modals
   const [isChallengeModalOpen, setIsChallengeModalOpen] = useState(false);
   const [challengeTargetRank, setChallengeTargetRank] = useState<number | undefined>(undefined);
-  const [nominationModalTab, setNominationModalTab] = useState<'challenge' | 'notify' | 'reason'>('challenge');
+  const [nominationModalTab, setNominationModalTab] = useState<'challenge' | 'reason'>('challenge');
   const [nominationDefaultName, setNominationDefaultName] = useState<string>('');
   const [isUserSettingsOpen, setIsUserSettingsOpen] = useState(false);
   const [isAboutOpen, setIsAboutOpen] = useState(false);

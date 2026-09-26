@@ -81,7 +81,7 @@ export const Hero: React.FC<HeroProps> = ({
 
           {/* Accurate Subheading */}
           <p className="text-xs sm:text-base font-semibold text-stone-600 max-w-lg mx-auto md:mx-0">
-            A live digital sponsored showcase. Position follows verified cumulative INR sponsorship and can be displaced by subsequent sponsors. No financial return or guaranteed tenure.
+            Claim your spot. Sponsor higher. Rank higher. Make them knock you off.
           </p>
 
           {/* ONE Main CTA Button & Explanation */}

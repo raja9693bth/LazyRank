@@ -54,6 +54,7 @@ export const LazyGoalProgress: React.FC<LazyGoalProgressProps> = ({ onOpenChalle
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         setIsOpen(false);
+        buttonRef.current?.focus();
       }
     };
 
@@ -189,15 +190,25 @@ export const LazyGoalProgress: React.FC<LazyGoalProgressProps> = ({ onOpenChalle
         </div>
       </button>
 
-      {/* Popover Card */}
+      {/* Popover Card & Mobile Overlay */}
       {isOpen && (
-        <div
-          ref={popoverRef}
-          id="lazy-goal-popover"
-          role="dialog"
-          aria-label="Daily Lazy Goal details"
-          className="absolute right-0 sm:right-auto sm:left-1/2 sm:-translate-x-1/2 mt-2 w-80 max-w-[92vw] sm:w-84 rounded-2xl bg-white p-4 sm:p-5 shadow-2xl border border-stone-200/90 z-50 animate-in fade-in zoom-in-95 duration-150 text-left"
-        >
+        <>
+          {/* Mobile backdrop for overlay dismissal */}
+          <div
+            id="lazy-goal-mobile-backdrop"
+            aria-hidden="true"
+            onClick={() => setIsOpen(false)}
+            className="fixed inset-0 z-40 bg-stone-900/40 backdrop-blur-xs sm:hidden animate-in fade-in duration-150"
+          />
+
+          <div
+            ref={popoverRef}
+            id="lazy-goal-popover"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Daily Lazy Goal details"
+            className="fixed left-3 right-3 top-14 mx-auto w-[calc(100vw-1.5rem)] max-w-sm sm:absolute sm:inset-auto sm:top-full sm:left-1/2 sm:-translate-x-1/2 sm:mt-2 sm:w-84 sm:max-w-none rounded-2xl bg-white p-4 sm:p-5 shadow-2xl border border-stone-200/90 z-50 animate-in fade-in zoom-in-95 duration-150 text-left"
+          >
           {/* Header */}
           <div className="flex items-center justify-between pb-3 border-b border-stone-100">
             <div className="flex items-center gap-2">
@@ -369,6 +380,7 @@ export const LazyGoalProgress: React.FC<LazyGoalProgressProps> = ({ onOpenChalle
             </div>
           </div>
         </div>
+        </>
       )}
     </div>
   );

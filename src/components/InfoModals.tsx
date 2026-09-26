@@ -7,7 +7,11 @@ interface ModalBaseProps {
   onClose: () => void;
 }
 
-export const AboutModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
+export interface AboutModalProps extends ModalBaseProps {
+  onOpenRules?: () => void;
+}
+
+export const AboutModal: React.FC<AboutModalProps> = ({ isOpen, onClose, onOpenRules }) => {
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -58,6 +62,20 @@ export const AboutModal: React.FC<ModalBaseProps> = ({ isOpen, onClose }) => {
           <p className="text-xs text-zinc-400 pt-2 border-t border-zinc-100">
             Transparent, funny, and ruthlessly honest.
           </p>
+          {onOpenRules && (
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenRules();
+                }}
+                className="text-xs font-bold text-amber-700 hover:text-amber-900 underline flex items-center gap-1 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-700 rounded"
+              >
+                Read Official Rules & Verification &rarr;
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -708,10 +726,10 @@ export const LiveStatsModal: React.FC<LiveStatsModalProps> = ({ isOpen, onClose,
                 <span>Active Online</span>
               </div>
               <div className="font-mono-numbers font-black text-2xl text-zinc-950">
-                {stats?.online || 1}
+                {stats?.online !== undefined && stats.online !== null ? stats.online : '—'}
               </div>
               <div className="text-[10px] text-zinc-400 mt-0.5">
-                Active in last 5m
+                Approx. active sessions in last 5m
               </div>
             </div>
 
@@ -721,10 +739,10 @@ export const LiveStatsModal: React.FC<LiveStatsModalProps> = ({ isOpen, onClose,
                 <span>Visits Today</span>
               </div>
               <div className="font-mono-numbers font-black text-2xl text-zinc-950">
-                {stats?.visitsToday || 1}
+                {stats?.visitsToday !== undefined && stats.visitsToday !== null ? stats.visitsToday : '—'}
               </div>
               <div className="text-[10px] text-zinc-400 mt-0.5">
-                UTC calendar day
+                Estimated page sessions (IST / UTC day)
               </div>
             </div>
 
@@ -759,8 +777,8 @@ export const LiveStatsModal: React.FC<LiveStatsModalProps> = ({ isOpen, onClose,
             <div className="flex items-center gap-2">
               <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
               <div>
-                <div className="text-[11px] text-zinc-400 font-medium">To Take #1 Today</div>
-                <div className="text-xs font-bold text-white">Current #1: ₹{(stats?.topAmount || 0).toLocaleString('en-IN')}</div>
+                <div className="text-[11px] text-zinc-400 font-medium">To Claim #1 All-Time</div>
+                <div className="text-xs font-bold text-white">All-Time Claim Price: ₹{(stats?.topAmount || 0).toLocaleString('en-IN')}</div>
               </div>
             </div>
             <div className="text-right">

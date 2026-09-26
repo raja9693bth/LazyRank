@@ -1,4 +1,14 @@
-export type RankPeriod = 'today' | 'week' | 'month' | 'all';
+export type RankPeriod = 'today' | 'all';
+
+export interface TopProfileSummary {
+  name: string;
+  amount: number;
+  id?: string;
+  rank?: number;
+  badge?: string;
+  reason?: string;
+  isVerified?: boolean;
+}
 
 export type UserTier = 'free' | 'verified';
 

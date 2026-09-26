@@ -1621,6 +1621,22 @@ export class PostgresDatabase {
   }
 
   /**
+   * Enqueue an operational alert into operational_outbox without sensitive customer PII.
+   */
+  public async enqueueOperationalOutbox(eventType: string, payload: any, dedupeKey?: string): Promise<void> {
+    if (!this.pool) return;
+    const outboxId = crypto.randomUUID();
+    const orderId = payload?.orderId || dedupeKey || null;
+    await this.pool.query(
+      `INSERT INTO operational_outbox (
+        id, event_type, order_id, delivery_status, attempts, next_attempt_at, payload, created_at
+      ) VALUES ($1, $2, $3, 'PENDING', 0, NOW(), $4, NOW())
+      ON CONFLICT (event_type, order_id) DO NOTHING`,
+      [outboxId, eventType, orderId, JSON.stringify(payload)]
+    );
+  }
+
+  /**
    * Transactional Operational Outbox Worker
    * Dispatches founder alerts asynchronously with row-level locks, bounded retries, timeouts,
    * and independent per-channel delivery tracking.

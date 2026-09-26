@@ -232,7 +232,7 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
           <span className="text-stone-300">·</span>
-          <LazyGoalProgress variant="compact" />
+          <LazyGoalProgress onOpenChallenge={onOpenChallenge} compact={true} />
         </div>
 
         {/* Right: Explicit Illustrative Currency Disclosure */}

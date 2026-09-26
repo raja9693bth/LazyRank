@@ -29,9 +29,10 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [activeProfile, setActiveProfile] = useState<UserProfile | null>(null);
   const [userClaimedProfiles, setUserClaimedProfiles] = useState<UserProfile[]>([]);
+  const [deviceTokens, setDeviceTokens] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Discover claimed profiles owned on this device via lazy_tokens or allProfiles
+  // Discover claimed profiles owned on this device strictly via lazy_tokens
   useEffect(() => {
     if (!isOpen) return;
 
@@ -42,33 +43,45 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
 
+    let tokens: Record<string, string> = {};
     try {
-      const tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
-      const tokenKeys = Object.keys(tokens);
+      tokens = JSON.parse(localStorage.getItem('lazy_tokens') || '{}');
+      setDeviceTokens(tokens);
+    } catch {}
 
-      let owned: UserProfile[] = [];
-      if (tokenKeys.length > 0) {
-        owned = allProfiles.filter(p => tokenKeys.includes(p.id));
-        if (currentProfile && !owned.some(p => p.id === currentProfile.id)) {
-          owned.unshift(currentProfile);
+    const tokenIds = Object.keys(tokens).filter(id => Boolean(tokens[id]));
+    const knownOwned = allProfiles.filter(p => tokens[p.id]);
+    const missingTokenIds = tokenIds.filter(id => !knownOwned.some(p => p.id === id));
+
+    if (missingTokenIds.length > 0) {
+      Promise.all(
+        missingTokenIds.map(id =>
+          fetch(`/api/profile/${encodeURIComponent(id)}`)
+            .then(res => (res.ok ? res.json() : null))
+            .catch(() => null)
+        )
+      ).then(fetchedProfiles => {
+        const validFetched = fetchedProfiles.filter((p): p is UserProfile => Boolean(p && p.id));
+        const combined = [...knownOwned, ...validFetched];
+        setUserClaimedProfiles(combined);
+
+        // Determine active profile: if currentProfile is owned or passed, select it, else first owned
+        if (currentProfile) {
+          setActiveProfileId(currentProfile.id);
+          setActiveProfile(currentProfile);
+        } else if (combined.length > 0) {
+          setActiveProfileId(combined[0].id);
+          setActiveProfile(combined[0]);
         }
-      } else if (currentProfile) {
-        owned = [currentProfile];
-      }
-
-      setUserClaimedProfiles(owned);
-
-      // Pick active profile
-      const initial = currentProfile || (owned.length > 0 ? owned[0] : null);
-      if (initial) {
-        setActiveProfileId(initial.id);
-        setActiveProfile(initial);
-      }
-    } catch {
+      });
+    } else {
+      setUserClaimedProfiles(knownOwned);
       if (currentProfile) {
         setActiveProfileId(currentProfile.id);
         setActiveProfile(currentProfile);
-        setUserClaimedProfiles([currentProfile]);
+      } else if (knownOwned.length > 0) {
+        setActiveProfileId(knownOwned[0].id);
+        setActiveProfile(knownOwned[0]);
       }
     }
 
@@ -83,6 +96,8 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     setActiveProfileId(profile.id);
     setActiveProfile(profile);
   };
+
+  const isDeviceOwner = Boolean(activeProfile && deviceTokens[activeProfile.id]);
 
   return (
     <div
@@ -228,10 +243,19 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             <div className="pt-2 flex items-center justify-between text-xs text-stone-500">
               <span className="flex items-center gap-1">
                 <Lock className="w-3.5 h-3.5 text-stone-400" />
-                <span>Protected by profile ownership token</span>
+                <span>{isDeviceOwner ? 'Protected by profile ownership token' : 'Public entry (read-only view)'}</span>
               </span>
-              <span className="text-[11px] text-stone-400">
-                Verified on this device
+              <span className="text-[11px] font-semibold">
+                {isDeviceOwner ? (
+                  <span className="text-emerald-700 font-bold flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                    Verified on this device
+                  </span>
+                ) : (
+                  <span className="text-stone-400">
+                    Not owned on this device
+                  </span>
+                )}
               </span>
             </div>
           </div>

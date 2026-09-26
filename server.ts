@@ -1184,19 +1184,6 @@ async function startServer() {
           });
         }
 
-        if (providerRes.status === 'FAILED') {
-          if (db.isPostgresAuthoritative()) {
-            await db.pg.failRefundReservation(merchantRefundId, orderId);
-          }
-          return res.status(400).json({
-            success: false,
-            status: 'FAILED',
-            orderId,
-            refundId: merchantRefundId,
-            error: providerRes.error || 'Payment gateway rejected refund request.'
-          });
-        }
-
         if (providerRes.status === 'SUCCESS') {
           let providerRefundId = providerRes.raw?.cf_refund_id ? String(providerRes.raw.cf_refund_id) : merchantRefundId;
           const providerCurrency = providerRes.raw?.refund_currency || providerRes.raw?.currency;

@@ -83,6 +83,7 @@ export interface ProviderRefundStatus {
 
 export interface PaymentProvider {
   name: string;
+  isConfigured?(): boolean;
   createOrder(params: CreateOrderParams): Promise<ProviderOrderResult>;
   getPaymentStatus(orderId: string): Promise<ProviderPaymentStatus>;
   verifyWebhook(rawBody: string, headers: Record<string, string | string[] | undefined>): Promise<WebhookVerificationResult>;

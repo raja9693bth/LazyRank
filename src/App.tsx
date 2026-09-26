@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserProfile, ActivityEvent, RankPeriod, LeaderboardResponse, LiveStats } from './types.ts';
+import { UserProfile, TopProfileSummary, ActivityEvent, RankPeriod, LeaderboardResponse, LiveStats } from './types.ts';
 import { Header } from './components/Header.tsx';
 import { Hero } from './components/Hero.tsx';
 import { QuickClaimBar } from './components/QuickClaimBar.tsx';
@@ -637,7 +637,7 @@ export default function App() {
     }, 60);
   };
 
-  const topProfile = allTimeTopProfile || (topAmount > 0 ? { name: 'Current #1', amount: topAmount } : undefined);
+  const topProfile: TopProfileSummary | undefined = allTimeTopProfile || (topAmount > 0 ? { name: 'Current #1', amount: topAmount } : undefined);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#faf7f2] text-stone-900">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { UserProfile, getLazyReasonEmoji } from '../types.ts';
+import { UserProfile, TopProfileSummary, getLazyReasonEmoji } from '../types.ts';
 import { ShareCardPreview, CardTemplateType } from './ShareCardPreview.tsx';
 import { safeWebsiteUrl, safeLinkedInUrl, safeInstagramUrl, safeTwitterUrl } from './ProfileCard.tsx';
 import {
@@ -45,7 +45,7 @@ import confetti from 'canvas-confetti';
 interface ResultViewProps {
   profile: UserProfile;
   isNewClaim?: boolean;
-  topProfile?: UserProfile | null;
+  topProfile?: TopProfileSummary | null;
   topAmount?: number;
   nextRankProfile?: UserProfile | null;
   minAmountToBeatTop?: number;
@@ -253,25 +253,25 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
   const isRankOne = profile.rank === 1;
 
-  // Next rank target metrics
+  // Next rank target metrics (Strictly truthful fetched amounts only)
   const nextTargetRank = Math.max(1, profile.rank - 1);
-  const nextProfileName = nextRankProfile?.name || fetchedNextRankName || `Rank #${nextTargetRank}`;
-  const baseNextAmount = nextRankProfile?.amount ?? fetchedNextRankAmount ?? (profile.amount + 20);
-  const amountToBeatNext = baseNextAmount + 1;
-  const diffToNext = Math.max(1, amountToBeatNext - profile.amount);
-  const percentToNext = Math.min(99, Math.max(8, Math.round((profile.amount / amountToBeatNext) * 100)));
+  const nextProfileName = nextRankProfile?.name || fetchedNextRankName || null;
+  const baseNextAmount = nextRankProfile?.amount ?? fetchedNextRankAmount ?? null;
+  const amountToBeatNext = baseNextAmount !== null ? baseNextAmount + 1 : null;
+  const diffToNext = amountToBeatNext !== null ? Math.max(1, amountToBeatNext - profile.amount) : null;
+  const percentToNext = amountToBeatNext !== null ? Math.min(99, Math.max(8, Math.round((profile.amount / amountToBeatNext) * 100))) : null;
 
-  // Top 1 Crown target metrics
-  const topProfileName = topProfile?.name || fetchedTopName || 'The Sloth King';
-  const baseTopAmount = topProfile?.amount ?? topAmount ?? fetchedTopAmount ?? 5001;
-  const amountToBeatTop = baseTopAmount + 1;
-  const diffToTop = Math.max(1, amountToBeatTop - profile.amount);
-  const percentToTop = isRankOne ? 100 : Math.min(99, Math.max(5, Math.round((profile.amount / amountToBeatTop) * 100)));
+  // Top 1 Crown target metrics (Strictly truthful fetched amounts only)
+  const topProfileName = topProfile?.name || fetchedTopName || null;
+  const baseTopAmount = topProfile?.amount ?? topAmount ?? fetchedTopAmount ?? null;
+  const amountToBeatTop = baseTopAmount !== null ? baseTopAmount + 1 : null;
+  const diffToTop = amountToBeatTop !== null ? Math.max(1, amountToBeatTop - profile.amount) : null;
+  const percentToTop = isRankOne ? 100 : (amountToBeatTop !== null ? Math.min(99, Math.max(5, Math.round((profile.amount / amountToBeatTop) * 100))) : null);
 
   // Lead metrics for #1
-  const secondAmount = fetchedSecondAmount || 5001;
-  const secondName = fetchedSecondName || 'Runner-up';
-  const leadOverSecond = Math.max(0, profile.amount - secondAmount);
+  const secondAmount = fetchedSecondAmount ?? null;
+  const secondName = fetchedSecondName ?? null;
+  const leadOverSecond = secondAmount !== null ? Math.max(0, profile.amount - secondAmount) : null;
 
   // Rank Trajectory Data from Claim History (for Recharts line chart)
   const trajectoryData = useMemo(() => {
@@ -795,7 +795,11 @@ export const ResultView: React.FC<ResultViewProps> = ({
               {/* Margin Info & CTA */}
               <div className="mt-3 pt-2.5 border-t border-zinc-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
                 <span className="text-zinc-600">
-                  Leading #{2} ({secondName}) by <strong className="text-zinc-950 font-mono font-bold">₹{leadOverSecond.toLocaleString('en-IN')}</strong>
+                  {secondAmount !== null ? (
+                    <>Leading #{2} ({secondName || 'Runner-up'}) by <strong className="text-zinc-950 font-mono font-bold">₹{leadOverSecond?.toLocaleString('en-IN')}</strong></>
+                  ) : (
+                    <span>Leading as the sole verified contender on the leaderboard</span>
+                  )}
                 </span>
                 <button
                   type="button"
@@ -841,7 +845,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                     <TrendingUp className="w-3 h-3 text-emerald-600" />
                     <span>Next Rank (#{nextTargetRank})</span>
                     <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-emerald-50 text-emerald-700 font-bold">
-                      {percentToNext}%
+                      {percentToNext !== null ? `${percentToNext}%` : '—'}
                     </span>
                   </button>
                   <button
@@ -858,7 +862,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                     <Crown className="w-3 h-3 text-amber-500" />
                     <span>#1 Crown</span>
                     <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-amber-50 text-amber-800 font-bold">
-                      {percentToTop}%
+                      {percentToTop !== null ? `${percentToTop}%` : '—'}
                     </span>
                   </button>
                 </div>
@@ -871,12 +875,18 @@ export const ResultView: React.FC<ResultViewProps> = ({
                     <span className="font-bold text-zinc-800">Your Rank: #{profile.rank}</span>
                     <span className="text-zinc-400 font-mono">({formattedAmount})</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-emerald-700 font-bold">
-                    <span>₹{diffToNext.toLocaleString('en-IN')} to take #{nextTargetRank}</span>
-                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-mono font-bold px-1.5 py-0.5 rounded-full">
-                      {percentToNext}%
-                    </span>
-                  </div>
+                  {diffToNext !== null ? (
+                    <div className="flex items-center gap-1.5 text-emerald-700 font-bold">
+                      <span>₹{diffToNext.toLocaleString('en-IN')} to take #{nextTargetRank}</span>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-mono font-bold px-1.5 py-0.5 rounded-full">
+                        {percentToNext}%
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-zinc-500 font-medium text-[11px]">
+                      <span>Ranking data unavailable</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-between text-xs mb-2">
@@ -884,12 +894,18 @@ export const ResultView: React.FC<ResultViewProps> = ({
                     <span className="font-bold text-zinc-800">Your Rank: #{profile.rank}</span>
                     <span className="text-zinc-400 font-mono">({formattedAmount})</span>
                   </div>
-                  <div className="flex items-center gap-1.5 text-amber-700 font-bold">
-                    <span>₹{diffToTop.toLocaleString('en-IN')} to take #1</span>
-                    <span className="text-[10px] bg-amber-100 text-amber-800 font-mono font-bold px-1.5 py-0.5 rounded-full">
-                      {percentToTop}%
-                    </span>
-                  </div>
+                  {diffToTop !== null ? (
+                    <div className="flex items-center gap-1.5 text-amber-700 font-bold">
+                      <span>₹{diffToTop.toLocaleString('en-IN')} to take #1</span>
+                      <span className="text-[10px] bg-amber-100 text-amber-800 font-mono font-bold px-1.5 py-0.5 rounded-full">
+                        {percentToTop}%
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 text-zinc-500 font-medium text-[11px]">
+                      <span>Ranking data unavailable</span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -897,10 +913,10 @@ export const ResultView: React.FC<ResultViewProps> = ({
               <div className="w-full bg-zinc-200/80 rounded-full h-3.5 sm:h-4 p-0.5 overflow-hidden border border-zinc-200 relative">
                 <div
                   role="progressbar"
-                  aria-valuenow={progressTarget === 'next' ? percentToNext : percentToTop}
+                  aria-valuenow={(progressTarget === 'next' ? percentToNext : percentToTop) ?? 0}
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  style={{ width: `${progressTarget === 'next' ? percentToNext : percentToTop}%` }}
+                  style={{ width: `${(progressTarget === 'next' ? percentToNext : percentToTop) ?? 0}%` }}
                   className={`h-full rounded-full transition-all duration-500 ease-out shadow-xs ${
                     progressTarget === 'next'
                       ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
@@ -913,9 +929,9 @@ export const ResultView: React.FC<ResultViewProps> = ({
               <div className="flex items-center justify-between text-[10px] text-zinc-500 font-mono mt-1.5 px-0.5">
                 <span>You: #{profile.rank} ({formattedAmount})</span>
                 {progressTarget === 'next' ? (
-                  <span>Target: #{nextTargetRank} (₹{amountToBeatNext.toLocaleString('en-IN')})</span>
+                  <span>Target: #{nextTargetRank} {amountToBeatNext !== null ? `(₹${amountToBeatNext.toLocaleString('en-IN')})` : '(—)'}</span>
                 ) : (
-                  <span>Target: #1 Crown (₹{amountToBeatTop.toLocaleString('en-IN')})</span>
+                  <span>Target: #1 Crown {amountToBeatTop !== null ? `(₹${amountToBeatTop.toLocaleString('en-IN')})` : '(—)'}</span>
                 )}
               </div>
 
@@ -923,27 +939,40 @@ export const ResultView: React.FC<ResultViewProps> = ({
               <div className="mt-3 pt-2.5 border-t border-zinc-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
                 <div className="text-zinc-600 text-[11px]">
                   {progressTarget === 'next' ? (
-                    <span>
-                      Overtake <strong>{nextProfileName}</strong> by adding at least <strong>₹{diffToNext.toLocaleString('en-IN')}</strong>.
-                    </span>
+                    diffToNext !== null ? (
+                      <span>
+                        Overtake <strong>{nextProfileName || `Rank #${nextTargetRank}`}</strong> by adding at least <strong>₹{diffToNext.toLocaleString('en-IN')}</strong>.
+                      </span>
+                    ) : (
+                      <span>Ranking data unavailable.</span>
+                    )
                   ) : (
-                    <span>
-                      Dethrone <strong>{topProfileName}</strong> by adding at least <strong>₹{diffToTop.toLocaleString('en-IN')}</strong>.
-                    </span>
+                    diffToTop !== null ? (
+                      <span>
+                        Dethrone <strong>{topProfileName || 'Current #1'}</strong> by adding at least <strong>₹{diffToTop.toLocaleString('en-IN')}</strong>.
+                      </span>
+                    ) : (
+                      <span>Ranking data unavailable.</span>
+                    )
                   )}
                 </div>
 
                 <button
                   type="button"
                   onClick={() => onUpgradeRank(profile)}
-                  aria-label={progressTarget === 'next' ? `Boost by ₹${diffToNext} to take #${nextTargetRank}` : `Boost by ₹${diffToTop} to take #1`}
-                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-white font-extrabold transition-all text-xs cursor-pointer shadow-2xs whitespace-nowrap min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
+                  disabled={progressTarget === 'next' ? diffToNext === null : diffToTop === null}
+                  aria-label={progressTarget === 'next' ? (diffToNext !== null ? `Boost by ₹${diffToNext} to take #${nextTargetRank}` : 'Boost rank') : (diffToTop !== null ? `Boost by ₹${diffToTop} to take #1` : 'Boost rank')}
+                  className={`inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-white font-extrabold transition-all text-xs shadow-2xs whitespace-nowrap min-h-[36px] ${
+                    (progressTarget === 'next' ? diffToNext === null : diffToTop === null)
+                      ? 'bg-zinc-400 cursor-not-allowed opacity-60'
+                      : 'bg-zinc-950 hover:bg-zinc-800 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2'
+                  }`}
                 >
                   <PlusCircle className="w-3.5 h-3.5 text-amber-400" />
                   <span>
                     {progressTarget === 'next'
-                      ? `Boost +₹${diffToNext} to take #${nextTargetRank}`
-                      : `Boost +₹${diffToTop} to take #1`}
+                      ? (diffToNext !== null ? `Boost +₹${diffToNext} to take #${nextTargetRank}` : 'Boost Rank')
+                      : (diffToTop !== null ? `Boost +₹${diffToTop} to take #1` : 'Boost Rank')}
                   </span>
                 </button>
               </div>

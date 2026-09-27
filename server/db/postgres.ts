@@ -592,7 +592,7 @@ export class PostgresDatabase {
 
       // Check current #1 top profile for displacement detection
       const prevTopRes = await client.query(
-        "SELECT * FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
+        "SELECT * FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0 ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
       );
       const previousTop = prevTopRes.rows.length > 0 ? this.mapProfile(prevTopRes.rows[0]) : undefined;
 
@@ -1485,7 +1485,7 @@ export class PostgresDatabase {
         SELECT COUNT(*) as cnt
         FROM profile_today_totals ptt
         JOIN profiles p ON p.id = ptt.profile_id
-        WHERE p.moderation_status = 'active' AND p.is_verified = TRUE;
+        WHERE p.moderation_status = 'active' AND p.is_verified = TRUE AND p.amount > 0;
       `;
       const countRes = await this.pool.query(countQuery, [startTodayUtc, endTodayUtc]);
       const totalCount = Number.parseInt(countRes.rows[0]?.cnt || '0', 10);
@@ -1530,7 +1530,7 @@ export class PostgresDatabase {
           ) as dynamic_period_rank
         FROM profile_today_totals ptt
         JOIN profiles p ON p.id = ptt.profile_id
-        WHERE p.moderation_status = 'active' AND p.is_verified = TRUE
+        WHERE p.moderation_status = 'active' AND p.is_verified = TRUE AND p.amount > 0
         ORDER BY ptt.today_amount DESC, ptt.earliest_credit_time ASC, p.id ASC
         LIMIT $3 OFFSET $4;
       `;
@@ -1608,7 +1608,7 @@ export class PostgresDatabase {
       query = "SELECT * FROM profiles WHERE rank = $1 AND moderation_status = 'active' AND is_verified = TRUE AND amount > 0 LIMIT 1";
       params = [rankNum];
     } else {
-      query = "SELECT * FROM profiles WHERE id = $1 AND moderation_status = 'active' LIMIT 1";
+      query = "SELECT * FROM profiles WHERE id = $1 AND moderation_status = 'active' AND is_verified = TRUE AND amount > 0 LIMIT 1";
       params = [idOrRank];
     }
 
@@ -1644,11 +1644,12 @@ export class PostgresDatabase {
   }
 
   public mapProfile(row: any): UserProfile {
+    const amt = Number(row.amount);
     return {
       id: row.id,
       userId: row.user_id,
       name: row.name,
-      amount: Number(row.amount),
+      amount: amt,
       rank: row.rank,
       instagram: row.instagram || undefined,
       linkedin: row.linkedin || undefined,
@@ -1660,7 +1661,7 @@ export class PostgresDatabase {
       lazyReason: row.lazy_reason || undefined,
       roast: row.roast || undefined,
       lazyStreakDays: row.lazy_streak_days || 0,
-      isVerified: Boolean(row.is_verified),
+      isVerified: Boolean(row.is_verified) && amt > 0,
       firstVerifiedAt: row.first_verified_at ? new Date(row.first_verified_at).toISOString() : undefined,
       moderationStatus: row.moderation_status || 'active',
       votesCount: row.votes_count || 0,
@@ -2198,7 +2199,7 @@ export class PostgresDatabase {
     const { startTodayUtc, endTodayUtc } = getIstTodayWindow();
     const statsRes = await this.pool.query(`
       SELECT
-        COUNT(*) FILTER (WHERE is_verified = true AND moderation_status = 'active') as verified_count,
+        COUNT(*) FILTER (WHERE is_verified = true AND moderation_status = 'active' AND amount > 0) as verified_count,
         COALESCE(SUM(amount) FILTER (WHERE is_verified = true AND moderation_status = 'active'), 0) as verified_revenue,
         (SELECT COUNT(*) FROM payment_orders WHERE status = 'PAID') as total_claims,
         (SELECT COUNT(DISTINCT l.order_id)
@@ -2460,7 +2461,7 @@ export class PostgresDatabase {
     }
 
     const verifiedProfilesRes = await this.pool.query(
-      "SELECT COUNT(*) as cnt FROM profiles WHERE is_verified = true AND moderation_status = 'active'"
+      "SELECT COUNT(*) as cnt FROM profiles WHERE is_verified = true AND moderation_status = 'active' AND amount > 0"
     );
     const activeParticipantsNow = parseInt(verifiedProfilesRes.rows[0]?.cnt || '0', 10);
 

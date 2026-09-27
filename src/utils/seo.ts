@@ -24,7 +24,7 @@ export const BASE_URL = 'https://lazyproof.online';
 export const PAGE_SEO: Record<string, PageSeoConfig> = {
   '/': {
     title: "LazyProof — Digital Sponsored Profile Showcase | Live Leaderboard",
-    description: "LazyProof is a public digital sponsored showcase where verified cumulative sponsorship determines leaderboard position. Transparent, competitive, and humorous.",
+    description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
     canonicalPath: '/',
     ogType: 'website',
     breadcrumbName: 'Home'
@@ -58,22 +58,22 @@ export const PAGE_SEO: Record<string, PageSeoConfig> = {
     breadcrumbName: 'Terms & Conditions'
   },
   '/privacy': {
-    title: "Privacy Policy — How LAZY Handles Your Data",
-    description: "LAZY Privacy Policy: understanding public display of names and handles, user data security, and participant data rights.",
+    title: "Privacy Policy — How LazyProof Handles Your Data",
+    description: "LazyProof Privacy Policy: understanding public display of names and handles, user data security, and participant data rights.",
     canonicalPath: '/privacy',
     ogType: 'website',
     breadcrumbName: 'Privacy Policy'
   },
   '/refund-cancellation': {
-    title: "Refund & Cancellation Policy — LAZY Payment Guidelines",
-    description: "Official Refund and Cancellation Policy for LAZY: transparent guidelines for pre-payment cancellation, duplicate charge resolutions, and dispute support.",
+    title: "Refund & Cancellation Policy — LazyProof Payment Guidelines",
+    description: "Official Refund and Cancellation Policy for LazyProof: transparent guidelines for pre-payment cancellation, duplicate charge resolutions, and dispute support.",
     canonicalPath: '/refund-cancellation',
     ogType: 'website',
     breadcrumbName: 'Refund Policy'
   },
   '/refund': {
-    title: "Refund & Cancellation Policy — LAZY Payment Guidelines",
-    description: "Official Refund and Cancellation Policy for LAZY: transparent guidelines for pre-payment cancellation, duplicate charge resolutions, and dispute support.",
+    title: "Refund & Cancellation Policy — LazyProof Payment Guidelines",
+    description: "Official Refund and Cancellation Policy for LazyProof: transparent guidelines for pre-payment cancellation, duplicate charge resolutions, and dispute support.",
     canonicalPath: '/refund-cancellation',
     ogType: 'website',
     breadcrumbName: 'Refund Policy'
@@ -103,12 +103,13 @@ export function generateClientRouteJsonLd(route: string): object[] {
     '@type': 'WebSite',
     '@id': `${BASE_URL}/#website`,
     name: 'LazyProof',
+    alternateName: 'LAZY',
     url: `${BASE_URL}/`,
-    description: 'Digital Sponsored Profile Showcase & Public Leaderboard.',
+    description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
-      name: 'Adabhra Group',
+      name: 'ADABHRA GROUP',
       url: BASE_URL
     }
   };
@@ -119,7 +120,8 @@ export function generateClientRouteJsonLd(route: string): object[] {
       {
         '@type': 'WebApplication',
         '@id': `${BASE_URL}/#app`,
-        name: 'LAZY',
+        name: 'LazyProof',
+        alternateName: 'LAZY',
         url: `${BASE_URL}/`,
         description: config.description,
         applicationCategory: 'EntertainmentApplication',

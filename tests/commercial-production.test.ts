@@ -303,8 +303,9 @@ async function runCommercialTests() {
 
   // Execute full refund of remaining ₹400
   await db.reverseRefund(refundOrderId, 400, 'Customer requested complete refund', 'ref_test_p2');
-  const profFinal = db.getProfile(refundProfileId);
-  assert(profFinal?.amount === 0, 'Verified amount accurately reduced to ₹0 after full refund');
+  const rawFinal = db.getRawProfile(refundProfileId);
+  const publicFinal = db.getProfile(refundProfileId);
+  assert(rawFinal?.amount === 0 && publicFinal === undefined, 'Verified amount accurately reduced to ₹0 after full refund');
 
   // ----------------------------------------------------
   // SUITE 6: API ENDPOINTS INTEGRATION (/api/payment/*)
@@ -475,6 +476,26 @@ async function runCommercialTests() {
   });
   assert(resRefundAdmin.status === 200, 'Admin-authorized refund processed with 200');
   assert(resRefundAdmin.body.status === 'REFUNDED', 'Order status marked as REFUNDED');
+
+  // Regression test: In production environment, ALLOW_MOCK_REFUNDS cannot reverse a payment locally
+  const prevNodeEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    const resProdRefund = await fetchJson(`${BASE}/api/payment/refund`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-key': 'test-forensic-admin-key-2026'
+      },
+      body: { orderId: dummyReceiptOrderId, amount: 750, reason: 'Attempted production mock refund' }
+    });
+    assert(
+      resProdRefund.status === 500 || resProdRefund.status === 503,
+      'Production-configured mock flag is rejected (500 or 503) and cannot reverse payment locally'
+    );
+  } finally {
+    process.env.NODE_ENV = prevNodeEnv;
+  }
 
   console.log('\n========================================================');
   console.log(`COMMERCIAL SUITE SUMMARY: ${passed} PASSED, ${failed} FAILED`);

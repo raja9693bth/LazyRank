@@ -40,10 +40,10 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
   const formattedAmount = `₹${profile.amount.toLocaleString('en-IN')}`;
   const profileUrl = `${baseUrl}/?rank=${encodeURIComponent(profile.id)}`;
   const description = profile.roast
-    ? `“${profile.roast}” — Verified Rank #${profile.rank} with a paid claim of ${formattedAmount} on LAZY.`
+    ? `“${profile.roast}” — Verified Rank #${profile.rank} with a paid claim of ${formattedAmount} on LazyProof.`
     : profile.reason
-    ? `“${profile.reason}” — Verified Rank #${profile.rank} with a paid claim of ${formattedAmount} on LAZY.`
-    : `Verified Rank #${profile.rank} with an authentic paid claim of ${formattedAmount} on LAZY.`;
+    ? `“${profile.reason}” — Verified Rank #${profile.rank} with a paid claim of ${formattedAmount} on LazyProof.`
+    : `Verified Rank #${profile.rank} with an authentic paid claim of ${formattedAmount} on LazyProof.`;
 
   const sameAs: string[] = [];
   if (profile.twitter) {
@@ -81,7 +81,7 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
         '@type': 'ProfilePage',
         '@id': `${profileUrl}#webpage`,
         url: profileUrl,
-        name: `${profile.name} — Rank #${profile.rank} (${formattedAmount}) on LAZY`,
+        name: `${profile.name} — Rank #${profile.rank} (${formattedAmount}) on LazyProof`,
         description,
         dateCreated: profile.createdAt,
         dateModified: profile.updatedAt || profile.createdAt,
@@ -89,7 +89,8 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
         isPartOf: {
           '@type': 'WebSite',
           '@id': `${baseUrl}/#website`,
-          name: 'LAZY',
+          name: 'LazyProof',
+          alternateName: 'LAZY',
           url: `${baseUrl}/`
         },
         mainEntity: {
@@ -99,7 +100,7 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
           identifier: profile.id,
           description,
           image: `${baseUrl}/api/og/card/${encodeURIComponent(profile.id)}.png`,
-          award: `Rank #${profile.rank} on LAZY Public Legitimacy Leaderboard`,
+          award: `Rank #${profile.rank} on LazyProof Public Legitimacy Leaderboard`,
           ...(sameAs.length > 0 ? { sameAs } : {}),
           interactionStatistic: {
             '@type': 'InteractionCounter',
@@ -111,9 +112,10 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
       {
         '@type': 'WebSite',
         '@id': `${baseUrl}/#website`,
-        name: 'LAZY',
+        name: 'LazyProof',
+        alternateName: 'LAZY',
         url: `${baseUrl}/`,
-        description: 'Public legitimacy leaderboard where higher verified payment equals higher rank.',
+        description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
         inLanguage: 'en-IN',
         publisher: {
           '@type': 'Organization',
@@ -197,11 +199,11 @@ export function injectProfileMetadata(
 ): string {
   const formattedAmount = `₹${profile.amount.toLocaleString('en-IN')}`;
   const rawQuote = profile.roast || profile.reason || 'Paid to prove laziness. No excuses.';
-  const pageTitle = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) on LAZY`;
-  const metaDescription = `“${rawQuote.slice(0, 120)}” — ${profile.name} claimed Rank #${profile.rank} with a verified ${formattedAmount} payment on LAZY. Can you beat it?`;
+  const pageTitle = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) on LazyProof`;
+  const metaDescription = `“${rawQuote.slice(0, 120)}” — ${profile.name} claimed Rank #${profile.rank} with a verified ${formattedAmount} payment on LazyProof. Can you beat it?`;
   const canonicalUrl = `${baseUrl}/?rank=${encodeURIComponent(profile.id)}`;
   const ogImageUrl = `${baseUrl}/api/og/card/${encodeURIComponent(profile.id)}.png`;
-  const imageAlt = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) Verified Proof Card on LAZY`;
+  const imageAlt = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) Verified Proof Card on LazyProof`;
   const jsonLdData = generateProfileJsonLd(profile, baseUrl);
   const jsonLdString = serializeJsonLd(jsonLdData);
 
@@ -257,7 +259,11 @@ export function injectProfileMetadata(
     `<meta property="og:type" content="profile" />`
   );
 
-  // Replace Twitter Card tags
+  // Replace Twitter Card tags (use summary_large_image for 1200x630 profile card)
+  safeReplace(
+    /<meta\s+name=["']twitter:card["']\s+content="[^"]*"\s*\/?>/i,
+    `<meta name="twitter:card" content="summary_large_image" />`
+  );
   safeReplace(
     /<meta\s+name=["']twitter:title["']\s+content="[^"]*"\s*\/?>/i,
     `<meta name="twitter:title" content="${escapeHtml(pageTitle)}" />`
@@ -300,12 +306,13 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
     '@type': 'WebSite',
     '@id': `${baseUrl}/#website`,
     name: 'LazyProof',
+    alternateName: 'LAZY',
     url: `${baseUrl}/`,
-    description: 'Digital Sponsored Profile Showcase & Public Leaderboard.',
+    description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
-      name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
+      name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
       url: baseUrl
     }
   };
@@ -318,7 +325,8 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
         {
           '@type': 'WebApplication',
           '@id': `${baseUrl}/#app`,
-          name: 'LAZY',
+          name: 'LazyProof',
+          alternateName: 'LAZY',
           url: `${baseUrl}/`,
           description: config.description,
           applicationCategory: 'EntertainmentApplication',

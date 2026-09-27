@@ -117,7 +117,28 @@ function verifyAdminKey(providedKey?: string): boolean {
 
 const PAYMENT_MODE = (process.env.PAYMENT_MODE || 'disabled').toLowerCase().trim();
 
+export function isSafeLocalTestDatabase(url?: string): boolean {
+  if (!url) return true;
+  const lower = url.toLowerCase();
+  if (
+    lower.includes('neon.tech') ||
+    lower.includes('neon.build') ||
+    lower.includes('aws.neon') ||
+    lower.includes('prod')
+  ) {
+    return false;
+  }
+  return lower.includes('127.0.0.1') || lower.includes('localhost') || lower.includes('test');
+}
+
+export function validateRefundEnvironmentSecurity(): void {
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_MOCK_REFUNDS === 'true') {
+    throw new Error('FATAL CONFIGURATION ERROR: ALLOW_MOCK_REFUNDS cannot be enabled in production environment.');
+  }
+}
+
 async function startServer() {
+  validateRefundEnvironmentSecurity();
   const isProd = process.env.NODE_ENV === 'production';
   const usePg = isProd || process.env.USE_POSTGRES === 'true';
 
@@ -1166,7 +1187,18 @@ async function startServer() {
     const merchantRefundId = (req.body.refundId && typeof req.body.refundId === 'string' ? req.body.refundId.trim() : '') ||
       ('ref_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12));
 
-    const isTestMode = process.env.NODE_ENV === 'test' || process.env.ALLOW_MOCK_REFUNDS === 'true';
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction && process.env.ALLOW_MOCK_REFUNDS === 'true') {
+      return res.status(500).json({
+        error: 'FATAL CONFIGURATION ERROR: ALLOW_MOCK_REFUNDS cannot be enabled in production environment.',
+        orderId,
+        refundId: merchantRefundId
+      });
+    }
+
+    const isTestMode = !isProduction &&
+      (process.env.NODE_ENV === 'test' || process.env.ALLOW_MOCK_REFUNDS === 'true') &&
+      isSafeLocalTestDatabase(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 
     // A4: When provider processing is disabled/unconfigured, live refund request must return clear 503 without reserving or reversing anything
     if (!paymentManager.isEnabled() && !isTestMode) {
@@ -1334,7 +1366,7 @@ async function startServer() {
       }
     }
 
-    // Retain local/mock refund behavior only in an explicit test-only environment
+    // Retain local/mock refund behavior only in an explicit non-production test environment with safe test database
     if (isTestMode) {
       const reversed = await db.reverseRefund(orderId, amountINR, refundReason, merchantRefundId, undefined, 'INR');
       const updatedOrder = await db.getOrderAsync(orderId);

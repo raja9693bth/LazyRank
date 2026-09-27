@@ -989,6 +989,7 @@ export class LazyDatabase {
     const p = this.getRawProfile(id);
     if (!p) return undefined;
     if (p.reason === '[Content Removed]' || p.moderationStatus === 'removed') return undefined;
+    if (p.amount <= 0 || p.rank === 999999 || !p.isVerified) return undefined;
     return this.sanitizeProfile(p);
   }
 

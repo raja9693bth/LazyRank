@@ -147,7 +147,17 @@ When completing payment gateway onboarding forms, select the category that best 
 
 ---
 
-## 8. Current Gateway Review Status
+## 8. Current Gateway Review Status Matrix (Dated: 27 September 2026)
+
+| Gateway / Area | Technical Integration Status | Underwriting / Account Review Status | Operational Requirement / Next Action |
+|---|---|---|---|
+| **Cashfree Payments** | **ACTIVE IN CODE** (API v2026-01-01, HMAC-SHA256, atomic refund state machine, idempotent ledger) | **STATUS UNPROVEN FROM PROFILE SCREENSHOT**; merchant legal-name needs checking; earlier application under XAIBUN requires resolution | Founder must verify legal entity in Cashfree dashboard; contact Cashfree merchant support to update legal name to ADABHRA GROUP or follow re-onboarding advice. Verify customer-support email is set to `support@lazyproof.online`. |
+| **Razorpay** | **NOT IMPLEMENTED IN CODE** (Provider code removed/disabled to prevent unverified execution) | **WEBSITE URL APPROVED; APPLICATION UNDER REVIEW** (Per supplied merchant dashboard screenshot) | Prospective gateway only. Cannot process transactions without code integration. Underwriting decision remains external. |
+| **PhonePe** | **NOT IMPLEMENTED IN CODE** | **PROSPECTIVE ONLY** | No merchant contract or API integration exists. |
+| **Live Checkout** | **SAFELY DISABLED** (`PAYMENT_MODE=disabled`) | **LOCKED PENDING FOUNDER VERIFICATION** | Will remain disabled until: 1) Cashfree merchant approval granted; 2) Live API credentials issued; 3) Accounting/tax sign-off; 4) Sandbox E2E tests verified. |
+| **Public Support Mailbox** | **CONFIGURED AS `support@lazyproof.online`** | **PENDING FOUNDER SEND/RECEIVE TEST** | Must verify inbound/outbound delivery using the founder verification protocol below. |
+
+### Technical Verification Checkpoints:
 
 | Checkpoint | Status | Notes |
 |---|---|---|
@@ -163,10 +173,79 @@ When completing payment gateway onboarding forms, select the category that best 
 
 ---
 
-## 9. Razorpay Status & Business Model Policy
+## 9. Sole Proprietorship Legal Structure & XAIBUN Resolution SOP
 
-- **Current Architecture:** Cashfree Payments India Pvt Ltd is the sole active payment provider.
-- **No Active Razorpay Integration:** Razorpay settlement handling has been removed/disabled to prevent unverified payment routes.
-- **Compliance Policy:** Razorpay terms list "Bidding/Auction houses" under restricted categories. While LazyProof operates a deterministic cumulative sponsorship ranking and not an auction, Razorpay requires explicit business-model pre-clearance before any future integration or application reliance.
-- **Underwriting Document Verification:** If Razorpay, Cashfree, or banking underwriting partners request a sample service invoice, it must be prepared by the founder or accountant reflecting genuine business and tax facts (e.g. digital sponsored profile placement, sole proprietorship details, real transaction considerations). Never create, generate, or submit a fake GST invoice or assert tax exemptions without accountant review.
-- **Current Target:** Cashfree is the designated primary payment gateway partner.
+### Legal Entity Clarification:
+- **ADABHRA GROUP** is a **Sole Proprietorship** registered in Bihar, India (Proprietor: Raja Babu).
+- It is **NOT** a separate incorporated company, Private Limited entity, LLP, or holding conglomerate.
+- In Indian commercial law, a sole proprietorship is legally coterminous with its proprietor for tax and banking purposes.
+
+### Cashfree Merchant Profile & XAIBUN Resolution:
+- If an earlier merchant account or onboarding draft with Cashfree was submitted under the trade name **XAIBUN**, changing text in the website repository or frontend **CANNOT** alter the legal entity records in Cashfree's core banking systems.
+- **Action Required by Founder:**
+  1. Log into the Cashfree Merchant Dashboard (`https://merchant.cashfree.com/`).
+  2. Inspect the **Account Settings > Business Profile > Legal Entity Name**.
+  3. If the profile states **XAIBUN**, open a formal support ticket with Cashfree Merchant Support:
+     > *"We need to update our Merchant Legal Name to ADABHRA GROUP (Sole Proprietorship, Proprietor: Raja Babu) to match our Udyam Registration Certificate and official domain https://lazyproof.online. Please advise whether an official trade name amendment is supported or if a fresh onboarding profile for ADABHRA GROUP should be created."*
+  4. Obtain written confirmation from Cashfree merchant onboarding before submitting final bank verification.
+
+---
+
+## 10. Customer Support Mailbox Verification Protocol
+
+### Current Published Email:
+`support@lazyproof.online` is the sole authoritative support address published across:
+- Website header and footer
+- Terms of Service (`/terms`)
+- Privacy Policy (`/privacy`)
+- Refund & Cancellation Policy (`/refund-cancellation`)
+- Digital Delivery Policy (`/delivery`)
+- Pricing Policy (`/pricing`)
+- Contact page (`/contact`) and Schema.org structured data
+
+### Distinction from Founder Personal/Alternative Email:
+- Founder previously noted `support.lazyproof@gmail.com`. This is a distinct Google mailbox, not an alias on the custom domain.
+- The Udyam registration login email is **private** and must **NEVER** be published publicly or added to website footers.
+
+### Mandatory Send-and-Receive Test for Founder:
+1. **Send Test:** From an external personal email address (e.g. your personal Gmail), compose a message to `support@lazyproof.online` with Subject: `[TEST] Verification of inbound support desk`.
+2. **Receive Check:** Verify that the message arrives in your domain webmail or designated forwarding mailbox.
+3. **Reply Test:** Send a reply back from `support@lazyproof.online` to the external email to confirm outbound SPF/DKIM delivery.
+4. **Resolution:**
+   - If both tests succeed: Retain `support@lazyproof.online` across all touchpoints and enter this exact address into the Cashfree Merchant Dashboard customer support settings.
+   - If delivery fails (e.g. bounce or unconfigured MX): Treat gateway support verification as **BLOCKED** until DNS MX records are correctly configured by the domain registrar. Do not invent an unverified alternate address.
+
+---
+
+## 11. Udyam Business Activity Classification Review
+
+The founder's Udyam Registration Certificate lists specific National Industry Classification (NIC) codes:
+- **Founder Verification Action:** Truthfully review all registered activities against the actual service provided by LazyProof (digital sponsored profile visibility, public leaderboard showcase, and humor cards).
+- **Computer Games Publishing Note:** If the Udyam certificate contains activity entries such as *"Publishing of computer games"* (NIC 58201 / 5820) or computer software publishing, the founder must review whether this truthfully reflects past software development or whether an activity update on the official Udyam portal (`udyamregistration.gov.in`) is appropriate to explicitly add internet advertising/portal publishing.
+- **No False MCC Selection:** Under no circumstances should the business model be misclassified or camouflaged under an unrelated Merchant Category Code (MCC) to bypass underwriting. The service is strictly a digital sponsored showcase.
+
+---
+
+## 12. Private Founder Checklist: Second Business Proof Preparation
+
+Payment gateway underwriting for sole proprietorships often requests **two distinct business proofs** bearing the proprietor's name and business trade name.
+
+To prevent underwriting delays if requested by Cashfree or Razorpay, the founder should privately gather the following (do **NOT** commit these documents to Git or upload them publicly):
+
+- [ ] **Primary Proof:** Udyam Registration Certificate (ADABHRA GROUP, West Champaran, Bihar).
+- [ ] **Secondary Business Proof Options** (prepare at least one genuine document):
+  - [ ] **Option A: Current Bank Account Statement / Welcome Letter** in the name of *ADABHRA GROUP* (showing account number, IFSC, address, and recent transactions).
+  - [ ] **Option B: GST Registration Certificate (Form GST REG-06)**, if registered for GST.
+  - [ ] **Option C: Shop & Commercial Establishment Certificate** issued by the Bihar State Municipal/Labor Authority.
+  - [ ] **Option D: Trade License / Municipal Permit** issued by local panchayat/municipal body for Adabhra Group.
+  - [ ] **Option E: Utility Bill** (Electricity, broadband/landline bill) at the business premises in the name of the proprietor or firm, dated within the last 60 days.
+- [ ] **Proprietor Identity Proof:** PAN card of Proprietor (Raja Babu) and Aadhaar card (masked).
+- [ ] **Cancelled Cheque** or Bank Passbook showing Proprietor Name and Account Number matching settlement details.
+
+---
+
+## 13. Policy & Consumer Transparency Disclaimers
+
+- **Non-Gambling Disclaimers Retained:** Clear, prominent non-gambling and non-prize disclaimers are preserved across all pages. These disclaimers protect consumers by explicitly stating that payments are non-refundable consideration for digital placement services and offer no winnings or financial returns. They must **never** be removed to game automated keyword filters.
+- **Truthful Delivery Guarantees:** Service delivery is strictly digital and occurs automatically via database settlement. No physical goods or delivery timeframes are promised.
+- **Tax Policy Notice:** Pricing is stated transparently in INR; tax liability and GST thresholds must be confirmed with a chartered accountant before enabling live mode.

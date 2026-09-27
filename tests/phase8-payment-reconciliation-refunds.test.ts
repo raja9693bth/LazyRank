@@ -208,9 +208,13 @@ async function runPhase8Tests() {
   assert.strictEqual(orderAfterFull.status, 'REFUNDED', 'Order status must be REFUNDED');
 
   const profileAfterFull = await pg.getProfile(profileAId);
-  assert.strictEqual(profileAfterFull?.amount, 0, 'Profile net amount must be ₹0');
-  assert.strictEqual(profileAfterFull?.rank, 999999, 'Profile rank must be set to 999999');
-  pass('Profile with ₹0 net settled amount is unranked (rank=999999)');
+  assert.strictEqual(profileAfterFull, null, 'Public getProfile must return null (404) for fully refunded ₹0 profile');
+
+  const rawProfileAfterFull = await pg.getRawProfile(profileAId);
+  assert.strictEqual(rawProfileAfterFull?.amount, 0, 'Profile net amount must be ₹0 in raw ledger');
+  assert.strictEqual(rawProfileAfterFull?.rank, 999999, 'Profile rank must be set to 999999 in raw ledger');
+  assert.strictEqual(rawProfileAfterFull?.isVerified, false, 'Profile isVerified badge must be false when net amount <= 0');
+  pass('Profile with ₹0 net settled amount is unranked (rank=999999) and returns null on public getProfile');
 
   // B1: All-time leaderboard excludes profile with amount = 0
   const lbAll = await pg.getLeaderboard({ period: 'all' });
@@ -218,19 +222,40 @@ async function runPhase8Tests() {
   assert.strictEqual(lbAll.profiles.length, 0, 'Active leaderboard profiles must be empty');
   pass('Active paid leaderboard completely excludes ₹0 profile and verified count is 0');
 
+  // B1: Today leaderboard also excludes profile with net amount <= 0
+  const lbToday = await pg.getLeaderboard({ period: 'today' });
+  assert.strictEqual(lbToday.totalCount, 0, 'Today leaderboard totalCount must be 0 after full refund');
+  assert.strictEqual(lbToday.profiles.length, 0, 'Today leaderboard profiles must be empty after full refund');
+  pass('Today leaderboard excludes fully refunded profile');
+
+  // B1: Admin stats and global activity strictly exclude ₹0 profiles
+  const adminData = await pg.getAdminData(10, 0);
+  assert.strictEqual(adminData.stats.totalVerifiedParticipants, 0, 'Admin verified participants count must exclude ₹0 profile');
+
+  const globalActivity = await pg.getGlobalActivity();
+  assert.strictEqual(globalActivity.activeParticipantsNow, 0, 'Global active participants count must exclude ₹0 profile');
+  pass('Admin and global activity verified participant counts strictly exclude ₹0 refunded profiles');
+
   // B1: getTopAmount returns 0 when no profile has amount > 0
   const topAmt = await pg.getTopAmount();
   assert.strictEqual(topAmt, 0, 'getTopAmount must return 0 when no active profile has amount > 0');
   pass('getTopAmount returns 0 when no active profiles with amount > 0 exist');
 
-  // B1: Public rank lookup does not return ₹0 profile, but owner ID lookup preserves profile
+  // B1: Public rank and ID lookups return null, while raw profile preserves owner access
   const rank1Lookup = await pg.getProfile('1');
   assert.strictEqual(rank1Lookup, null, 'Public rank 1 lookup must return null');
 
+  const rank999999Lookup = await pg.getProfile('999999');
+  assert.strictEqual(rank999999Lookup, null, 'Public rank 999999 lookup must return null');
+
   const idLookup = await pg.getProfile(profileAId);
-  assert.ok(idLookup !== null, 'Direct profile ID lookup must preserve owner access');
-  assert.strictEqual(idLookup.id, profileAId, 'Owner can still view profile');
-  pass('Public rank lookup excludes ₹0 profile while owner ID lookup preserves record and audit history');
+  assert.strictEqual(idLookup, null, 'Public profile ID lookup must return null (yielding genuine 404)');
+
+  const ownerRawLookup = await pg.getRawProfile(profileAId);
+  assert.ok(ownerRawLookup !== null, 'Direct raw profile ID lookup preserves owner/admin access');
+  assert.strictEqual(ownerRawLookup.id, profileAId, 'Owner can still view raw profile record');
+  assert.ok(ownerRawLookup.ownerTokenHash, 'Owner token hash is preserved for authenticated access');
+  pass('Public rank and ID lookups return null for ₹0 profile while getRawProfile preserves owner access and audit history');
 
   // B1: Subsequent genuine payment restores active rank eligibility
   const orderBId = 'ord_phase8_b_' + Date.now();
@@ -262,7 +287,13 @@ async function runPhase8Tests() {
   const lbRestored = await pg.getLeaderboard({ period: 'all' });
   assert.strictEqual(lbRestored.totalCount, 1, 'Leaderboard totalCount must be 1');
   assert.strictEqual(lbRestored.profiles[0].id, profileAId, 'Restored profile must appear on leaderboard');
-  pass('Subsequent genuine payment restores profile eligibility and dynamic rank');
+
+  const restoredPublicProf = await pg.getProfile(profileAId);
+  assert.ok(restoredPublicProf !== null, 'Public getProfile returns restored profile');
+  assert.strictEqual(restoredPublicProf?.amount, 250, 'Restored public profile has net amount 250');
+  assert.strictEqual(restoredPublicProf?.isVerified, true, 'Restored public profile has isVerified=true');
+  assert.strictEqual(restoredPublicProf?.rank, 1, 'Restored public profile has rank=1');
+  pass('Subsequent genuine payment restores profile eligibility, public getProfile and dynamic rank');
 
   // B3: Chargeback adjustment path
   console.log('\n--- B3: Chargeback Adjustment Path ---');
@@ -432,10 +463,66 @@ async function runPhase8Tests() {
   assert.ok(heroContent.includes(REQUIRED_HERO), `Hero must contain exact approved sentence: "${REQUIRED_HERO}"`);
   pass(`Approved hero copy preserved exactly: "${REQUIRED_HERO}"`);
 
+  // =========================================================================
+  // 5. Phase E: Production Mock Refund Security & Search Identity Alignment
+  // =========================================================================
+  console.log('\n--- 5. Phase E: Production Mock Security & Search Identity Alignment ---');
+
+  // E1: Mock refund security regression test
+  const { validateRefundEnvironmentSecurity, isSafeLocalTestDatabase } = await import('../server.ts');
+
+  // Test: validateRefundEnvironmentSecurity fails fast in production if ALLOW_MOCK_REFUNDS=true
+  assert.throws(
+    () => {
+      const prevEnv = process.env.NODE_ENV;
+      const prevMock = process.env.ALLOW_MOCK_REFUNDS;
+      try {
+        process.env.NODE_ENV = 'production';
+        process.env.ALLOW_MOCK_REFUNDS = 'true';
+        validateRefundEnvironmentSecurity();
+      } finally {
+        process.env.NODE_ENV = prevEnv;
+        process.env.ALLOW_MOCK_REFUNDS = prevMock;
+      }
+    },
+    /FATAL CONFIGURATION ERROR: ALLOW_MOCK_REFUNDS cannot be enabled in production environment/,
+    'validateRefundEnvironmentSecurity must throw fatal error if ALLOW_MOCK_REFUNDS=true in production'
+  );
+  pass('validateRefundEnvironmentSecurity fails fast in production if ALLOW_MOCK_REFUNDS=true');
+
+  // Test: isSafeLocalTestDatabase rejects production/Neon databases and allows isolated local test database
+  assert.strictEqual(isSafeLocalTestDatabase('postgresql://user:pass@ep-cool-fog.us-east-2.aws.neon.tech/neondb'), false, 'Rejects Neon database URL');
+  assert.strictEqual(isSafeLocalTestDatabase('postgresql://prod_user:secret@db.lazyproof.online:5432/lazyproof_prod'), false, 'Rejects prod database URL');
+  assert.strictEqual(isSafeLocalTestDatabase('postgresql://postgres@127.0.0.1:5433/lazyproof_test'), true, 'Allows isolated local test database');
+  pass('isSafeLocalTestDatabase correctly discriminates production/Neon from isolated test DB');
+
+  // E2: index.html search description and Twitter card summary alignment
+  const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
+  assert.ok(
+    indexHtml.includes("Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing."),
+    'index.html must contain approved search description'
+  );
+  assert.ok(
+    indexHtml.includes('<meta name="twitter:card" content="summary" />'),
+    'index.html must declare summary Twitter card for square avatar'
+  );
+  assert.ok(
+    indexHtml.includes('"name": "LazyProof"') && indexHtml.includes('"alternateName": "LAZY"'),
+    'index.html JSON-LD must declare LazyProof with alternateName LAZY'
+  );
+  pass('index.html search description, summary Twitter card, and JSON-LD identity verified');
+
+  // E3: PAYMENT_GATEWAY_ONBOARDING.md contains dated matrix and XAIBUN resolution SOP
+  assert.ok(onboardingContent.includes('Dated: 27 September 2026'), 'Onboarding doc contains dated review matrix');
+  assert.ok(onboardingContent.includes('XAIBUN Resolution SOP'), 'Onboarding doc contains XAIBUN resolution SOP');
+  assert.ok(onboardingContent.includes('Private Founder Checklist'), 'Onboarding doc contains private founder checklist');
+  pass('PAYMENT_GATEWAY_ONBOARDING.md dated status matrix and founder checklists verified');
+
   console.log('\n========================================================');
   console.log(`ALL PHASE 8 TESTS PASSED: ${passed} ASSERTIONS VERIFIED`);
   console.log('========================================================\n');
   await pool.end();
+  process.exit(0);
 }
 
 runPhase8Tests().catch(err => {

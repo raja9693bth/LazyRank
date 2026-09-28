@@ -210,13 +210,18 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
           {/* Core Info */}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap min-w-0">
-              <button
-                type="button"
-                onClick={() => onSelect(profile)}
+              <a
+                href={`/profile/${encodeURIComponent(profile.id)}`}
+                onClick={(e) => {
+                  if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                    e.preventDefault();
+                    onSelect(profile);
+                  }
+                }}
                 className="text-sm sm:text-base font-extrabold text-stone-900 hover:text-[#9c3a16] transition-colors truncate max-w-full cursor-pointer text-left [overflow-wrap:anywhere]"
               >
                 {profile.name}
-              </button>
+              </a>
 
               {/* Verified Badge: ONLY rendered when profile is genuinely verified */}
               {profile.isVerified && (

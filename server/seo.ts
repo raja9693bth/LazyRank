@@ -38,12 +38,12 @@ function escapeHtml(unsafe: string): string {
 
 export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BASE_URL): object {
   const formattedAmount = `₹${profile.amount.toLocaleString('en-IN')}`;
-  const profileUrl = `${baseUrl}/?rank=${encodeURIComponent(profile.id)}`;
+  const profileUrl = `${baseUrl}/profile/${encodeURIComponent(profile.id)}`;
   const description = profile.roast
-    ? `“${profile.roast}” — Verified Rank #${profile.rank} with a paid claim of ${formattedAmount} on LazyProof.`
+    ? `“${profile.roast}” — Verified Rank #${profile.rank} with verified sponsorship of ${formattedAmount} on LazyProof.`
     : profile.reason
-    ? `“${profile.reason}” — Verified Rank #${profile.rank} with a paid claim of ${formattedAmount} on LazyProof.`
-    : `Verified Rank #${profile.rank} with an authentic paid claim of ${formattedAmount} on LazyProof.`;
+    ? `“${profile.reason}” — Verified Rank #${profile.rank} with verified sponsorship of ${formattedAmount} on LazyProof.`
+    : `Verified Rank #${profile.rank} with verified sponsorship of ${formattedAmount} on LazyProof.`;
 
   const sameAs: string[] = [];
   if (profile.twitter) {
@@ -100,7 +100,6 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
           identifier: profile.id,
           description,
           image: `${baseUrl}/api/og/card/${encodeURIComponent(profile.id)}.png`,
-          award: `Rank #${profile.rank} on LazyProof Public Legitimacy Leaderboard`,
           ...(sameAs.length > 0 ? { sameAs } : {}),
           interactionStatistic: {
             '@type': 'InteractionCounter',
@@ -119,6 +118,7 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
         inLanguage: 'en-IN',
         publisher: {
           '@type': 'Organization',
+          '@id': `${baseUrl}/#organization`,
           name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
           url: baseUrl
         }
@@ -173,7 +173,7 @@ export function generateProfileOgSvg(profile: UserProfile): string {
   <!-- Amount Card Highlight -->
   <g transform="translate(80, 310)">
     <rect width="420" height="84" rx="18" fill="#faf8f5" fill-opacity="0.9" stroke="#f2ded0" stroke-width="1.5"/>
-    <text x="28" y="32" fill="#78716c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700" letter-spacing="1">VERIFIED MONETARY CLAIM</text>
+    <text x="28" y="32" fill="#78716c" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="700" letter-spacing="1">VERIFIED SPONSORSHIP</text>
     <text x="28" y="68" fill="#059669" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="36" font-weight="900" letter-spacing="-0.5">${formattedAmount}</text>
     <text x="400" y="52" text-anchor="end" fill="#059669" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="800">✓ PROVEN</text>
   </g>
@@ -199,11 +199,11 @@ export function injectProfileMetadata(
 ): string {
   const formattedAmount = `₹${profile.amount.toLocaleString('en-IN')}`;
   const rawQuote = profile.roast || profile.reason || 'Paid to prove laziness. No excuses.';
-  const pageTitle = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) on LazyProof`;
-  const metaDescription = `“${rawQuote.slice(0, 120)}” — ${profile.name} claimed Rank #${profile.rank} with a verified ${formattedAmount} payment on LazyProof. Can you beat it?`;
-  const canonicalUrl = `${baseUrl}/?rank=${encodeURIComponent(profile.id)}`;
+  const pageTitle = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) | LazyProof`;
+  const metaDescription = `“${rawQuote.slice(0, 120)}” — ${profile.name} holds Rank #${profile.rank} with verified sponsorship of ${formattedAmount} on LazyProof.`;
+  const canonicalUrl = `${baseUrl}/profile/${encodeURIComponent(profile.id)}`;
   const ogImageUrl = `${baseUrl}/api/og/card/${encodeURIComponent(profile.id)}.png`;
-  const imageAlt = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) Verified Proof Card on LazyProof`;
+  const imageAlt = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) Verified Sponsorship Card | LazyProof`;
   const jsonLdData = generateProfileJsonLd(profile, baseUrl);
   const jsonLdString = serializeJsonLd(jsonLdData);
 
@@ -312,6 +312,7 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
     inLanguage: 'en-IN',
     publisher: {
       '@type': 'Organization',
+      '@id': `${baseUrl}/#organization`,
       name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
       url: baseUrl
     }

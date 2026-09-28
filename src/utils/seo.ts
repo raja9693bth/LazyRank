@@ -234,12 +234,12 @@ export function updateProfileSeo(profile: UserProfile) {
   if (typeof document === 'undefined' || !profile) return;
 
   const formattedAmount = `₹${profile.amount.toLocaleString('en-IN')}`;
-  const profileUrl = `${BASE_URL}/?rank=${encodeURIComponent(profile.id)}`;
-  const title = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) on LAZY`;
+  const profileUrl = `${BASE_URL}/profile/${encodeURIComponent(profile.id)}`;
+  const title = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) | LazyProof`;
   const rawQuote = profile.roast || profile.reason || 'Paid to prove laziness. No excuses.';
-  const description = `“${rawQuote.slice(0, 120)}” — ${profile.name} claimed Rank #${profile.rank} with a verified ${formattedAmount} payment on LAZY. Can you beat it?`;
+  const description = `“${rawQuote.slice(0, 120)}” — ${profile.name} holds Rank #${profile.rank} with verified sponsorship of ${formattedAmount} on LazyProof.`;
   const ogImageUrl = `${BASE_URL}/api/og/card/${encodeURIComponent(profile.id)}.png`;
-  const imageAlt = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) Verified Proof Card on LAZY`;
+  const imageAlt = `${profile.name} — Rank #${profile.rank} (${formattedAmount}) Verified Sponsorship Card | LazyProof`;
 
   // Document Title
   document.title = title;
@@ -301,7 +301,8 @@ export function updateProfileSeo(profile: UserProfile) {
       isPartOf: {
         '@type': 'WebSite',
         '@id': `${BASE_URL}/#website`,
-        name: 'LAZY',
+        name: 'LazyProof',
+        alternateName: 'LAZY',
         url: `${BASE_URL}/`
       },
       mainEntity: {
@@ -311,29 +312,30 @@ export function updateProfileSeo(profile: UserProfile) {
         identifier: profile.id,
         description,
         image: ogImageUrl,
-        award: `Rank #${profile.rank} on LAZY Public Legitimacy Leaderboard`,
         ...(sameAs.length > 0 ? { sameAs } : {}),
         interactionStatistic: {
           '@type': 'InteractionCounter',
           interactionType: 'https://schema.org/LikeAction',
           userInteractionCount: profile.votesCount || 0
         }
-        }
-      },
-      {
-        '@type': 'WebSite',
-        '@id': `${BASE_URL}/#website`,
-        name: 'LAZY',
-        url: `${BASE_URL}/`,
-        description: 'Public legitimacy leaderboard where higher verified payment equals higher rank.',
-        inLanguage: 'en-IN',
-        publisher: {
-          '@type': 'Organization',
-          name: 'LAZY Project',
-          url: BASE_URL
-        }
       }
-    ];
+    },
+    {
+      '@type': 'WebSite',
+      '@id': `${BASE_URL}/#website`,
+      name: 'LazyProof',
+      alternateName: 'LAZY',
+      url: `${BASE_URL}/`,
+      description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
+      inLanguage: 'en-IN',
+      publisher: {
+        '@type': 'Organization',
+        '@id': `${BASE_URL}/#organization`,
+        name: 'ADABHRA GROUP',
+        url: BASE_URL
+      }
+    }
+  ];
 
   updateJsonLd(profileGraph);
 }

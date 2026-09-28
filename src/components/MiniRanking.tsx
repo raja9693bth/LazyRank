@@ -71,10 +71,15 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
             const amount = period === 'today' && p.periodAmountINR !== undefined ? p.periodAmountINR : p.amount;
             const isFirst = rank === 1;
             return (
-              <button
+              <a
                 key={p.id || `mini-rank-${rank}`}
-                type="button"
-                onClick={() => onSelectProfile(p)}
+                href={`/profile/${encodeURIComponent(p.id)}`}
+                onClick={(e) => {
+                  if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                    e.preventDefault();
+                    onSelectProfile(p);
+                  }
+                }}
                 className={`w-full flex items-center justify-between p-2 rounded-xl border text-left transition-all cursor-pointer ${
                   isFirst
                     ? 'border-amber-200 bg-[#fffbf7] hover:bg-[#fff7ef]'
@@ -124,7 +129,7 @@ export const MiniRanking: React.FC<MiniRankingProps> = ({
                     {period === 'today' ? 'Today IST' : 'Verified'}
                   </div>
                 </div>
-              </button>
+              </a>
             );
           })
         )}

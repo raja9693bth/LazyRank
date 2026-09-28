@@ -116,6 +116,15 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
             <div>
               <strong>Proprietor:</strong> {LEGAL_CONFIG.PROPRIETOR_NAME}
             </div>
+            <div>
+              <strong>Business registration correspondence:</strong>{' '}
+              <a
+                href={`mailto:${LEGAL_CONFIG.BUSINESS_REGISTRATION_EMAIL}`}
+                className="font-medium text-zinc-700 hover:text-zinc-950 underline decoration-zinc-300 hover:decoration-zinc-700 transition-colors"
+              >
+                {LEGAL_CONFIG.BUSINESS_REGISTRATION_EMAIL}
+              </a>
+            </div>
             <div className="flex items-start gap-1 text-[11px] text-zinc-500 pt-0.5">
               <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5 text-zinc-400" />
               <span>{LEGAL_CONFIG.PUBLIC_BUSINESS_ADDRESS}</span>

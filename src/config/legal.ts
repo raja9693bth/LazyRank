@@ -26,6 +26,7 @@ export const LEGAL_CONFIG = {
 
   // Customer Support Channels (Operational during business hours)
   SUPPORT_EMAIL: 'support@lazyproof.online',
+  BUSINESS_REGISTRATION_EMAIL: 'raja969384bth@gmail.com',
   SUPPORT_PHONE: '+91 95211 90205',
   SUPPORT_PHONE_HREF: 'tel:+919521190205',
 

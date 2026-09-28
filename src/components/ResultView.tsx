@@ -314,7 +314,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
   const handleCopyRoast = async () => {
     if (!roast) return;
     try {
-      await navigator.clipboard.writeText(`"${roast}"\n\nOfficial Rank #${profile.rank} on LAZY: ${shareUrl}`);
+      await navigator.clipboard.writeText(`"${roast}"\n\nOfficial Rank #${profile.rank} on LazyProof: ${shareUrl}`);
       setCopiedRoast(true);
       setTimeout(() => setCopiedRoast(false), 2000);
     } catch {
@@ -323,15 +323,15 @@ export const ResultView: React.FC<ResultViewProps> = ({
   };
 
   const shareUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/?rank=${profile.id}`
-    : `https://lazyproof.online/?rank=${profile.id}`;
+    ? `${window.location.origin}/profile/${encodeURIComponent(profile.id)}`
+    : `https://lazyproof.online/profile/${encodeURIComponent(profile.id)}`;
 
   const formattedAmount = `₹${profile.amount.toLocaleString('en-IN')}`;
 
-  // Customized share message including user's rank, claim amount, and the app link
+  // Customized share message including user's rank, sponsorship amount, and the app link
   const customShareMessage = roast
-    ? `I paid ${formattedAmount} to prove my laziness on LAZY and claimed Rank #${profile.rank}!\n\n"${roast}"\n\nCan you beat my rank? Check it out here: ${shareUrl}`
-    : `I paid ${formattedAmount} to prove my laziness on LAZY and claimed Rank #${profile.rank}!\n\nCan you beat my rank? Check it out here: ${shareUrl}`;
+    ? `I sponsored ${formattedAmount} on LazyProof and claimed Rank #${profile.rank}!\n\n"${roast}"\n\nCan you beat my rank? Check it out here: ${shareUrl}`
+    : `I sponsored ${formattedAmount} on LazyProof and claimed Rank #${profile.rank}!\n\nCan you beat my rank? Check it out here: ${shareUrl}`;
 
   const handleCopyLink = async () => {
     try {
@@ -354,7 +354,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
   const handleWebShare = async () => {
     const shareData = {
-      title: `LAZY - Rank #${profile.rank} (${formattedAmount})`,
+      title: `LazyProof — Rank #${profile.rank} (${formattedAmount})`,
       text: customShareMessage,
       url: shareUrl
     };

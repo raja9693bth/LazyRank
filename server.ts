@@ -8,6 +8,7 @@ import { db } from './server/db.ts';
 import { generateRoast, generateFallbackRoast } from './server/roast.ts';
 import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE_SEO } from './server/seo.ts';
 import { stripTrailingSlash } from './src/utils/seo.ts';
+import { computeCheckoutFingerprint } from './src/utils/checkoutContract.ts';
 import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
 import { paymentManager } from './server/payments/index.ts';
 import { prerenderRoute } from './server/prerender.tsx';
@@ -118,17 +119,40 @@ function verifyAdminKey(providedKey?: string): boolean {
 const PAYMENT_MODE = (process.env.PAYMENT_MODE || 'disabled').toLowerCase().trim();
 
 export function isSafeLocalTestDatabase(url?: string): boolean {
-  if (!url) return true;
-  const lower = url.toLowerCase();
-  if (
-    lower.includes('neon.tech') ||
-    lower.includes('neon.build') ||
-    lower.includes('aws.neon') ||
-    lower.includes('prod')
-  ) {
+  if (!url || typeof url !== 'string' || !url.trim()) return false;
+  try {
+    const parsed = new URL(url.trim());
+    if (parsed.protocol !== 'postgresql:' && parsed.protocol !== 'postgres:') {
+      return false;
+    }
+    const rawHostname = parsed.hostname.toLowerCase().trim();
+    const cleanHostname = rawHostname.replace(/^\[|\]$/g, '');
+    const isLoopback = cleanHostname === 'localhost' || cleanHostname === '127.0.0.1' || cleanHostname === '::1';
+    if (!isLoopback) {
+      return false;
+    }
+    // Remote hosts or Neon must be strictly rejected
+    if (
+      rawHostname.includes('neon.tech') ||
+      rawHostname.includes('neon.build') ||
+      rawHostname.includes('aws.neon')
+    ) {
+      return false;
+    }
+    // Database name check: must match an explicitly allowed disposable test DB policy
+    // e.g. exact lazyproof_test, *_test, or explicit TEST_DATABASE_NAME
+    const dbName = parsed.pathname.replace(/^\/+/, '').trim().toLowerCase();
+    const isExplicitTestDb =
+      dbName === 'lazyproof_test' ||
+      dbName.endsWith('_test') ||
+      Boolean(process.env.TEST_DATABASE_NAME && dbName === process.env.TEST_DATABASE_NAME.toLowerCase().trim());
+    if (!isExplicitTestDb) {
+      return false;
+    }
+    return true;
+  } catch {
     return false;
   }
-  return lower.includes('127.0.0.1') || lower.includes('localhost') || lower.includes('test');
 }
 
 export function validateRefundEnvironmentSecurity(): void {
@@ -193,8 +217,10 @@ async function startServer() {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https: blob:",
-      isProd ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com" : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com",
-      "frame-src 'self' https://sdk.cashfree.com",
+      isProd
+        ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com"
+        : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
+      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'"
@@ -378,8 +404,11 @@ async function startServer() {
     const {
       name, amount, instagram, linkedin, website, twitter, reason, lazyReason,
       profileId, customerEmail, customerPhone, consentAccepted,
+      consentVersion: reqConsentVersion,
       ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
     } = req.body;
+    const consentVersion = (reqConsentVersion && typeof reqConsentVersion === 'string') ? reqConsentVersion.trim() : CURRENT_TERMS_VERSION;
+
     const providedToken = (req.headers['x-profile-token'] as string) || bodyOwnerToken || pendingOwnerToken;
     const clientOrderAccessToken = (req.headers['x-order-access-token'] as string) || orderAccessToken;
 
@@ -478,11 +507,36 @@ async function startServer() {
     // If order with this idempotencyKey already exists, verify consistency and return directly
     const existingOrder = await db.getOrderByIdempotencyKey(idempotencyKey);
     if (existingOrder) {
-      const isExistingTop = existingOrder.amount > topAmount;
-      const amountMatch = Number(existingOrder.amount) === parsedAmount;
-      const nameMatch = existingOrder.name === name.trim();
-      const phoneMatch = !existingOrder.customerPhone || existingOrder.customerPhone === phoneStr;
-      const profileMatch = (existingOrder.profileId || undefined) === (profileId || undefined);
+      const existingFingerprint = computeCheckoutFingerprint({
+        name: existingOrder.name,
+        amount: existingOrder.amount,
+        customerPhone: existingOrder.customerPhone,
+        customerEmail: existingOrder.customerEmail,
+        profileId: existingOrder.profileId,
+        instagram: existingOrder.instagram,
+        linkedin: existingOrder.linkedin,
+        website: existingOrder.website,
+        twitter: existingOrder.twitter,
+        reason: existingOrder.reason,
+        lazyReason: existingOrder.lazyReason,
+        consentAccepted: existingOrder.consentAccepted,
+        consentVersion: existingOrder.consentVersion
+      });
+      const incomingFingerprint = computeCheckoutFingerprint({
+        name,
+        amount: parsedAmount,
+        customerPhone: phoneStr,
+        customerEmail: validCustomerEmail,
+        profileId,
+        instagram,
+        linkedin,
+        website,
+        twitter,
+        reason,
+        lazyReason,
+        consentAccepted,
+        consentVersion
+      });
 
       const ownerTokenMatch = existingOrder.ownerTokenHash
         ? (providedToken && verifyOwnerToken(existingOrder.ownerTokenHash, providedToken))
@@ -491,7 +545,7 @@ async function startServer() {
         ? (clientOrderAccessToken && constantTimeMatch(existingOrder.orderAccessTokenHash, hashToken(clientOrderAccessToken)))
         : true;
 
-      if (!amountMatch || !nameMatch || !phoneMatch || !profileMatch || !ownerTokenMatch || !accessTokenMatch) {
+      if (existingFingerprint !== incomingFingerprint || !ownerTokenMatch || !accessTokenMatch) {
         return res.status(409).json({
           error: 'Idempotency conflict: order parameters differ for this idempotency key.'
         });
@@ -534,6 +588,7 @@ async function startServer() {
         }
       }
 
+      const isExistingTop = Number(existingOrder.amount) > topAmount;
       return res.json({
         orderId: existingOrder.orderId,
         paymentSessionId: existingOrder.paymentSessionId,
@@ -590,10 +645,36 @@ async function startServer() {
         const concurrentOrder = await db.getOrderByIdempotencyKey(idempotencyKey);
         if (concurrentOrder) {
           const isExistingTop = concurrentOrder.amount > topAmount;
-          const amountMatch = Number(concurrentOrder.amount) === parsedAmount;
-          const nameMatch = concurrentOrder.name === name.trim();
-          const phoneMatch = !concurrentOrder.customerPhone || concurrentOrder.customerPhone === phoneStr;
-          const profileMatch = (concurrentOrder.profileId || undefined) === (profileId || undefined);
+          const concurrentFingerprint = computeCheckoutFingerprint({
+            name: concurrentOrder.name,
+            amount: concurrentOrder.amount,
+            customerPhone: concurrentOrder.customerPhone,
+            customerEmail: concurrentOrder.customerEmail,
+            profileId: concurrentOrder.profileId,
+            instagram: concurrentOrder.instagram,
+            linkedin: concurrentOrder.linkedin,
+            website: concurrentOrder.website,
+            twitter: concurrentOrder.twitter,
+            reason: concurrentOrder.reason,
+            lazyReason: concurrentOrder.lazyReason,
+            consentAccepted: concurrentOrder.consentAccepted,
+            consentVersion: concurrentOrder.consentVersion
+          });
+          const incomingFingerprint = computeCheckoutFingerprint({
+            name,
+            amount: parsedAmount,
+            customerPhone: phoneStr,
+            customerEmail: validCustomerEmail,
+            profileId,
+            instagram,
+            linkedin,
+            website,
+            twitter,
+            reason,
+            lazyReason,
+            consentAccepted,
+            consentVersion
+          });
 
           const ownerTokenMatch = concurrentOrder.ownerTokenHash
             ? (providedToken && verifyOwnerToken(concurrentOrder.ownerTokenHash, providedToken))
@@ -602,7 +683,7 @@ async function startServer() {
             ? (clientOrderAccessToken && constantTimeMatch(concurrentOrder.orderAccessTokenHash, hashToken(clientOrderAccessToken)))
             : true;
 
-          if (!amountMatch || !nameMatch || !phoneMatch || !profileMatch || !ownerTokenMatch || !accessTokenMatch) {
+          if (concurrentFingerprint !== incomingFingerprint || !ownerTokenMatch || !accessTokenMatch) {
             return res.status(409).json({
               error: 'Idempotency conflict: order parameters differ for this idempotency key.'
             });
@@ -960,8 +1041,12 @@ async function startServer() {
       return res.status(503).json({ error: 'Payment processing is currently disabled.' });
     }
     const clientIp = getClientIp(req);
-    if (!checkRateLimit(clientIp, 60, 60000)) {
-      return res.status(429).json({ error: 'Too many webhook requests.' });
+    // Rate limit pre-signature checks: protect HMAC computation against unauthenticated floods.
+    // Provider webhooks are authenticated via HMAC; valid signed webhooks rely on durable DB idempotency,
+    // bounded payload size (100kb), and authoritative reconciliation.
+    // Allow up to 300 requests/minute per provider IP to safely handle legitimate retry/burst traffic from shared IPs.
+    if (!checkRateLimit(`webhook_pre_${clientIp}`, 300, 60000)) {
+      return res.status(429).json({ error: 'Too many webhook requests from this origin.' });
     }
 
     const rawBodyBuf = (req as any).rawBody;
@@ -976,11 +1061,13 @@ async function startServer() {
     const webhookTimestamp = req.headers['x-webhook-timestamp'];
     const webhookSignature = req.headers['x-webhook-signature'];
     if (!webhookTimestamp || !webhookSignature) {
+      checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
       return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
     }
 
     const verification = await paymentManager.getProvider().verifyWebhook(rawBodyStr, req.headers as any);
     if (!verification.isValid) {
+      checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
       return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
     }
 
@@ -1196,9 +1283,12 @@ async function startServer() {
       });
     }
 
+    const dbUrl = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
     const isTestMode = !isProduction &&
       (process.env.NODE_ENV === 'test' || process.env.ALLOW_MOCK_REFUNDS === 'true') &&
-      isSafeLocalTestDatabase(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
+      (!db.isPostgresAuthoritative()
+        ? (!dbUrl || isSafeLocalTestDatabase(dbUrl))
+        : isSafeLocalTestDatabase(dbUrl));
 
     // A4: When provider processing is disabled/unconfigured, live refund request must return clear 503 without reserving or reversing anything
     if (!paymentManager.isEnabled() && !isTestMode) {
@@ -1499,6 +1589,23 @@ async function startServer() {
       profile = db.getProfile(req.params.id);
     }
     if (!profile) {
+      // Owner-authenticated historical profile lookup (for zero-net / refunded profiles)
+      const providedToken = (req.headers['x-profile-token'] as string | undefined)?.trim();
+      if (providedToken) {
+        let rawProfile: any = null;
+        if (db.isPostgresAuthoritative()) {
+          rawProfile = await db.pg.getRawProfile(req.params.id);
+        } else {
+          rawProfile = db.getRawProfile(req.params.id);
+        }
+        if (rawProfile && verifyOwnerToken(rawProfile.ownerTokenHash || rawProfile.ownerToken, providedToken)) {
+          // Strictly sanitize and neutralize: never expose owner tokens/hashes, never show rank 999999 as active, never show verified
+          const sanitized = db.sanitizeProfile(rawProfile);
+          sanitized.rank = 0;
+          sanitized.isVerified = false;
+          return res.json({ profile: sanitized, isHistorical: true });
+        }
+      }
       return res.status(404).json({ error: 'Profile not found.' });
     }
     res.json({ profile });
@@ -2029,8 +2136,74 @@ async function startServer() {
     }
   });
 
+  // Dynamic Public-Profile XML Sitemap
+  app.get('/sitemap-profiles.xml', async (_req: Request, res: Response) => {
+    try {
+      let profiles: Array<{ id: string; updated_at?: string; created_at?: string }> = [];
+      if (db.isPostgresAuthoritative()) {
+        const pool = await db.pg.getPool();
+        const result = await pool.query(
+          `SELECT id, updated_at, created_at FROM profiles\n` +
+          `WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0\n` +
+          `ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC\n` +
+          `LIMIT 50000`
+        );
+        profiles = result.rows;
+      } else {
+        const leaderboard = db.getLeaderboard({ limit: 50000, filter: 'verified', period: 'all' });
+        profiles = (leaderboard?.profiles || [])
+          .filter(p => p.isVerified && p.amount > 0 && p.moderationStatus === 'active')
+          .map(p => ({
+            id: p.id,
+            updated_at: p.updatedAt,
+            created_at: p.createdAt
+          }));
+      }
+
+      const configuredAppUrl = process.env.APP_URL?.trim() ? stripTrailingSlash(process.env.APP_URL.trim()) : undefined;
+      const defaultOrigin = process.env.NODE_ENV === 'production' ? 'https://lazyproof.online' : `http://localhost:${process.env.PORT || 3000}`;
+      const baseUrl = configuredAppUrl || defaultOrigin;
+
+      const escapeXml = (unsafe: string) =>
+        unsafe
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&apos;');
+
+      const urls = profiles
+        .map(p => {
+          const loc = `${baseUrl}/profile/${encodeURIComponent(p.id)}`;
+          const rawDate = p.updated_at || p.created_at;
+          let lastmod = '';
+          if (rawDate) {
+            try {
+              const d = new Date(rawDate);
+              if (!Number.isNaN(d.getTime())) {
+                lastmod = d.toISOString().split('T')[0];
+              }
+            } catch {}
+          }
+          if (!lastmod) {
+            lastmod = '2026-09-28';
+          }
+          return `  <url>\n    <loc>${escapeXml(loc)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>daily</changefreq>\n    <priority>0.7</priority>\n  </url>`;
+        })
+        .join('\n');
+
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+      return res.send(xml);
+    } catch (sitemapErr) {
+      console.error('Error generating sitemap-profiles.xml:', sitemapErr);
+      res.status(500).type('text/plain').send('Error generating sitemap');
+    }
+  });
+
   // 404 Catch-all for unhandled API endpoints
-  app.all('/api/*', (req: Request, res: Response) => {
+  app.all('/api/*', (_req: Request, res: Response) => {
     res.status(404).json({ error: 'API endpoint not found.' });
   });
 
@@ -2133,11 +2306,6 @@ async function startServer() {
     if (clean === '/profile' || clean.startsWith('/profile/')) return true;
     return false;
   };
-
-  // Catch any unmatched /api/* route before SPA routing
-  app.all('/api/*', (_req: Request, res: Response) => {
-    res.status(404).json({ error: 'Endpoint not found' });
-  });
 
   // Vite middleware in dev or static files in production
   if (process.env.NODE_ENV !== 'production') {

@@ -10,6 +10,27 @@ import {
 } from 'lucide-react';
 import { UserProfile } from '../types.ts';
 
+// Helper to strictly validate incoming UserProfile shape
+export function isValidUserProfile(p: any): p is UserProfile {
+  return Boolean(
+    p &&
+    typeof p === 'object' &&
+    typeof p.id === 'string' &&
+    p.id.trim().length > 0 &&
+    typeof p.name === 'string' &&
+    typeof p.amount === 'number' &&
+    typeof p.rank === 'number' &&
+    typeof p.isVerified === 'boolean'
+  );
+}
+
+// Helper to unwrap profile response envelope { profile: UserProfile }
+export function unwrapProfileResponse(data: any): UserProfile | null {
+  if (!data || typeof data !== 'object') return null;
+  const candidate = data.profile || (data.id ? data : null);
+  return isValidUserProfile(candidate) ? candidate : null;
+}
+
 interface UserSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -55,14 +76,27 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
 
     if (missingTokenIds.length > 0) {
       Promise.all(
-        missingTokenIds.map(id =>
-          fetch(`/api/profile/${encodeURIComponent(id)}`)
+        missingTokenIds.map(id => {
+          const headers: Record<string, string> = {};
+          if (tokens[id]) {
+            headers['x-profile-token'] = tokens[id];
+          }
+          return fetch(`/api/profile/${encodeURIComponent(id)}`, { headers })
             .then(res => (res.ok ? res.json() : null))
-            .catch(() => null)
-        )
+            .then(data => unwrapProfileResponse(data))
+            .catch(() => null);
+        })
       ).then(fetchedProfiles => {
-        const validFetched = fetchedProfiles.filter((p): p is UserProfile => Boolean(p && p.id));
-        const combined = [...knownOwned, ...validFetched];
+        const profileMap = new Map<string, UserProfile>();
+        for (const p of knownOwned) {
+          if (p && p.id) profileMap.set(p.id, p);
+        }
+        for (const p of fetchedProfiles) {
+          if (p && p.id && !profileMap.has(p.id)) {
+            profileMap.set(p.id, p);
+          }
+        }
+        const combined = Array.from(profileMap.values());
         setUserClaimedProfiles(combined);
 
         // Determine active profile: if currentProfile is owned or passed, select it, else first owned
@@ -75,13 +109,18 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
         }
       });
     } else {
-      setUserClaimedProfiles(knownOwned);
+      const profileMap = new Map<string, UserProfile>();
+      for (const p of knownOwned) {
+        if (p && p.id) profileMap.set(p.id, p);
+      }
+      const combined = Array.from(profileMap.values());
+      setUserClaimedProfiles(combined);
       if (currentProfile) {
         setActiveProfileId(currentProfile.id);
         setActiveProfile(currentProfile);
-      } else if (knownOwned.length > 0) {
-        setActiveProfileId(knownOwned[0].id);
-        setActiveProfile(knownOwned[0]);
+      } else if (combined.length > 0) {
+        setActiveProfileId(combined[0].id);
+        setActiveProfile(combined[0]);
       }
     }
 
@@ -98,6 +137,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
   };
 
   const isDeviceOwner = Boolean(activeProfile && deviceTokens[activeProfile.id]);
+  const isProfileActive = Boolean(activeProfile && activeProfile.amount > 0 && activeProfile.isVerified && activeProfile.rank > 0);
 
   return (
     <div
@@ -176,19 +216,25 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                   <span className="font-extrabold text-sm text-zinc-900 truncate">
                     {activeProfile.name}
                   </span>
-                  <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                    <span>Verified</span>
-                  </span>
+                  {isProfileActive ? (
+                    <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                      <span>Verified</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-stone-200 text-stone-700 border border-stone-300">
+                      <span>Historical / Inactive</span>
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 text-xs text-stone-500 mt-0.5 font-medium">
                   <span>Verified Amount: <strong className="font-mono font-bold text-stone-900">₹{activeProfile.amount.toLocaleString('en-IN')}</strong></span>
                   <span>·</span>
-                  <span>Public Rank: <strong className="font-bold text-stone-900">#{activeProfile.rank}</strong></span>
+                  <span>Public Rank: <strong className="font-bold text-stone-900">{isProfileActive ? `#${activeProfile.rank}` : 'Not Ranked'}</strong></span>
                 </div>
               </div>
 
-              {activeProfile.rank <= 10 && (
+              {isProfileActive && activeProfile.rank <= 10 && (
                 <div
                   id="user-settings-lazy-streak-badge"
                   title="All-Time Top 10 rank holder"
@@ -208,10 +254,12 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm sm:text-base font-black text-zinc-950">
-                    Verified Participant Status
+                    {isProfileActive ? 'Verified Participant Status' : 'Historical Account Status'}
                   </h3>
                   <p className="text-xs text-stone-600 mt-0.5 leading-relaxed">
-                    Your claim is authenticated and securely recorded with rank #{activeProfile.rank} on the official leaderboard.
+                    {isProfileActive
+                      ? `Your claim is authenticated and securely recorded with rank #${activeProfile.rank} on the official leaderboard.`
+                      : 'This profile currently holds net settled amount ₹0 and is not publicly ranked. Submit a valid upgrade to restore an active spot.'}
                   </p>
                 </div>
               </div>
@@ -224,7 +272,9 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                     <span>Leaderboard Rank</span>
                   </div>
                   <p className="text-[11px] text-stone-500 leading-normal">
-                    Ranked #{activeProfile.rank} with title "{activeProfile.title || 'Verified Participant'}".
+                    {isProfileActive
+                      ? `Ranked #${activeProfile.rank} with title "${activeProfile.title || 'Verified Participant'}".`
+                      : 'Not currently listed on active public leaderboard (₹0 net amount).'}
                   </p>
                 </div>
 
@@ -234,30 +284,35 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
                     <span>Verified Payment</span>
                   </div>
                   <p className="text-[11px] text-stone-500 leading-normal">
-                    ₹{activeProfile.amount.toLocaleString('en-IN')} securely validated and recorded.
+                    ₹{activeProfile.amount.toLocaleString('en-IN')} net settled sponsorship.
                   </p>
                 </div>
               </div>
             </div>
 
             {/* Ownership & Protection Notice */}
-            <div className="pt-2 flex items-center justify-between text-xs text-stone-500">
-              <span className="flex items-center gap-1">
-                <Lock className="w-3.5 h-3.5 text-stone-400" />
-                <span>{isDeviceOwner ? 'Protected by profile ownership token' : 'Public entry (read-only view)'}</span>
-              </span>
-              <span className="text-[11px] font-semibold">
-                {isDeviceOwner ? (
-                  <span className="text-emerald-700 font-bold flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                    Verified on this device
-                  </span>
-                ) : (
-                  <span className="text-stone-400">
-                    Not owned on this device
-                  </span>
-                )}
-              </span>
+            <div className="pt-2 text-xs text-stone-500 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Lock className="w-3.5 h-3.5 text-stone-400" />
+                  <span>{isDeviceOwner ? 'Protected by profile ownership token' : 'Public entry (read-only view)'}</span>
+                </span>
+                <span className="text-[11px] font-semibold">
+                  {isDeviceOwner ? (
+                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                      Verified on this device
+                    </span>
+                  ) : (
+                    <span className="text-stone-400">
+                      Not owned on this device
+                    </span>
+                  )}
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-400 leading-relaxed">
+                If the browser ownership credential is lost, contact support for a verification review. Recovery or ownership transfer is not automatic and may require proof of the original transaction.
+              </p>
             </div>
           </div>
         ) : (

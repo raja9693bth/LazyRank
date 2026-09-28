@@ -147,11 +147,51 @@ export interface ClaimOrderInput {
   consentVersion: string;
 }
 
+export interface CheckoutIntentFields {
+  name: string;
+  amount: number | string;
+  customerPhone?: string;
+  customerEmail?: string;
+  profileId?: string;
+  instagram?: string;
+  linkedin?: string;
+  website?: string;
+  twitter?: string;
+  reason?: string;
+  lazyReason?: string;
+  consentAccepted: boolean;
+  consentVersion?: string;
+}
+
+/**
+ * Computes a canonical, deterministic JSON string fingerprint of all order-affecting parameters.
+ * Excludes consentTimestamp so that genuine retries of the same accepted consent remain idempotent.
+ */
+export function computeCheckoutFingerprint(fields: CheckoutIntentFields): string {
+  const norm = {
+    amount: Math.round(Number(fields.amount) || 0),
+    consentAccepted: fields.consentAccepted === true,
+    consentVersion: (fields.consentVersion || '').trim(),
+    customerEmail: (fields.customerEmail || '').trim().toLowerCase(),
+    customerPhone: (fields.customerPhone || '').trim(),
+    instagram: (fields.instagram || '').trim(),
+    lazyReason: (fields.lazyReason || '').trim(),
+    linkedin: (fields.linkedin || '').trim(),
+    name: (fields.name || '').trim(),
+    profileId: (fields.profileId || '').trim(),
+    reason: (fields.reason || '').trim(),
+    twitter: (fields.twitter || '').trim(),
+    website: (fields.website || '').trim()
+  };
+  return JSON.stringify(norm);
+}
+
 export interface AttemptState {
   name: string;
   amount: number;
   phone: string;
   profileId?: string;
+  fingerprint?: string;
 }
 
 export interface CheckoutTokens {
@@ -235,13 +275,33 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
     }
   }
 
-  // 4. RETRY TRACKING: Check if identical retry
+  // 4. RETRY TRACKING: Check if identical retry using authoritative canonical fingerprint
+  const currentFingerprint = computeCheckoutFingerprint({
+    name: input.name,
+    amount: input.amount,
+    customerPhone: input.customerPhone,
+    customerEmail: input.customerEmail,
+    profileId: targetProfileId,
+    instagram: input.instagram,
+    linkedin: input.linkedin,
+    website: input.website,
+    twitter: input.twitter,
+    reason: input.reason,
+    lazyReason: input.lazyReason,
+    consentAccepted: input.consentAccepted,
+    consentVersion: input.consentVersion
+  });
+
   const isIdenticalRetry =
     Boolean(lastAttempt) &&
-    lastAttempt!.name === input.name.trim() &&
-    lastAttempt!.amount === Math.round(input.amount) &&
-    lastAttempt!.phone === input.customerPhone &&
-    lastAttempt!.profileId === targetProfileId;
+    (lastAttempt!.fingerprint
+      ? lastAttempt!.fingerprint === currentFingerprint
+      : (
+          lastAttempt!.name === input.name.trim() &&
+          lastAttempt!.amount === Math.round(input.amount) &&
+          lastAttempt!.phone === input.customerPhone &&
+          lastAttempt!.profileId === targetProfileId
+        ));
 
   // 5. TOKEN ALLOCATION: Preserve tokens on identical retry; generate fresh on new or changed parameters
   let activeIdempKey = isIdenticalRetry && currentIdempotencyKey ? currentIdempotencyKey : null;

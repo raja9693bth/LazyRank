@@ -29,7 +29,8 @@ import {
   submitClaimPayment,
   pollRedirectOrderStatus,
   saveOwnerToken,
-  clearCheckoutRecords
+  clearCheckoutRecords,
+  computeCheckoutFingerprint
 } from './utils/checkoutContract.ts';
 
 type PublicPaymentConfig = { enabled: boolean; taxReady: boolean; taxDisclosure: string };
@@ -99,6 +100,7 @@ export default function App() {
     amount: number;
     phone: string;
     profileId?: string;
+    fingerprint?: string;
   } | null>(null);
 
   // Challenge Banner state
@@ -353,9 +355,12 @@ export default function App() {
       const p = stripTrailingSlash(window.location.pathname) || '/';
       setCurrentPath(p);
       const urlParams = new URLSearchParams(window.location.search);
-      const popRank = urlParams.get('rank') || urlParams.get('profile');
+      let popRank = urlParams.get('rank') || urlParams.get('profile');
+      if (!popRank && window.location.pathname.startsWith('/profile/')) {
+        popRank = decodeURIComponent(window.location.pathname.replace(/^\/profile\//, '').trim());
+      }
       if (popRank) {
-        fetch(`/api/profile/${popRank}`)
+        fetch(`/api/profile/${encodeURIComponent(popRank)}`)
           .then(res => res.json())
           .then(data => {
             if (data.profile) setSelectedProfile(data.profile);
@@ -449,6 +454,7 @@ export default function App() {
     instagram?: string;
     linkedin?: string;
     website?: string;
+    twitter?: string;
     reason?: string;
     lazyReason?: string;
     profileId?: string;
@@ -510,7 +516,22 @@ export default function App() {
       name: claimData.name.trim(),
       amount: Math.round(claimData.amount),
       phone: claimData.customerPhone,
-      profileId: targetProfileId
+      profileId: targetProfileId,
+      fingerprint: computeCheckoutFingerprint({
+        name: claimData.name,
+        amount: claimData.amount,
+        customerPhone: claimData.customerPhone,
+        customerEmail: claimData.customerEmail,
+        profileId: targetProfileId,
+        instagram: claimData.instagram,
+        linkedin: claimData.linkedin,
+        website: claimData.website,
+        twitter: claimData.twitter,
+        reason: claimData.reason,
+        lazyReason: claimData.lazyReason,
+        consentAccepted: claimData.consentAccepted,
+        consentVersion: claimData.consentVersion
+      })
     };
 
     if (result.status === 'UNAVAILABLE_503') {
@@ -552,7 +573,7 @@ export default function App() {
     setCurrentIdempotencyKey(null);
     lastAttemptRef.current = null;
 
-    window.history.pushState({}, '', `/?rank=${profile.id}`);
+    window.history.pushState({}, '', `/profile/${encodeURIComponent(profile.id)}`);
 
     loadLeaderboard(0, 20, 'verified', false);
     loadAllTimeTop3();
@@ -753,7 +774,7 @@ export default function App() {
                       onSelectProfile={(p) => {
                         setIsJustClaimed(false);
                         setSelectedProfile(p);
-                        window.history.pushState({}, '', `/?rank=${p.id}`);
+                        window.history.pushState({}, '', `/profile/${encodeURIComponent(p.id)}`);
                       }}
                       onVoteProfile={handleVoteProfile}
                       onReportProfile={(id) => setReportingTargetId(id)}
@@ -781,7 +802,7 @@ export default function App() {
                       onSelectProfile={(p) => {
                         setIsJustClaimed(false);
                         setSelectedProfile(p);
-                        window.history.pushState({}, '', `/?rank=${p.id}`);
+                        window.history.pushState({}, '', `/profile/${encodeURIComponent(p.id)}`);
                       }}
                       currencyMode={currencyMode}
                       period={currentPeriod}

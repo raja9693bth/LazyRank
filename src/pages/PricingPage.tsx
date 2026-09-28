@@ -120,7 +120,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
             Live public checkouts on LazyProof are currently <strong>disabled</strong> (<code className="px-1.5 py-0.5 bg-zinc-200/80 rounded font-mono text-xs">PAYMENT_MODE=disabled</code>) while banking aggregator KYC, merchant categorization review, and compliance underwriting are finalized.
           </p>
           <p className="text-zinc-700 leading-relaxed">
-            During this period, no real customer funds can be charged. Once merchant account activation is formally granted by our payment gateway partners, live INR checkouts will open with full automated webhook reconciliation.
+            During this period, no real customer funds can be charged. Live payment collection can be enabled after merchant approval, valid live credentials, tax readiness and controlled production validation.
           </p>
         </div>
       </section>

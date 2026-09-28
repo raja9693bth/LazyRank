@@ -332,7 +332,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <span className="font-bold text-zinc-900">{LEGAL_CONFIG.BRAND_NAME}</span>
                 </div>
                 <div className="flex items-center justify-between text-zinc-600">
-                  <span className="font-semibold">Payment Gateway Partner:</span>
+                  <span className="font-semibold">Intended Payment Provider / Gateway Under Review:</span>
                   <span className="font-bold text-amber-700">Cashfree Payments India Pvt Ltd</span>
                 </div>
               </div>
@@ -347,7 +347,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   LazyProof is currently completing commercial merchant onboarding and verification with Cashfree Payments.
                 </p>
                 <p className="text-[11px] text-amber-700 leading-relaxed">
-                  Live payment collection will activate immediately upon provider approval. No charges have been debited, and no fake QR codes or simulated transactions are permitted on this production domain.
+                  Live payment collection can be enabled after merchant approval, valid live credentials, tax readiness and controlled production validation. No charges have been debited, and no fake QR codes or simulated transactions are permitted on this production domain.
                 </p>
               </div>
 

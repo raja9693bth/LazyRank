@@ -151,7 +151,7 @@ When completing payment gateway onboarding forms, select the category that best 
 
 | Gateway / Area | Technical Integration Status | Underwriting / Account Review Status | Operational Requirement / Next Action |
 |---|---|---|---|
-| **Cashfree Payments** | **ACTIVE IN CODE** (API v2026-01-01, HMAC-SHA256, atomic refund state machine, idempotent ledger) | **STATUS UNPROVEN FROM PROFILE SCREENSHOT**; merchant legal-name needs checking; earlier application under XAIBUN requires resolution | Founder must verify legal entity in Cashfree dashboard; contact Cashfree merchant support to update legal name to ADABHRA GROUP or follow re-onboarding advice. Verify customer-support email is set to `support@lazyproof.online`. |
+| **Cashfree Payments** | **ACTIVE IN CODE** (API v2026-01-01, HMAC-SHA256, atomic refund state machine, idempotent ledger) | **STATUS UNPROVEN FROM PROFILE SCREENSHOT**; merchant legal-name needs checking; earlier application under XAIVON requires resolution | Founder must verify legal entity in Cashfree dashboard; contact Cashfree merchant support to update legal name to ADABHRA GROUP or follow re-onboarding advice. Verify customer-support email is set to `support@lazyproof.online`. |
 | **Razorpay** | **NOT IMPLEMENTED IN CODE** (Provider code removed/disabled to prevent unverified execution) | **WEBSITE URL APPROVED; APPLICATION UNDER REVIEW** (Per supplied merchant dashboard screenshot) | Prospective gateway only. Cannot process transactions without code integration. Underwriting decision remains external. |
 | **PhonePe** | **NOT IMPLEMENTED IN CODE** | **PROSPECTIVE ONLY** | No merchant contract or API integration exists. |
 | **Live Checkout** | **SAFELY DISABLED** (`PAYMENT_MODE=disabled`) | **LOCKED PENDING FOUNDER VERIFICATION** | Will remain disabled until: 1) Cashfree merchant approval granted; 2) Live API credentials issued; 3) Accounting/tax sign-off; 4) Sandbox E2E tests verified. |
@@ -173,19 +173,19 @@ When completing payment gateway onboarding forms, select the category that best 
 
 ---
 
-## 9. Sole Proprietorship Legal Structure & XAIBUN Resolution SOP
+## 9. Sole Proprietorship Legal Structure & XAIVON Resolution SOP
 
 ### Legal Entity Clarification:
 - **ADABHRA GROUP** is a **Sole Proprietorship** registered in Bihar, India (Proprietor: Raja Babu).
 - It is **NOT** a separate incorporated company, Private Limited entity, LLP, or holding conglomerate.
 - In Indian commercial law, a sole proprietorship is legally coterminous with its proprietor for tax and banking purposes.
 
-### Cashfree Merchant Profile & XAIBUN Resolution:
-- If an earlier merchant account or onboarding draft with Cashfree was submitted under the trade name **XAIBUN**, changing text in the website repository or frontend **CANNOT** alter the legal entity records in Cashfree's core banking systems.
+### Cashfree Merchant Profile & XAIVON Resolution:
+- If an earlier merchant account or onboarding draft with Cashfree was submitted under the trade name **XAIVON**, changing text in the website repository or frontend **CANNOT** alter the legal entity records in Cashfree's core banking systems.
 - **Action Required by Founder:**
   1. Log into the Cashfree Merchant Dashboard (`https://merchant.cashfree.com/`).
   2. Inspect the **Account Settings > Business Profile > Legal Entity Name**.
-  3. If the profile states **XAIBUN**, open a formal support ticket with Cashfree Merchant Support:
+  3. If the profile states **XAIVON**, open a formal support ticket with Cashfree Merchant Support:
      > *"We need to update our Merchant Legal Name to ADABHRA GROUP (Sole Proprietorship, Proprietor: Raja Babu) to match our Udyam Registration Certificate and official domain https://lazyproof.online. Please advise whether an official trade name amendment is supported or if a fresh onboarding profile for ADABHRA GROUP should be created."*
   4. Obtain written confirmation from Cashfree merchant onboarding before submitting final bank verification.
 

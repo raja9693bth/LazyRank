@@ -512,9 +512,9 @@ async function runPhase8Tests() {
   );
   pass('index.html search description, summary Twitter card, and JSON-LD identity verified');
 
-  // E3: PAYMENT_GATEWAY_ONBOARDING.md contains dated matrix and XAIBUN resolution SOP
+  // E3: PAYMENT_GATEWAY_ONBOARDING.md contains dated matrix and XAIVON resolution SOP
   assert.ok(onboardingContent.includes('Dated: 27 September 2026'), 'Onboarding doc contains dated review matrix');
-  assert.ok(onboardingContent.includes('XAIBUN Resolution SOP'), 'Onboarding doc contains XAIBUN resolution SOP');
+  assert.ok(onboardingContent.includes('XAIVON Resolution SOP'), 'Onboarding doc contains XAIVON resolution SOP');
   assert.ok(onboardingContent.includes('Private Founder Checklist'), 'Onboarding doc contains private founder checklist');
   pass('PAYMENT_GATEWAY_ONBOARDING.md dated status matrix and founder checklists verified');
 

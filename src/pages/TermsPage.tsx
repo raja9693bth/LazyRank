@@ -11,7 +11,7 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title="Terms & Conditions"
       subtitle={`The official service terms, ranking mechanics, user standards, and legal conditions governing your use of ${LEGAL_CONFIG.PRODUCT_NAME}.`}
-      lastUpdated="September 24, 2026"
+      lastUpdated="September 29, 2026"
       currentPath="/terms"
       onNavigate={onNavigate}
     >

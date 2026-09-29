@@ -12,7 +12,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title="Privacy Policy"
       subtitle={`Transparent disclosure of how personal information is collected, processed, and safeguarded when using ${LEGAL_CONFIG.PRODUCT_NAME}.`}
-      lastUpdated="September 24, 2026"
+      lastUpdated="September 28, 2026"
       currentPath="/privacy"
       onNavigate={onNavigate}
     >

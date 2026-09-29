@@ -16,7 +16,7 @@ LazyProof is a digital sponsored showcase operated by **ADABHRA GROUP**, a sole 
 - **Support Telephone:** +91 95211 90205
 - **Website:** https://lazyproof.online
 
-The system processes real Indian Rupee (INR) transactions via Cashfree and reflects verified placement on the public leaderboard. The system enforces strict separation of concerns across its persistence layers:
+The system is engineered to process INR transactions through Cashfree once merchant approval, credentials, tax readiness, sandbox validation, and live payment enablement are complete, reflecting verified placement on the public leaderboard. The system enforces strict separation of concerns across its persistence layers:
 
 1. **Neon PostgreSQL:** The authoritative, system-of-record operational database for all orders, profiles, rank settlement ledger entries, refunds, and contact inquiries.
 2. **Cashfree Merchant Dashboard:** The gateway settlement and banking rail record. Cashfree handles bank/UPI authorization, merchant payout cycles, and dispute lifecycles.

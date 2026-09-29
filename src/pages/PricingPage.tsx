@@ -12,7 +12,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title={`Pricing & Placement Policy — ${LEGAL_CONFIG.BRAND_NAME}`}
       subtitle="Complete, transparent breakdown of how sponsorship pricing works, dynamic rank minimums, digital delivery, and current checkout status."
-      lastUpdated="September 26, 2026"
+      lastUpdated="September 28, 2026"
       currentPath="/pricing"
       onNavigate={onNavigate}
     >

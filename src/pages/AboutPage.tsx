@@ -12,7 +12,7 @@ export const AboutPage: React.FC<AboutPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title={`About ${LEGAL_CONFIG.PRODUCT_NAME}`}
       subtitle={`${LEGAL_CONFIG.POSITIONING_TITLE}: Transparent, deterministic digital profile placement.`}
-      lastUpdated="September 24, 2026"
+      lastUpdated="September 26, 2026"
       currentPath="/about"
       onNavigate={onNavigate}
     >

@@ -12,7 +12,7 @@ export const DeliveryPage: React.FC<DeliveryPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title="Delivery & Fulfillment Policy"
       subtitle="Clear and truthful information regarding digital fulfillment, delivery timelines, payment verification, and service availability."
-      lastUpdated="September 24, 2026"
+      lastUpdated="September 25, 2026"
       currentPath="/delivery"
       onNavigate={onNavigate}
     >

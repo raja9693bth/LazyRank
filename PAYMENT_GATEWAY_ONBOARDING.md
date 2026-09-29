@@ -72,8 +72,8 @@ All compliance pages are complete, live, mobile-responsive, and prominently link
 
 ## 4. Technical Payment Architecture & Integration Flow
 
-### Primary Payment Gateway Partner:
-**Cashfree Payments India Pvt Ltd** (API Version `2026-01-01` / current supported Hosted Checkout)
+### Primary Intended / Integrated Payment Provider:
+**Cashfree Payments India Pvt Ltd — Merchant Review Pending** (API Version `2026-01-01` / current supported Hosted Checkout)
 
 ### Checkout & Settlement Lifecycle:
 ```
@@ -203,9 +203,10 @@ When completing payment gateway onboarding forms, select the category that best 
 - Pricing Policy (`/pricing`)
 - Contact page (`/contact`) and Schema.org structured data
 
-### Distinction from Founder Personal/Alternative Email:
-- Founder previously noted `support.lazyproof@gmail.com`. This is a distinct Google mailbox, not an alias on the custom domain.
-- The Udyam registration login email is **private** and must **NEVER** be published publicly or added to website footers.
+### Primary Support vs. Business Registration Correspondence Email:
+- **Primary Customer Support:** `support@lazyproof.online` is the primary public customer support channel published across the website header, footer, checkout dialogues, and customer receipts.
+- **Business Registration Correspondence:** As intentionally approved by the founder, `raja969384bth@gmail.com` (`BUSINESS_REGISTRATION_EMAIL`) is published exclusively on the `/contact` page under Enterprise Identification for formal business-registration, tax, and KYC correspondence matching official Udyam filings. It is intentionally kept isolated to the Contact/business-identity card and is NOT added to website footers, client receipt emails, or marketing flows.
+- **Data Protection Invariant:** Passwords, OTPs, PAN, Aadhaar, private bank accounts, or sensitive KYC documentation must NEVER be published publicly or committed to Git.
 
 ### Mandatory Send-and-Receive Test for Founder:
 1. **Send Test:** From an external personal email address (e.g. your personal Gmail), compose a message to `support@lazyproof.online` with Subject: `[TEST] Verification of inbound support desk`.

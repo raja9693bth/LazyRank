@@ -67,7 +67,7 @@ export const ContactPage: React.FC<ContactPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title="Contact & Customer Support"
       subtitle={`Have a question about your rank, payment verification, duplicate charge, or content moderation? Contact the ${LEGAL_CONFIG.LEGAL_BUSINESS_NAME} team.`}
-      lastUpdated="September 24, 2026"
+      lastUpdated="September 28, 2026"
       currentPath="/contact"
       onNavigate={onNavigate}
     >

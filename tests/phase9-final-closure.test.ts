@@ -506,7 +506,8 @@ async function runPhase9Tests() {
   assert.ok(sitemapXml.includes('<loc>https://lazyproof.online/pricing</loc>\n    <lastmod>2026-09-28</lastmod>'), 'sitemap.xml has 2026-09-28 for /pricing');
   assert.ok(sitemapXml.includes('<loc>https://lazyproof.online/privacy</loc>\n    <lastmod>2026-09-28</lastmod>'), 'sitemap.xml has 2026-09-28 for /privacy');
   assert.ok(sitemapXml.includes('<loc>https://lazyproof.online/contact</loc>\n    <lastmod>2026-09-28</lastmod>'), 'sitemap.xml has 2026-09-28 for /contact');
-  pass('public/sitemap.xml contains truthful 2026-09-28 lastmod dates for modified routes');
+  assert.ok(sitemapXml.includes('<loc>https://lazyproof.online/terms</loc>\n    <lastmod>2026-09-29</lastmod>'), 'sitemap.xml has 2026-09-29 for /terms');
+  pass('public/sitemap.xml contains truthful lastmod dates for modified routes including 2026-09-29 for /terms');
 
   // 6.7 PAYMENT_GATEWAY_ONBOARDING.md contains XAIVON and zero XAIBUN
   const onboardingContent = fs.readFileSync(path.join(process.cwd(), 'PAYMENT_GATEWAY_ONBOARDING.md'), 'utf-8');
@@ -551,6 +552,41 @@ async function runPhase9Tests() {
     'legal.ts includes consistent non-refundable wording with Refund Policy exceptions'
   );
   pass('Terms and legal.ts disclaimers aligned with Refund Policy exceptions');
+
+  // 6.11 Payment gateway provider wording & pre-approval status
+  assert.ok(
+    onboardingContent.includes('Primary Intended / Integrated Payment Provider:'),
+    'PAYMENT_GATEWAY_ONBOARDING.md uses Primary Intended / Integrated Payment Provider'
+  );
+  assert.ok(
+    onboardingContent.includes('Cashfree Payments India Pvt Ltd — Merchant Review Pending'),
+    'PAYMENT_GATEWAY_ONBOARDING.md indicates Merchant Review Pending'
+  );
+  assert.ok(
+    !onboardingContent.includes('Primary Payment Gateway Partner:'),
+    'PAYMENT_GATEWAY_ONBOARDING.md does not describe Cashfree as an approved partner'
+  );
+
+  const opsFlowContent = fs.readFileSync(path.join(process.cwd(), 'docs/OPERATIONS_DATA_FLOW.md'), 'utf-8');
+  assert.ok(
+    !opsFlowContent.includes('The system processes real Indian Rupee (INR) transactions via Cashfree'),
+    'docs/OPERATIONS_DATA_FLOW.md does not claim active live INR processing'
+  );
+  assert.ok(
+    opsFlowContent.includes('The system is engineered to process INR transactions through Cashfree once merchant approval'),
+    'docs/OPERATIONS_DATA_FLOW.md uses conditional pre-activation wording'
+  );
+
+  const refundPageContent = fs.readFileSync(path.join(process.cwd(), 'src/pages/RefundPage.tsx'), 'utf-8');
+  assert.ok(
+    !refundPageContent.includes('payment gateway partner'),
+    'RefundPage uses neutral payment gateway/provider wording'
+  );
+  assert.ok(
+    termsPageContent.includes('lastUpdated="September 29, 2026"'),
+    'TermsPage has truthful lastUpdated date September 29, 2026'
+  );
+  pass('Payment gateway provider and operations documentation consistency verified');
 
   console.log('\n========================================================');
   console.log(`ALL PHASE 9 TESTS PASSED: ${passed} ASSERTIONS VERIFIED`);

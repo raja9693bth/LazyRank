@@ -65,7 +65,7 @@ export const RulesPage: React.FC<RulesPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title={`How ${LEGAL_CONFIG.PRODUCT_NAME} Works — Official Rules`}
       subtitle="Complete rules governing the pay-to-rank mechanic, server verification, tie-breaking, and platform integrity."
-      lastUpdated="September 24, 2026"
+      lastUpdated="September 26, 2026"
       currentPath="/rules"
       onNavigate={onNavigate}
     >

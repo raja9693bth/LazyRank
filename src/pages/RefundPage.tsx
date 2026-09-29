@@ -12,7 +12,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
     <LegalPageLayout
       title="Refund & Cancellation Policy"
       subtitle="Clear and transparent guidelines on payment cancellation, transaction reversals, duplicate charges, technical failures, and refund requests."
-      lastUpdated="September 24, 2026"
+      lastUpdated="September 26, 2026"
       currentPath="/refund-cancellation"
       onNavigate={onNavigate}
     >
@@ -60,7 +60,7 @@ export const RefundPage: React.FC<RefundPageProps> = ({ onNavigate }) => {
             </p>
             <ul className="list-disc list-inside space-y-1 pl-1 pt-1 text-xs">
               <li><strong>Automated Bank Reversal:</strong> In most cases, the payment gateway or your issuing bank automatically reverses unconfirmed debits within <strong>3 to 7 business days</strong>.</li>
-              <li><strong>Assisted Reconciliation:</strong> If the funds do not reflect in your account within 7 business days, email us at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="font-bold underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> with your Bank Reference Number (UTR / RRN) and debit timestamp. We will coordinate directly with our payment gateway partner to expedite reconciliation.</li>
+              <li><strong>Assisted Reconciliation:</strong> If the funds do not reflect in your account within 7 business days, email us at <a href={`mailto:${LEGAL_CONFIG.SUPPORT_EMAIL}`} className="font-bold underline">{LEGAL_CONFIG.SUPPORT_EMAIL}</a> with your Bank Reference Number (UTR / RRN) and debit timestamp. We will coordinate directly with our payment gateway/provider to expedite reconciliation.</li>
             </ul>
           </div>
 

@@ -44,9 +44,9 @@ export const LEGAL_CONFIG = {
 
   // Explicit Non-Gambling & Consumer Disclaimers
   DISCLAIMER:
-    'LazyProof is a digital sponsored showcase. It is NOT gambling, lottery, sweepstakes, betting, or a game of chance. It offers no prize money, no winnings, no cash payouts, no financial returns, and no redeemable investments. Paid amounts are non-refundable consideration for digital placement services once delivered.',
+    'LazyProof is a digital sponsored showcase. It is NOT gambling, lottery, sweepstakes, betting, or a game of chance. It offers no prize money, no winnings, no cash payouts, no financial returns, and no redeemable investments. Paid amounts generally represent non-refundable consideration for digital profile visibility once the digital service has been successfully delivered, except for eligible cases stated in the Refund & Cancellation Policy or where a refund is required by applicable law.',
   NON_GAMBLING_DISCLAIMER:
-    'LazyProof is a digital sponsored showcase. It is NOT gambling, lottery, sweepstakes, betting, or a game of chance. It offers no prize money, no winnings, no cash payouts, no financial returns, and no redeemable investments. Paid amounts are non-refundable consideration for digital placement services once delivered.',
+    'LazyProof is a digital sponsored showcase. It is NOT gambling, lottery, sweepstakes, betting, or a game of chance. It offers no prize money, no winnings, no cash payouts, no financial returns, and no redeemable investments. Paid amounts generally represent non-refundable consideration for digital profile visibility once the digital service has been successfully delivered, except for eligible cases stated in the Refund & Cancellation Policy or where a refund is required by applicable law.',
 
   // Service Delivery Target
   DELIVERY_TIMELINE:

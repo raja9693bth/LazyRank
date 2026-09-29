@@ -246,6 +246,40 @@ To prevent underwriting delays if requested by Cashfree or Razorpay, the founder
 
 ## 13. Policy & Consumer Transparency Disclaimers
 
-- **Non-Gambling Disclaimers Retained:** Clear, prominent non-gambling and non-prize disclaimers are preserved across all pages. These disclaimers protect consumers by explicitly stating that payments are non-refundable consideration for digital placement services and offer no winnings or financial returns. They must **never** be removed to game automated keyword filters.
+- **Non-Gambling Disclaimers Retained:** Clear, prominent non-gambling and non-prize disclaimers are preserved across all pages. These disclaimers protect consumers by explicitly stating that payments generally represent non-refundable consideration for digital placement services once delivered (except for stated technical/reversal exceptions or where required by law) and offer no winnings or financial returns. They must **never** be removed to game automated keyword filters.
 - **Truthful Delivery Guarantees:** Service delivery is strictly digital and occurs automatically via database settlement. No physical goods or delivery timeframes are promised.
-- **Tax Policy Notice:** Pricing is stated transparently in INR; tax liability and GST thresholds must be confirmed with a chartered accountant before enabling live mode.
+- **Tax Policy Notice:** Pricing is stated transparently in INR; tax liability, place of supply, and GST thresholds must be confirmed with a chartered accountant before enabling live mode.
+
+---
+
+## 14. Tax & Accounting Handoff Policy (Fail-Closed Architecture)
+
+The codebase implements a strict fail-closed configuration guardrail for merchant tax compliance:
+- **Environment Flags:** `MERCHANT_TAX_BASIS` and `MERCHANT_TAX_REVIEWED`.
+- If either variable is missing, empty, or false, checkout remains disabled and reports `"GST status being verified — checkout unavailable"`.
+- **Operating Rules for Founder & Accountant:**
+  1. **Real Turnover Verification:** GST and tax treatment must reflect current real aggregate business turnover, inter-state vs. intra-state place-of-supply facts, and formal professional review by a practicing Chartered Accountant.
+  2. **Code Does Not Determine Liability:** Application code, environment variables, or platform defaults do NOT determine legal GST liability or statutory exemptions.
+  3. **No Unsubstantiated Threshold Claims:** Do NOT claim or document "turnover is below mandatory GST threshold" merely because the enterprise is newly launched or pre-revenue. Such a determination must be grounded in actual accounting ledgers and legal advice.
+  4. **Invoice Integrity:** Do NOT issue a GST tax invoice or collect GST unless the enterprise possesses a valid, active GSTIN registration. If unregistered, provide customer transaction receipts/proof of purchase without tax collection.
+  5. **Data Protection Invariant:** No PAN, Aadhaar, bank credentials, private accounting ledger entries, or tax filings may ever be committed to the public or private Git repository.
+
+---
+
+## 15. Razorpay Business Model Underwriting SOP (Non-Auction / Non-Bidding Clarification)
+
+### Context & Policy Background:
+Razorpay's standard Terms of Service include "Bidding/auction houses" among restricted or prohibited merchant categories. While LazyProof operates as digital sponsored-profile visibility with deterministic leaderboard rankings based on cumulative verified sponsorship, the higher-sponsorship / higher-position mechanic may require manual underwriting clarification during onboarding review.
+
+### Mandatory Compliance Rules:
+1. **Never Disguise Mechanics:** Do NOT remove truthful ranking mechanics, displacement explanations, or pricing formulas to hide how the platform operates.
+2. **Never Rename Payments Deceptively:** Do NOT mischaracterize sponsorship consideration as "donations", "consulting fees", "software licenses", or unrelated services.
+3. **No False MCC Selection:** Do NOT attempt to classify under an unrelated Merchant Category Code to evade automated keyword filters.
+4. **Never Claim Pre-Approval:** Do NOT claim Razorpay has approved the platform until written underwriting sign-off is formally issued.
+5. **Preserve Non-Gambling Disclaimers:** Clear explanations that the platform offers no prize, no lottery, no random outcome, and no monetary returns must be preserved in full.
+
+### Founder Standard Operating Procedure (SOP) for Clarification:
+If Razorpay underwriting raises questions regarding bidding or auction classification, provide the following transparent, truthful explanation:
+> *"Customers purchase digital sponsored-profile visibility on our web showcase. Public placement on the leaderboard is determined deterministically by cumulative verified sponsorship amount (in INR). There is no auctioned asset, no auction close, no bidding dynamic for asset ownership, no random outcome, no prize, no winnings, no payout, and no financial return of any kind. Consideration is solely for digital profile visibility and generated digital assets."*
+
+**Recommendation:** Request written eligibility confirmation / pre-clearance from Razorpay's underwriting or risk team prior to any production integration or deployment. Razorpay gateway underwriting remains an external third-party determination.

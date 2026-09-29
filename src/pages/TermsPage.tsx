@@ -56,7 +56,7 @@ export const TermsPage: React.FC<TermsPageProps> = ({ onNavigate }) => {
           <li><strong>No Gambling, Betting, or Chance:</strong> {LEGAL_CONFIG.BRAND_NAME} is strictly NOT a game of chance, lottery, sweepstakes, raffle, or gambling platform. Ranking is an entirely open, deterministic mathematical function of cumulative verified sponsorship amount.</li>
           <li><strong>No Cash Prizes or Monetary Winnings:</strong> There are no cash rewards, prize payouts, dividends, financial yields, or redeemable monetary returns of any kind.</li>
           <li><strong>No Investment Asset:</strong> Payments do not represent equity, shares, deposits, securities, or financial instruments.</li>
-          <li><strong>Consideration for Digital Placement:</strong> Paid amounts represent non-refundable consideration for digital profile visibility, display space, and generated digital assets on our web showcase.</li>
+          <li><strong>Consideration for Digital Placement:</strong> Paid amounts generally represent non-refundable consideration for digital profile visibility once the digital service has been successfully delivered, except for eligible cases stated in the Refund & Cancellation Policy or where a refund is required by applicable law.</li>
         </ul>
       </section>
 

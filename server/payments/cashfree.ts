@@ -200,9 +200,8 @@ export class CashfreeProvider implements PaymentProvider {
       return { isValid: false, error: 'Invalid webhook timestamp format.' };
     }
     const tsNum = Number(timestamp);
-    const tsMillis = timestamp.length === 10 ? tsNum * 1000 : tsNum;
-    if (!Number.isFinite(tsNum) || !Number.isSafeInteger(tsNum) || Math.abs(Date.now() - tsMillis) > 300_000) {
-      return { isValid: false, error: 'Webhook timestamp outside five-minute window.' };
+    if (!Number.isFinite(tsNum) || !Number.isSafeInteger(tsNum)) {
+      return { isValid: false, error: 'Invalid webhook timestamp.' };
     }
 
     if (!this.secretKey) {

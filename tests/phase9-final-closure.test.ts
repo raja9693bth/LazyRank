@@ -85,6 +85,36 @@ async function runPhase9Tests() {
   );
   pass('Positive isSafeLocalTestDatabase tests allow only loopback hosts with allowed disposable test DB');
 
+  // Mock refund database bypass regression: missing dbUrl must never qualify as safe
+  const testModeWithMissingDb = (isProd: boolean, nodeEnv: string, allowMock: string, dbUrl?: string) => {
+    return !isProd &&
+      (nodeEnv === 'test' || allowMock === 'true') &&
+      Boolean(dbUrl) &&
+      isSafeLocalTestDatabase(dbUrl);
+  };
+
+  assert.strictEqual(
+    testModeWithMissingDb(false, 'test', 'true', undefined),
+    false,
+    'Missing DATABASE_URL/TEST_DATABASE_URL must NEVER qualify for mock refund testMode'
+  );
+  assert.strictEqual(
+    testModeWithMissingDb(false, 'test', 'true', ''),
+    false,
+    'Empty DATABASE_URL must NEVER qualify for mock refund testMode'
+  );
+  assert.strictEqual(
+    testModeWithMissingDb(false, 'test', 'false', 'postgresql://postgres@127.0.0.1:5433/lazyproof_test'),
+    true,
+    'Present safe local test DB URL with test intent qualifies for mock refund testMode'
+  );
+  assert.strictEqual(
+    testModeWithMissingDb(true, 'production', 'true', 'postgresql://postgres@127.0.0.1:5433/lazyproof_test'),
+    false,
+    'Production environment NEVER qualifies for mock refund testMode'
+  );
+  pass('Mock refund routing invariant strictly requires present safe local test DB URL and rejects all missing DB bypasses');
+
   // =========================================================================
   // 2. Checkout Idempotency Fingerprint & Parameter Mutation Detection
   // =========================================================================
@@ -273,17 +303,36 @@ async function runPhase9Tests() {
   });
   assert.strictEqual(freshResult.isValid, true, 'Webhook with fresh timestamp and valid signature is valid');
 
-  // Test with expired timestamp (> 5 minutes old = 301,000 ms)
-  const expiredTimestamp = (Date.now() - 305000).toString();
-  const expiredSignatureInput = `${expiredTimestamp}${payload}`;
-  const expiredSignature = crypto.createHmac('sha256', testSecret).update(expiredSignatureInput).digest('base64');
+  // Test with delayed timestamp (e.g. 15 minutes old = 900,000 ms)
+  const delayedTimestamp = (Date.now() - 900000).toString();
+  const delayedSignatureInput = `${delayedTimestamp}${payload}`;
+  const delayedSignature = crypto.createHmac('sha256', testSecret).update(delayedSignatureInput).digest('base64');
 
-  const expiredResult = await provider.verifyWebhook(payload, {
-    'x-webhook-timestamp': expiredTimestamp,
-    'x-webhook-signature': expiredSignature
+  const delayedResult = await provider.verifyWebhook(payload, {
+    'x-webhook-timestamp': delayedTimestamp,
+    'x-webhook-signature': delayedSignature
   });
-  assert.strictEqual(expiredResult.isValid, false, 'Webhook with timestamp > 5 minutes old is rejected');
-  assert.ok(expiredResult.error?.includes('outside five-minute window'), 'Error message cites timestamp outside five-minute window');
+  assert.strictEqual(delayedResult.isValid, true, 'Cryptographically valid delayed webhook is accepted');
+
+  // Test with bad signature
+  const badSigResult = await provider.verifyWebhook(payload, {
+    'x-webhook-timestamp': freshTimestamp,
+    'x-webhook-signature': 'bad_sig_base64=='
+  });
+  assert.strictEqual(badSigResult.isValid, false, 'Invalid signature rejected');
+
+  // Test with missing timestamp
+  const missingTsResult = await provider.verifyWebhook(payload, {
+    'x-webhook-signature': validSignature
+  });
+  assert.strictEqual(missingTsResult.isValid, false, 'Missing timestamp rejected');
+
+  // Test with malformed timestamp format
+  const malformedTsResult = await provider.verifyWebhook(payload, {
+    'x-webhook-timestamp': 'not-a-timestamp',
+    'x-webhook-signature': validSignature
+  });
+  assert.strictEqual(malformedTsResult.isValid, false, 'Malformed timestamp format rejected');
 
   // Test with tampered payload
   const tamperedResult = await provider.verifyWebhook(payload + ' ', {
@@ -291,7 +340,7 @@ async function runPhase9Tests() {
     'x-webhook-signature': validSignature
   });
   assert.strictEqual(tamperedResult.isValid, false, 'Tampered webhook payload rejected');
-  pass('Cashfree webhook enforces official 5-minute freshness window and HMAC-SHA256 signature verification');
+  pass('Cashfree webhook accepts delayed cryptographically valid webhooks and enforces HMAC-SHA256 signature verification');
 
   // =========================================================================
   // 5. PostgreSQL Authoritative Integration: Dynamic Sitemap & Privacy Filters
@@ -488,6 +537,20 @@ async function runPhase9Tests() {
   assert.ok(!serverSeoTs.includes('VERIFIED MONETARY CLAIM'), 'server/seo.ts replaced VERIFIED MONETARY CLAIM with VERIFIED SPONSORSHIP');
   assert.ok(serverSeoTs.includes('VERIFIED SPONSORSHIP'), 'server/seo.ts includes VERIFIED SPONSORSHIP in OG SVG');
   pass('Stale public legitimacy and monetary claim phrases successfully purged');
+
+  // 6.10 Terms & legal.ts non-refundable consistency
+  const termsPageContent = fs.readFileSync(path.join(process.cwd(), 'src/pages/TermsPage.tsx'), 'utf-8');
+  assert.ok(
+    termsPageContent.includes('Paid amounts generally represent non-refundable consideration for digital profile visibility once the digital service has been successfully delivered, except for eligible cases stated in the Refund & Cancellation Policy or where a refund is required by applicable law.'),
+    'TermsPage includes consistent non-refundable wording with Refund Policy exceptions'
+  );
+
+  const legalTsContent = fs.readFileSync(path.join(process.cwd(), 'src/config/legal.ts'), 'utf-8');
+  assert.ok(
+    legalTsContent.includes('Paid amounts generally represent non-refundable consideration for digital profile visibility once the digital service has been successfully delivered, except for eligible cases stated in the Refund & Cancellation Policy or where a refund is required by applicable law.'),
+    'legal.ts includes consistent non-refundable wording with Refund Policy exceptions'
+  );
+  pass('Terms and legal.ts disclaimers aligned with Refund Policy exceptions');
 
   console.log('\n========================================================');
   console.log(`ALL PHASE 9 TESTS PASSED: ${passed} ASSERTIONS VERIFIED`);

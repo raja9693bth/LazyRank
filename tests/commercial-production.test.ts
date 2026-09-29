@@ -201,7 +201,7 @@ async function runCommercialTests() {
   assert(replayRes.isValid === true, 'Delayed valid webhook with authentic Cashfree HMAC signature is accepted');
   assert(replayRes.status === 'SUCCESS', 'Delayed webhook parsed correctly');
 
-  // Stale webhook outside five-minute window must be rejected
+  // Delayed cryptographically valid webhook must be accepted
   const oldTimestamp = String(Date.now() - 20 * 60 * 1000);
   const oldSignature = crypto
     .createHmac('sha256', dummySecret)
@@ -212,7 +212,14 @@ async function runCommercialTests() {
     'x-webhook-timestamp': oldTimestamp,
     'x-webhook-signature': oldSignature
   });
-  assert(staleRes.isValid === false, 'Stale webhook outside five-minute window is rejected');
+  assert(staleRes.isValid === true, 'Delayed cryptographically valid webhook is accepted');
+
+  // Webhook with invalid signature is rejected
+  const badSigRes = await provider.verifyWebhook(testPayload, {
+    'x-webhook-timestamp': oldTimestamp,
+    'x-webhook-signature': 'invalid_signature_base64=='
+  });
+  assert(badSigRes.isValid === false, 'Webhook with bad signature is rejected');
 
   // ----------------------------------------------------
   // SUITE 4: PAYMENT MODES & PRODUCTION SAFETY
@@ -318,6 +325,7 @@ async function runCommercialTests() {
   process.env.DEMO_MODE = 'false';
   process.env.APP_URL = 'https://lazyproof.online';
   process.env.ALLOW_MOCK_REFUNDS = 'true';
+  process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
 
   try {
     await import('../server.ts');

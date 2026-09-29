@@ -1286,9 +1286,8 @@ async function startServer() {
     const dbUrl = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL;
     const isTestMode = !isProduction &&
       (process.env.NODE_ENV === 'test' || process.env.ALLOW_MOCK_REFUNDS === 'true') &&
-      (!db.isPostgresAuthoritative()
-        ? (!dbUrl || isSafeLocalTestDatabase(dbUrl))
-        : isSafeLocalTestDatabase(dbUrl));
+      Boolean(dbUrl) &&
+      isSafeLocalTestDatabase(dbUrl);
 
     // A4: When provider processing is disabled/unconfigured, live refund request must return clear 503 without reserving or reversing anything
     if (!paymentManager.isEnabled() && !isTestMode) {

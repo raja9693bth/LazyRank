@@ -24,7 +24,7 @@ export const BASE_URL = 'https://lazyproof.online';
 export const PAGE_SEO: Record<string, PageSeoConfig> = {
   '/': {
     title: "LazyProof — Digital Sponsored Profile Showcase | Live Leaderboard",
-    description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
+    description: "LazyProof by ADABHRA GROUP is a digital sponsored profile showcase and live public leaderboard where verified cumulative sponsorship determines rank, with transparent INR pricing and rules.",
     canonicalPath: '/',
     ogType: 'website',
     breadcrumbName: 'Home'
@@ -94,39 +94,92 @@ export const PAGE_SEO: Record<string, PageSeoConfig> = {
   }
 };
 
+export function createOrganizationJsonLd(baseUrl: string = BASE_URL): object {
+  const address = LEGAL_CONFIG.POSTAL_ADDRESS || {
+    STREET: 'Ward No. 13, Mahodipur, Majhaulia',
+    LOCALITY: 'West Champaran',
+    REGION: 'Bihar',
+    POSTAL_CODE: '845454',
+    COUNTRY: 'IN'
+  };
+
+  return {
+    '@type': 'Organization',
+    '@id': `${baseUrl}/#organization`,
+    name: LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
+    legalName: LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
+    url: `${baseUrl}/`,
+    logo: `${baseUrl}/brand/lazy-favicon-512.png`,
+    email: LEGAL_CONFIG.SUPPORT_EMAIL,
+    telephone: LEGAL_CONFIG.SUPPORT_PHONE,
+    address: {
+      '@type': 'PostalAddress',
+      streetAddress: address.STREET,
+      addressLocality: address.LOCALITY,
+      addressRegion: address.REGION,
+      postalCode: address.POSTAL_CODE,
+      addressCountry: address.COUNTRY
+    },
+    contactPoint: {
+      '@type': 'ContactPoint',
+      contactType: 'customer support',
+      email: LEGAL_CONFIG.SUPPORT_EMAIL,
+      telephone: LEGAL_CONFIG.SUPPORT_PHONE,
+      availableLanguage: LEGAL_CONFIG.SUPPORT_LANGUAGES || ['English', 'Hindi']
+    }
+  };
+}
+
+export function createWebSiteJsonLd(baseUrl: string = BASE_URL): object {
+  return {
+    '@type': 'WebSite',
+    '@id': `${baseUrl}/#website`,
+    name: 'LazyProof',
+    alternateName: [
+      'LAZY',
+      'lazyproof.online'
+    ],
+    url: `${baseUrl}/`,
+    description: PAGE_SEO['/'].description,
+    inLanguage: 'en-IN',
+    publisher: {
+      '@id': `${baseUrl}/#organization`
+    }
+  };
+}
+
+export function createWebApplicationJsonLd(baseUrl: string = BASE_URL): object {
+  return {
+    '@type': 'WebApplication',
+    '@id': `${baseUrl}/#app`,
+    name: 'LazyProof',
+    alternateName: [
+      'LAZY',
+      'lazyproof.online'
+    ],
+    url: `${baseUrl}/`,
+    description: PAGE_SEO['/'].description,
+    applicationCategory: 'EntertainmentApplication',
+    operatingSystem: 'All',
+    provider: {
+      '@id': `${baseUrl}/#organization`
+    }
+  };
+}
+
 export function generateClientRouteJsonLd(route: string): object[] {
   const normalized = stripTrailingSlash(route) || '/';
   const config = PAGE_SEO[normalized] || PAGE_SEO['/'];
   const canonicalUrl = `${BASE_URL}${config.canonicalPath}`;
 
-  const websiteNode = {
-    '@type': 'WebSite',
-    '@id': `${BASE_URL}/#website`,
-    name: 'LazyProof',
-    alternateName: 'LAZY',
-    url: `${BASE_URL}/`,
-    description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
-    inLanguage: 'en-IN',
-    publisher: {
-      '@type': 'Organization',
-      name: 'ADABHRA GROUP',
-      url: BASE_URL
-    }
-  };
+  const organizationNode = createOrganizationJsonLd(BASE_URL);
+  const websiteNode = createWebSiteJsonLd(BASE_URL);
 
   if (normalized === '/') {
     return [
+      organizationNode,
       websiteNode,
-      {
-        '@type': 'WebApplication',
-        '@id': `${BASE_URL}/#app`,
-        name: 'LazyProof',
-        alternateName: 'LAZY',
-        url: `${BASE_URL}/`,
-        description: config.description,
-        applicationCategory: 'EntertainmentApplication',
-        operatingSystem: 'All'
-      }
+      createWebApplicationJsonLd(BASE_URL)
     ];
   }
 
@@ -158,15 +211,7 @@ export function generateClientRouteJsonLd(route: string): object[] {
     pageType = 'ContactPage';
     extraProps = {
       mainEntity: {
-        '@type': 'Organization',
-        name: LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
-        url: BASE_URL,
-        contactPoint: {
-          '@type': 'ContactPoint',
-          email: LEGAL_CONFIG.SUPPORT_EMAIL,
-          contactType: 'customer service',
-          availableLanguage: ['English', 'Hindi']
-        }
+        '@id': `${BASE_URL}/#organization`
       }
     };
   }
@@ -188,7 +233,7 @@ export function generateClientRouteJsonLd(route: string): object[] {
     ...extraProps
   };
 
-  return [pageNode, breadcrumbNode, websiteNode];
+  return [organizationNode, websiteNode, breadcrumbNode, pageNode];
 }
 
 export function updatePageSeo(path: string) {
@@ -289,6 +334,8 @@ export function updateProfileSeo(profile: UserProfile) {
   }
 
   const profileGraph = [
+    createOrganizationJsonLd(BASE_URL),
+    createWebSiteJsonLd(BASE_URL),
     {
       '@type': 'ProfilePage',
       '@id': `${profileUrl}#webpage`,
@@ -300,10 +347,7 @@ export function updateProfileSeo(profile: UserProfile) {
       inLanguage: 'en-IN',
       isPartOf: {
         '@type': 'WebSite',
-        '@id': `${BASE_URL}/#website`,
-        name: 'LazyProof',
-        alternateName: 'LAZY',
-        url: `${BASE_URL}/`
+        '@id': `${BASE_URL}/#website`
       },
       mainEntity: {
         '@type': 'Person',
@@ -318,21 +362,6 @@ export function updateProfileSeo(profile: UserProfile) {
           interactionType: 'https://schema.org/LikeAction',
           userInteractionCount: profile.votesCount || 0
         }
-      }
-    },
-    {
-      '@type': 'WebSite',
-      '@id': `${BASE_URL}/#website`,
-      name: 'LazyProof',
-      alternateName: 'LAZY',
-      url: `${BASE_URL}/`,
-      description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
-      inLanguage: 'en-IN',
-      publisher: {
-        '@type': 'Organization',
-        '@id': `${BASE_URL}/#organization`,
-        name: 'ADABHRA GROUP',
-        url: BASE_URL
       }
     }
   ];

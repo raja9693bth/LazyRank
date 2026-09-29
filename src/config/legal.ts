@@ -15,6 +15,14 @@ export const LEGAL_CONFIG = {
   REGISTRATION_STATE: 'Bihar',
   PUBLIC_BUSINESS_ADDRESS:
     'Ward No. 13, Mahodipur, Majhaulia, West Champaran, Bihar - 845454, India',
+  POSTAL_ADDRESS: {
+    STREET: 'Ward No. 13, Mahodipur, Majhaulia',
+    LOCALITY: 'West Champaran',
+    REGION: 'Bihar',
+    POSTAL_CODE: '845454',
+    COUNTRY: 'IN'
+  },
+  SUPPORT_LANGUAGES: ['English', 'Hindi'],
   BUSINESS_HOURS: 'Monday to Saturday, 10:00 AM – 6:00 PM IST',
   UDYAM_REGISTRATION_NUMBER: '', // Optional public display when configured
 

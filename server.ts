@@ -155,6 +155,25 @@ export function isSafeLocalTestDatabase(url?: string): boolean {
   }
 }
 
+export function getCanonicalRedirectUrl(
+  host: string,
+  proto: string,
+  originalUrl: string,
+  isProd: boolean = true
+): string | null {
+  if (!isProd) return null;
+  const cleanHost = host.split(':')[0].toLowerCase().trim();
+  const cleanProto = proto.toLowerCase().trim();
+  const isWww = cleanHost === 'www.lazyproof.online';
+  const isApex = cleanHost === 'lazyproof.online';
+  const isHttp = cleanProto === 'http';
+
+  if (isWww || (isApex && isHttp)) {
+    return `https://lazyproof.online${originalUrl}`;
+  }
+  return null;
+}
+
 export function validateRefundEnvironmentSecurity(): void {
   if (process.env.NODE_ENV === 'production' && process.env.ALLOW_MOCK_REFUNDS === 'true') {
     throw new Error('FATAL CONFIGURATION ERROR: ALLOW_MOCK_REFUNDS cannot be enabled in production environment.');
@@ -228,6 +247,21 @@ async function startServer() {
     res.setHeader('Content-Security-Policy', cspDirectives);
     if (req.headers['x-forwarded-proto'] === 'https' || process.env.NODE_ENV === 'production') {
       res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    next();
+  });
+
+  // Canonical Host & Protocol Consolidation Middleware (Production)
+  // Consolidates HTTP apex, HTTP www, and HTTPS www permanently (301) to canonical https://lazyproof.online
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const rawHost = req.headers['x-forwarded-host'] || req.headers.host || '';
+    const host = Array.isArray(rawHost) ? rawHost[0] : rawHost;
+    const rawProto = req.headers['x-forwarded-proto'];
+    const proto = Array.isArray(rawProto) ? rawProto[0] : rawProto || (req.secure ? 'https' : 'http');
+
+    const redirectUrl = getCanonicalRedirectUrl(host, proto, req.originalUrl, process.env.NODE_ENV === 'production');
+    if (redirectUrl) {
+      return res.redirect(301, redirectUrl);
     }
     next();
   });

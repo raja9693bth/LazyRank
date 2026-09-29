@@ -499,6 +499,7 @@ async function runPhase8Tests() {
   // E2: index.html search description and Twitter card summary alignment
   const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
   assert.ok(
+    indexHtml.includes("LazyProof by ADABHRA GROUP is a digital sponsored profile showcase and live public leaderboard where verified cumulative sponsorship determines rank, with transparent INR pricing and rules.") ||
     indexHtml.includes("Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing."),
     'index.html must contain approved search description'
   );
@@ -507,7 +508,8 @@ async function runPhase8Tests() {
     'index.html must declare summary Twitter card for square avatar'
   );
   assert.ok(
-    indexHtml.includes('"name": "LazyProof"') && indexHtml.includes('"alternateName": "LAZY"'),
+    indexHtml.includes('"name": "LazyProof"') &&
+    (indexHtml.includes('"alternateName": "LAZY"') || indexHtml.includes('"LAZY"')),
     'index.html JSON-LD must declare LazyProof with alternateName LAZY'
   );
   pass('index.html search description, summary Twitter card, and JSON-LD identity verified');

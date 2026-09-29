@@ -588,6 +588,118 @@ async function runPhase9Tests() {
   );
   pass('Payment gateway provider and operations documentation consistency verified');
 
+  // =========================================================================
+  // 7. Branded Search Appearance, Structured Data & Canonical Discovery
+  // =========================================================================
+  console.log('--- 7. Branded Search Appearance & Entity Discovery Invariants ---');
+
+  // 7.1 Homepage title, description, canonical, robots & favicon in index.html
+  const indexHtml = fs.readFileSync(path.join(process.cwd(), 'index.html'), 'utf-8');
+  assert.ok(
+    indexHtml.includes('<title>LazyProof — Digital Sponsored Profile Showcase | Live Leaderboard</title>'),
+    'index.html has truthful branded homepage title'
+  );
+  assert.ok(
+    indexHtml.includes('content="LazyProof by ADABHRA GROUP is a digital sponsored profile showcase and live public leaderboard where verified cumulative sponsorship determines rank, with transparent INR pricing and rules."'),
+    'index.html has brand + operator entity description'
+  );
+  assert.ok(
+    indexHtml.includes('<meta name="robots" content="index, follow" />'),
+    'index.html specifies index, follow robots directive'
+  );
+  assert.ok(
+    !indexHtml.includes('noindex') && !indexHtml.includes('nosnippet'),
+    'index.html strictly omits noindex and nosnippet'
+  );
+  assert.ok(
+    indexHtml.includes('<link rel="canonical" href="https://lazyproof.online/" />'),
+    'index.html declares canonical HTTPS apex'
+  );
+  assert.ok(
+    indexHtml.includes('<link rel="icon" type="image/png" sizes="512x512" href="/brand/lazy-favicon-512.png" />'),
+    'index.html includes 512x512 PNG favicon candidate for Google Search'
+  );
+  pass('index.html search metadata, robots directives, canonical and high-resolution favicon verified');
+
+  // 7.2 Structured data: Authoritative Organization & WebSite nodes
+  const { generateRouteJsonLd: serverGenRouteJsonLd } = await import('../server/seo.ts');
+  const homeJsonLd: any = serverGenRouteJsonLd('/', 'https://lazyproof.online');
+  assert.ok(homeJsonLd && Array.isArray(homeJsonLd['@graph']), 'Route JSON-LD contains @graph array');
+
+  const graphNodes = homeJsonLd['@graph'];
+  const orgNodes = graphNodes.filter((n: any) => n['@type'] === 'Organization');
+  const websiteNodes = graphNodes.filter((n: any) => n['@type'] === 'WebSite');
+  const appNodes = graphNodes.filter((n: any) => n['@type'] === 'WebApplication');
+
+  assert.strictEqual(orgNodes.length, 1, 'Exactly one Organization entity node in homepage graph');
+  assert.strictEqual(websiteNodes.length, 1, 'Exactly one WebSite entity node in homepage graph');
+  assert.strictEqual(appNodes.length, 1, 'Exactly one WebApplication entity node in homepage graph');
+
+  const org = orgNodes[0];
+  assert.strictEqual(org['@id'], 'https://lazyproof.online/#organization', 'Organization @id matches canonical URI');
+  assert.strictEqual(org.legalName, 'ADABHRA GROUP', 'Organization legalName is ADABHRA GROUP');
+  assert.strictEqual(org.name, 'ADABHRA GROUP', 'Organization name is ADABHRA GROUP');
+  assert.strictEqual(org.email, 'support@lazyproof.online', 'Organization email is support@lazyproof.online');
+  assert.strictEqual(org.telephone, '+91 95211 90205', 'Organization telephone is +91 95211 90205');
+  assert.ok(org.address && org.address.postalCode === '845454', 'Organization address includes postalCode 845454');
+  assert.ok(org.contactPoint && org.contactPoint.availableLanguage.includes('English'), 'Organization contactPoint specifies supported languages');
+
+  const ws = websiteNodes[0];
+  assert.strictEqual(ws['@id'], 'https://lazyproof.online/#website', 'WebSite @id matches canonical URI');
+  assert.strictEqual(ws.name, 'LazyProof', 'WebSite name is LazyProof (never ADABHRA GROUP)');
+  assert.ok(Array.isArray(ws.alternateName), 'WebSite alternateName is an array');
+  assert.ok(ws.alternateName.includes('LAZY'), 'WebSite alternateName includes LAZY');
+  assert.ok(ws.alternateName.includes('lazyproof.online'), 'WebSite alternateName includes lowercase domain');
+  assert.strictEqual(ws.publisher['@id'], 'https://lazyproof.online/#organization', 'WebSite publisher references authoritative Organization @id');
+
+  const app = appNodes[0];
+  assert.strictEqual(app['@id'], 'https://lazyproof.online/#app', 'WebApplication @id matches canonical URI');
+  assert.strictEqual(app.provider['@id'], 'https://lazyproof.online/#organization', 'WebApplication provider references authoritative Organization @id');
+  pass('Homepage Schema.org structured data graph contains authoritative Organization, WebSite and WebApplication nodes with zero duplicates');
+
+  // 7.3 Canonical Host & Protocol Redirect Logic
+  const { getCanonicalRedirectUrl } = await import('../server.ts');
+  assert.strictEqual(
+    getCanonicalRedirectUrl('lazyproof.online', 'http', '/about?x=1', true),
+    'https://lazyproof.online/about?x=1',
+    'HTTP apex permanently redirects to HTTPS apex with query string'
+  );
+  assert.strictEqual(
+    getCanonicalRedirectUrl('www.lazyproof.online', 'http', '/', true),
+    'https://lazyproof.online/',
+    'HTTP www permanently redirects to HTTPS apex'
+  );
+  assert.strictEqual(
+    getCanonicalRedirectUrl('www.lazyproof.online', 'https', '/rules', true),
+    'https://lazyproof.online/rules',
+    'HTTPS www permanently redirects to HTTPS apex'
+  );
+  assert.strictEqual(
+    getCanonicalRedirectUrl('lazyproof.online', 'https', '/', true),
+    null,
+    'Canonical HTTPS apex request passes through without redirect'
+  );
+  assert.strictEqual(
+    getCanonicalRedirectUrl('lazyproof.online', 'https', '/api/payment/webhook', true),
+    null,
+    'Cashfree HTTPS webhook passes through without redirect'
+  );
+  assert.strictEqual(
+    getCanonicalRedirectUrl('localhost:3000', 'http', '/', false),
+    null,
+    'Non-production local development passes through without redirect'
+  );
+  pass('Canonical redirect matrix correctly consolidates HTTP, www, and preserves paths and query strings');
+
+  // 7.4 Google Indexing Recovery Documentation
+  const recoveryDoc = fs.readFileSync(path.join(process.cwd(), 'docs/GOOGLE_INDEXING_RECOVERY.md'), 'utf-8');
+  assert.ok(recoveryDoc.includes('Add Domain Property'), 'Recovery doc details Domain Property creation');
+  assert.ok(recoveryDoc.includes('lazyproof.online'), 'Recovery doc specifies domain lazyproof.online');
+  assert.ok(recoveryDoc.includes('DO NOT USE THE GOOGLE URL REMOVAL TOOL'), 'Recovery doc prohibits URL removal tool');
+  assert.ok(recoveryDoc.includes('DO NOT REPEATEDLY REQUEST INDEXING'), 'Recovery doc cautions against spamming indexing requests');
+  assert.ok(recoveryDoc.includes('TEST LIVE URL'), 'Recovery doc instructs TEST LIVE URL');
+  pass('docs/GOOGLE_INDEXING_RECOVERY.md verified complete and accurate');
+
   console.log('\n========================================================');
   console.log(`ALL PHASE 9 TESTS PASSED: ${passed} ASSERTIONS VERIFIED`);
   console.log('========================================================\n');

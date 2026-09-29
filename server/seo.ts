@@ -1,6 +1,13 @@
 import { UserProfile } from '../src/types.ts';
 import { SERVER_LEGAL_CONFIG } from './config/legal.ts';
-import { PAGE_SEO, RouteSeoMeta, stripTrailingSlash } from '../src/utils/seo.ts';
+import {
+  PAGE_SEO,
+  RouteSeoMeta,
+  stripTrailingSlash,
+  createOrganizationJsonLd,
+  createWebSiteJsonLd,
+  createWebApplicationJsonLd
+} from '../src/utils/seo.ts';
 
 export type { RouteSeoMeta };
 
@@ -77,6 +84,8 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
   return {
     '@context': 'https://schema.org',
     '@graph': [
+      createOrganizationJsonLd(baseUrl),
+      createWebSiteJsonLd(baseUrl),
       {
         '@type': 'ProfilePage',
         '@id': `${profileUrl}#webpage`,
@@ -88,10 +97,7 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
         inLanguage: 'en-IN',
         isPartOf: {
           '@type': 'WebSite',
-          '@id': `${baseUrl}/#website`,
-          name: 'LazyProof',
-          alternateName: 'LAZY',
-          url: `${baseUrl}/`
+          '@id': `${baseUrl}/#website`
         },
         mainEntity: {
           '@type': 'Person',
@@ -106,21 +112,6 @@ export function generateProfileJsonLd(profile: UserProfile, baseUrl: string = BA
             interactionType: 'https://schema.org/LikeAction',
             userInteractionCount: profile.votesCount || 0
           }
-        }
-      },
-      {
-        '@type': 'WebSite',
-        '@id': `${baseUrl}/#website`,
-        name: 'LazyProof',
-        alternateName: 'LAZY',
-        url: `${baseUrl}/`,
-        description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
-        inLanguage: 'en-IN',
-        publisher: {
-          '@type': 'Organization',
-          '@id': `${baseUrl}/#organization`,
-          name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
-          url: baseUrl
         }
       }
     ]
@@ -302,37 +293,16 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
   const config = ROUTE_SEO[normalized] || ROUTE_SEO['/'];
   const canonicalUrl = `${baseUrl}${config.canonicalPath}`;
 
-  const websiteNode = {
-    '@type': 'WebSite',
-    '@id': `${baseUrl}/#website`,
-    name: 'LazyProof',
-    alternateName: 'LAZY',
-    url: `${baseUrl}/`,
-    description: "Explore LazyProof's sponsored profile leaderboard, lazy confessions, clear ranking rules and transparent INR pricing.",
-    inLanguage: 'en-IN',
-    publisher: {
-      '@type': 'Organization',
-      '@id': `${baseUrl}/#organization`,
-      name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME || 'ADABHRA GROUP',
-      url: baseUrl
-    }
-  };
+  const organizationNode = createOrganizationJsonLd(baseUrl);
+  const websiteNode = createWebSiteJsonLd(baseUrl);
 
   if (normalized === '/') {
     return {
       '@context': 'https://schema.org',
       '@graph': [
+        organizationNode,
         websiteNode,
-        {
-          '@type': 'WebApplication',
-          '@id': `${baseUrl}/#app`,
-          name: 'LazyProof',
-          alternateName: 'LAZY',
-          url: `${baseUrl}/`,
-          description: config.description,
-          applicationCategory: 'EntertainmentApplication',
-          operatingSystem: 'All'
-        }
+        createWebApplicationJsonLd(baseUrl)
       ]
     };
   }
@@ -365,15 +335,7 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
     pageType = 'ContactPage';
     extraProps = {
       mainEntity: {
-        '@type': 'Organization',
-        name: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
-        url: baseUrl,
-        contactPoint: {
-          '@type': 'ContactPoint',
-          email: SERVER_LEGAL_CONFIG.SUPPORT_EMAIL,
-          contactType: 'customer service',
-          availableLanguage: ['English', 'Hindi']
-        }
+        '@id': `${baseUrl}/#organization`
       }
     };
   }
@@ -398,9 +360,10 @@ export function generateRouteJsonLd(route: string, baseUrl: string = BASE_URL): 
   return {
     '@context': 'https://schema.org',
     '@graph': [
-      pageNode,
+      organizationNode,
+      websiteNode,
       breadcrumbNode,
-      websiteNode
+      pageNode
     ]
   };
 }

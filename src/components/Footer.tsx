@@ -96,7 +96,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
             }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
-            Terms of Service
+            Terms
           </a>
           <a
             id="footer-link-privacy"
@@ -108,7 +108,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
             }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
-            Privacy Policy
+            Privacy
           </a>
           <a
             id="footer-link-refund"
@@ -132,7 +132,7 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenAdmin, onOpenS
             }}
             className="hover:text-zinc-950 transition-colors cursor-pointer"
           >
-            Delivery Policy
+            Delivery
           </a>
           <a
             id="footer-link-contact"

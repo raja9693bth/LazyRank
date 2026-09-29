@@ -603,8 +603,12 @@ async function runPhase5Tests() {
   const jsonLd: any = generateProfileJsonLd(mockProfile, 'https://lazyproof.online');
   const websiteNode = jsonLd['@graph'].find((n: any) => n['@type'] === 'WebSite');
   assert.ok(websiteNode, 'JSON-LD graph must contain WebSite node');
-  assert.strictEqual(websiteNode.publisher?.name, 'ADABHRA GROUP', 'Publisher must be ADABHRA GROUP');
-  assert.strictEqual(websiteNode.publisher?.name, SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME, 'Publisher must match SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME');
+  const publisherNode = websiteNode.publisher?.name
+    ? websiteNode.publisher
+    : jsonLd['@graph'].find((n: any) => n['@id'] === websiteNode.publisher?.['@id']);
+  assert.ok(publisherNode, 'JSON-LD graph must contain referenced publisher node');
+  assert.strictEqual(publisherNode.name, 'ADABHRA GROUP', 'Publisher must be ADABHRA GROUP');
+  assert.strictEqual(publisherNode.name, SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME, 'Publisher must match SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME');
 
   const personNode = jsonLd['@graph'].find((n: any) => n['@type'] === 'ProfilePage')?.mainEntity;
   assert.ok(personNode, 'JSON-LD graph must contain Person node');

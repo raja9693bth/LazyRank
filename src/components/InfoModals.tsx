@@ -310,7 +310,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
         alert(err.error || 'Failed to apply moderation action.');
         return;
       }
-      loadData(key, ordersPage);
+      await loadData(key, ordersPage);
       if (typeof onRefreshLeaderboard === 'function') {
         onRefreshLeaderboard();
       }
@@ -334,7 +334,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
         alert(err.error || 'Failed to resolve report.');
         return;
       }
-      loadData(key, ordersPage);
+      await loadData(key, ordersPage);
     } catch {
       alert('Network error while resolving report.');
     }
@@ -363,7 +363,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              loadData(key, 0);
+              void loadData(key, 0);
             }}
             className="mt-4 space-y-3"
           >
@@ -460,7 +460,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
 
               <button
                 type="button"
-                onClick={() => loadData(key, ordersPage)}
+                onClick={() => void loadData(key, ordersPage)}
                 disabled={loading}
                 className="ml-auto text-[11px] font-semibold text-zinc-500 hover:text-zinc-900 flex items-center gap-1 cursor-pointer"
               >
@@ -515,7 +515,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
                 <div className="flex items-center justify-between pt-1 text-xs">
                   <button
                     type="button"
-                    onClick={() => loadData(key, ordersPage - 1)}
+                    onClick={() => void loadData(key, ordersPage - 1)}
                     disabled={ordersPage === 0 || loading}
                     className="px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 disabled:opacity-40 cursor-pointer"
                   >
@@ -524,7 +524,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
                   <span className="font-semibold text-zinc-500">Page {ordersPage + 1}</span>
                   <button
                     type="button"
-                    onClick={() => loadData(key, ordersPage + 1)}
+                    onClick={() => void loadData(key, ordersPage + 1)}
                     disabled={orders.length < 20 || loading}
                     className="px-2.5 py-1 rounded-md border border-zinc-300 text-zinc-700 disabled:opacity-40 cursor-pointer"
                   >
@@ -566,7 +566,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
                           {p.moderationStatus === 'removed' || p.isReported ? (
                             <button
                               type="button"
-                              onClick={() => handleModerate('restore', p.id)}
+                              onClick={() => void handleModerate('restore', p.id)}
                               className="px-2.5 py-1 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 rounded-md text-[11px] font-bold cursor-pointer"
                             >
                               Restore
@@ -574,7 +574,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
                           ) : (
                             <button
                               type="button"
-                              onClick={() => handleModerate('remove', p.id)}
+                              onClick={() => void handleModerate('remove', p.id)}
                               className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-md text-[11px] font-bold cursor-pointer"
                             >
                               Hide
@@ -640,7 +640,7 @@ export const AdminModal: React.FC<AdminModalProps> = ({ isOpen, onClose, onRefre
                           <div className="pt-1">
                             <button
                               type="button"
-                              onClick={() => handleResolveReport(rep.id)}
+                              onClick={() => void handleResolveReport(rep.id)}
                               className="px-2 py-0.5 rounded bg-white border border-rose-300 text-rose-700 font-bold hover:bg-rose-100 cursor-pointer text-[10px]"
                             >
                               Mark Resolved

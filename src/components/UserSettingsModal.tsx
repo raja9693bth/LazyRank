@@ -75,7 +75,7 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
     const missingTokenIds = tokenIds.filter(id => !knownOwned.some(p => p.id === id));
 
     if (missingTokenIds.length > 0) {
-      Promise.all(
+      void Promise.all(
         missingTokenIds.map(id => {
           const headers: Record<string, string> = {};
           if (tokens[id]) {
@@ -86,28 +86,30 @@ export const UserSettingsModal: React.FC<UserSettingsModalProps> = ({
             .then(data => unwrapProfileResponse(data))
             .catch(() => null);
         })
-      ).then(fetchedProfiles => {
-        const profileMap = new Map<string, UserProfile>();
-        for (const p of knownOwned) {
-          if (p && p.id) profileMap.set(p.id, p);
-        }
-        for (const p of fetchedProfiles) {
-          if (p && p.id && !profileMap.has(p.id)) {
-            profileMap.set(p.id, p);
+      )
+        .then(fetchedProfiles => {
+          const profileMap = new Map<string, UserProfile>();
+          for (const p of knownOwned) {
+            if (p && p.id) profileMap.set(p.id, p);
           }
-        }
-        const combined = Array.from(profileMap.values());
-        setUserClaimedProfiles(combined);
+          for (const p of fetchedProfiles) {
+            if (p && p.id && !profileMap.has(p.id)) {
+              profileMap.set(p.id, p);
+            }
+          }
+          const combined = Array.from(profileMap.values());
+          setUserClaimedProfiles(combined);
 
-        // Determine active profile: if currentProfile is owned or passed, select it, else first owned
-        if (currentProfile) {
-          setActiveProfileId(currentProfile.id);
-          setActiveProfile(currentProfile);
-        } else if (combined.length > 0) {
-          setActiveProfileId(combined[0].id);
-          setActiveProfile(combined[0]);
-        }
-      });
+          // Determine active profile: if currentProfile is owned or passed, select it, else first owned
+          if (currentProfile) {
+            setActiveProfileId(currentProfile.id);
+            setActiveProfile(currentProfile);
+          } else if (combined.length > 0) {
+            setActiveProfileId(combined[0].id);
+            setActiveProfile(combined[0]);
+          }
+        })
+        .catch(() => {});
     } else {
       const profileMap = new Map<string, UserProfile>();
       for (const p of knownOwned) {

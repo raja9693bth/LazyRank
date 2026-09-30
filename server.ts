@@ -2498,4 +2498,7 @@ async function startServer() {
   reconciliationTimer.unref();
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error('[Server Startup Failure]', err);
+  process.exit(1);
+});

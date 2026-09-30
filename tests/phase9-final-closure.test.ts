@@ -3,11 +3,46 @@ import assert from 'assert';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import http from 'http';
 import { PostgresDatabase, hashToken } from '../server/db/postgres.ts';
 import { isSafeLocalTestDatabase } from '../server.ts';
 import { computeCheckoutFingerprint, CheckoutIntentFields } from '../src/utils/checkoutContract.ts';
 import { CashfreeProvider } from '../server/payments/cashfree.ts';
 import { CURRENT_CONSENT_VERSION, CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../src/config/legal.ts';
+
+async function fetchJson(url: string, options: any = {}) {
+  const parsed = new URL(url);
+  return new Promise<{ status: number; headers: http.IncomingHttpHeaders; body: any }>((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname + parsed.search,
+        method: options.method || 'GET',
+        headers: {
+          Connection: 'close',
+          ...(options.headers || {})
+        },
+      },
+      (res) => {
+        let raw = '';
+        res.on('data', (chunk) => (raw += chunk));
+        res.on('end', () => {
+          let parsedBody = raw;
+          try {
+            parsedBody = JSON.parse(raw);
+          } catch {}
+          resolve({ status: res.statusCode || 0, headers: res.headers, body: parsedBody });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (options.body) {
+      req.write(typeof options.body === 'string' ? options.body : JSON.stringify(options.body));
+    }
+    req.end();
+  });
+}
 
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
@@ -720,8 +755,8 @@ async function runPhase9Tests() {
   assert.ok(actionPanelSrc.includes('consentVersion: CURRENT_CONSENT_VERSION'), 'ActionPanel.tsx must use CURRENT_CONSENT_VERSION');
   assert.ok(!actionPanelSrc.includes("consentVersion: '2026-09-24'"), 'ActionPanel.tsx must not hardcode stale consentVersion');
 
-  // Verify server create-order accepts and defaults to CURRENT_CONSENT_VERSION
-  assert.ok(serverCode.includes('reqConsentVersion.trim() : CURRENT_CONSENT_VERSION'), 'server.ts defaults to CURRENT_CONSENT_VERSION');
+  // Verify server create-order enforces CURRENT_CONSENT_VERSION
+  assert.ok(serverCode.includes('consentVersion !== CURRENT_CONSENT_VERSION'), 'server.ts enforces CURRENT_CONSENT_VERSION');
   assert.ok(serverCode.includes('quoteVersion: CURRENT_CONSENT_VERSION'), 'quoteSnapshot uses CURRENT_CONSENT_VERSION');
   assert.ok(serverCode.includes('consentVersion: consentVersion || CURRENT_CONSENT_VERSION'), 'createOrder stores validated consentVersion');
 
@@ -754,12 +789,159 @@ async function runPhase9Tests() {
 
   pass('Frontend, server persistence, and checkout fingerprint all synchronize on authoritative CURRENT_CONSENT_VERSION (2026-09-29)');
 
+  // 7.6 Real API Request-Level Consent Version Enforcement Tests
+  console.log('\n--- 7.6 Real API Request-Level Consent Version Enforcement Tests ---');
+  const { paymentManager } = await import('../server/payments/index.ts');
+  const { db } = await import('../server/db.ts');
+
+  // Configure sandbox mode and tax readiness so checkout reaches consent validation
+  const origMode = paymentManager.getMode();
+  const origTaxBasis = process.env.MERCHANT_TAX_BASIS;
+  const origTaxReviewed = process.env.MERCHANT_TAX_REVIEWED;
+
+  (paymentManager as any).mode = 'sandbox';
+  process.env.MERCHANT_TAX_BASIS = 'verified_unregistered_below_threshold';
+  process.env.MERCHANT_TAX_REVIEWED = 'true';
+
+  const baseOrderPayload = {
+    name: 'Consent Enforce User',
+    amount: 250,
+    customerPhone: '9876543210',
+    pendingOwnerToken: 'lazy_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    orderAccessToken: 'ord_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+    consentAccepted: true,
+    consentVersion: CURRENT_CONSENT_VERSION
+  };
+
+  // Wait for in-process server to bind and respond
+  let connected = false;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    try {
+      const ping = await fetchJson('http://127.0.0.1:3000/api/rank/top');
+      if (ping.status === 200) {
+        connected = true;
+        break;
+      }
+    } catch {
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+  assert.ok(connected, 'Server must be connected and ready on port 3000');
+
+  // 1. consentAccepted=false => rejected (400)
+  const resFalseConsent = await fetchJson('http://127.0.0.1:3000/api/payment/create-order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { ...baseOrderPayload, consentAccepted: false }
+  });
+  assert.strictEqual(resFalseConsent.status, 400, 'consentAccepted=false returns HTTP 400');
+  assert.ok(resFalseConsent.body?.error?.includes('affirmatively accept'), 'Rejection error explains consent required');
+
+  // 2. Stale consentVersion '2026-09-24' => rejected before order/provider creation (409)
+  const resStaleConsent = await fetchJson('http://127.0.0.1:3000/api/payment/create-order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { ...baseOrderPayload, consentVersion: '2026-09-24' }
+  });
+  assert.strictEqual(resStaleConsent.status, 409, 'Stale consentVersion 2026-09-24 returns HTTP 409');
+  assert.strictEqual(resStaleConsent.body?.currentConsentVersion, CURRENT_CONSENT_VERSION, '409 response specifies currentConsentVersion');
+  assert.ok(resStaleConsent.body?.error?.includes('Terms or policies have been updated'), '409 response explains terms updated');
+
+  // 3. Arbitrary 'old-policy-version' => rejected (409)
+  const resArbitraryConsent = await fetchJson('http://127.0.0.1:3000/api/payment/create-order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { ...baseOrderPayload, consentVersion: 'old-policy-version' }
+  });
+  assert.strictEqual(resArbitraryConsent.status, 409, 'Arbitrary stale consentVersion returns HTTP 409');
+  assert.strictEqual(resArbitraryConsent.body?.currentConsentVersion, CURRENT_CONSENT_VERSION, '409 response specifies currentConsentVersion');
+
+  // 4. Stale request creates ZERO payment orders in database
+  const getOrdersCount = async () => {
+    if (db.isPostgresAuthoritative()) {
+      const res = await pool.query('SELECT COUNT(*) FROM payment_orders');
+      return Number(res.rows[0].count);
+    }
+    return Object.keys((db as any).state?.orders || {}).length;
+  };
+
+  const countBefore = await getOrdersCount();
+  await fetchJson('http://127.0.0.1:3000/api/payment/create-order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { ...baseOrderPayload, consentVersion: '2026-09-24' }
+  });
+  const countAfter = await getOrdersCount();
+  assert.strictEqual(countBefore, countAfter, 'Stale consent request creates zero payment orders');
+
+  // 5. Stale request makes ZERO provider Create Order calls
+  let providerCalls = 0;
+  const originalCreateOrder = paymentManager.getProvider().createOrder.bind(paymentManager.getProvider());
+  paymentManager.getProvider().createOrder = async (...args: any[]) => {
+    providerCalls++;
+    return originalCreateOrder(...args);
+  };
+
+  await fetchJson('http://127.0.0.1:3000/api/payment/create-order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: { ...baseOrderPayload, consentVersion: '2026-09-24' }
+  });
+  assert.strictEqual(providerCalls, 0, 'Stale request makes zero provider Create Order calls');
+
+  // 6. Current CURRENT_CONSENT_VERSION => accepted through consent validation
+  paymentManager.getProvider().createOrder = async () => ({
+    orderId: 'mock_cf_' + Date.now(),
+    providerOrderId: 'cf_mock_order_123',
+    paymentSessionId: 'session_mock_' + Date.now(),
+    currency: 'INR',
+    amount: 250,
+    status: 'ACTIVE'
+  });
+
+  const resValidConsent = await fetchJson('http://127.0.0.1:3000/api/payment/create-order', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: baseOrderPayload
+  });
+  assert.strictEqual(resValidConsent.status, 200, 'Current CURRENT_CONSENT_VERSION is accepted with 200');
+  assert.ok(resValidConsent.body?.paymentSessionId, 'Valid consent checkout yields payment session');
+
+  // 7. CURRENT_CONSENT_VERSION remains included in database persistence
+  const persistedOrder = await db.getOrderAsync(resValidConsent.body.orderId);
+  assert.ok(persistedOrder, 'Order found in database');
+  assert.strictEqual(persistedOrder.consentVersion, CURRENT_CONSENT_VERSION, 'Database order strictly persisted with CURRENT_CONSENT_VERSION');
+
+  // Also verify PostgreSQL direct table insertion and persistence with CURRENT_CONSENT_VERSION
+  const directPgOrderId = 'order_pg_consent_test_' + Date.now();
+  await pg.createOrder({
+    orderId: directPgOrderId,
+    name: 'Direct PG Consent Test',
+    amount: 100,
+    currency: 'INR',
+    consentAccepted: true,
+    consentVersion: CURRENT_CONSENT_VERSION,
+    paymentMode: 'sandbox'
+  });
+  const pgOrderRow = await pool.query('SELECT consent_version FROM payment_orders WHERE order_id = $1', [directPgOrderId]);
+  assert.strictEqual(pgOrderRow.rows.length, 1, 'Direct PostgreSQL order persisted');
+  assert.strictEqual(pgOrderRow.rows[0].consent_version, CURRENT_CONSENT_VERSION, 'PostgreSQL table strictly stores CURRENT_CONSENT_VERSION');
+
+  // Restore provider and environment
+  paymentManager.getProvider().createOrder = originalCreateOrder;
+  (paymentManager as any).mode = origMode;
+  process.env.MERCHANT_TAX_BASIS = origTaxBasis;
+  process.env.MERCHANT_TAX_REVIEWED = origTaxReviewed;
+
+  pass('Real API requests prove strict enforcement: stale consent is rejected before order/provider creation, current consent is accepted and persisted');
 
   console.log('\n========================================================');
   console.log(`ALL PHASE 9 TESTS PASSED: ${passed} ASSERTIONS VERIFIED`);
   console.log('========================================================\n');
 
-  await pool.end();
+  try {
+    await pool.end();
+  } catch {}
   process.exit(0);
 }
 

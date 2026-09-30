@@ -447,7 +447,7 @@ async function startServer() {
       consentVersion: reqConsentVersion,
       ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
     } = req.body;
-    const consentVersion = (reqConsentVersion && typeof reqConsentVersion === 'string') ? reqConsentVersion.trim() : CURRENT_CONSENT_VERSION;
+
 
     const providedToken = (req.headers['x-profile-token'] as string) || bodyOwnerToken || pendingOwnerToken;
     const clientOrderAccessToken = (req.headers['x-order-access-token'] as string) || orderAccessToken;
@@ -489,6 +489,15 @@ async function startServer() {
     // Affirmative consent validation: must be explicitly true
     if (consentAccepted !== true) {
       return res.status(400).json({ error: 'You must affirmatively accept the Terms & Conditions and Privacy Policy to proceed.' });
+    }
+
+    // Authoritative checkout consent version enforcement: reject obsolete or mismatched versions
+    const consentVersion = typeof reqConsentVersion === 'string' ? reqConsentVersion.trim() : '';
+    if (consentVersion !== CURRENT_CONSENT_VERSION) {
+      return res.status(409).json({
+        error: 'Terms or policies have been updated. Please refresh the page, review the current policies, and consent again.',
+        currentConsentVersion: CURRENT_CONSENT_VERSION
+      });
     }
 
     // Customer phone validation: required 10-digit Indian mobile number

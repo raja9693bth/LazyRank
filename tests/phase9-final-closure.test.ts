@@ -7,6 +7,8 @@ import { PostgresDatabase, hashToken } from '../server/db/postgres.ts';
 import { isSafeLocalTestDatabase } from '../server.ts';
 import { computeCheckoutFingerprint, CheckoutIntentFields } from '../src/utils/checkoutContract.ts';
 import { CashfreeProvider } from '../server/payments/cashfree.ts';
+import { CURRENT_CONSENT_VERSION, CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION } from '../src/config/legal.ts';
+
 
 const TEST_DB_URL = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
 
@@ -133,7 +135,7 @@ async function runPhase9Tests() {
     reason: 'Proving my ultimate laziness',
     lazyReason: 'Procrastination Champion',
     consentAccepted: true,
-    consentVersion: '2026-09-24'
+    consentVersion: CURRENT_CONSENT_VERSION
   };
 
   const baseFp = computeCheckoutFingerprint(baseIntent);
@@ -699,6 +701,59 @@ async function runPhase9Tests() {
   assert.ok(recoveryDoc.includes('DO NOT REPEATEDLY REQUEST INDEXING'), 'Recovery doc cautions against spamming indexing requests');
   assert.ok(recoveryDoc.includes('TEST LIVE URL'), 'Recovery doc instructs TEST LIVE URL');
   pass('docs/GOOGLE_INDEXING_RECOVERY.md verified complete and accurate');
+
+  // 7.5 Authoritative Checkout & Legal Consent Version Synchronization
+  console.log('\n--- 7.5 Authoritative Checkout & Legal Consent Version Synchronization ---');
+  const { CURRENT_CONSENT_VERSION: serverConsentVer } = await import('../server.ts');
+  const { LEGAL_CONFIG } = await import('../src/config/legal.ts');
+  const actionPanelSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/ActionPanel.tsx'), 'utf-8');
+  const serverCode = fs.readFileSync(path.join(process.cwd(), 'server.ts'), 'utf-8');
+
+  // Verify authoritative shared constants
+  assert.strictEqual(CURRENT_CONSENT_VERSION, '2026-09-29', 'CURRENT_CONSENT_VERSION must be canonical 2026-09-29');
+  assert.strictEqual(LEGAL_CONFIG.CURRENT_CONSENT_VERSION, '2026-09-29', 'LEGAL_CONFIG.CURRENT_CONSENT_VERSION must match');
+  assert.strictEqual(serverConsentVer, CURRENT_CONSENT_VERSION, 'Server exported consent version matches shared constant');
+  assert.strictEqual(CURRENT_TERMS_VERSION, '2026-09-29', 'Terms version matches 2026-09-29');
+  assert.strictEqual(CURRENT_PRIVACY_VERSION, '2026-09-28', 'Privacy version matches 2026-09-28');
+
+  // Verify frontend ActionPanel uses shared CURRENT_CONSENT_VERSION
+  assert.ok(actionPanelSrc.includes('consentVersion: CURRENT_CONSENT_VERSION'), 'ActionPanel.tsx must use CURRENT_CONSENT_VERSION');
+  assert.ok(!actionPanelSrc.includes("consentVersion: '2026-09-24'"), 'ActionPanel.tsx must not hardcode stale consentVersion');
+
+  // Verify server create-order accepts and defaults to CURRENT_CONSENT_VERSION
+  assert.ok(serverCode.includes('reqConsentVersion.trim() : CURRENT_CONSENT_VERSION'), 'server.ts defaults to CURRENT_CONSENT_VERSION');
+  assert.ok(serverCode.includes('quoteVersion: CURRENT_CONSENT_VERSION'), 'quoteSnapshot uses CURRENT_CONSENT_VERSION');
+  assert.ok(serverCode.includes('consentVersion: consentVersion || CURRENT_CONSENT_VERSION'), 'createOrder stores validated consentVersion');
+
+  // Verify checkout fingerprint serializes the exact shared CURRENT_CONSENT_VERSION
+  const fpDefault = computeCheckoutFingerprint({
+    name: 'Consent Test User',
+    amount: 500,
+    consentAccepted: true
+  });
+  const parsedFpDefault = JSON.parse(fpDefault);
+  assert.strictEqual(parsedFpDefault.consentVersion, CURRENT_CONSENT_VERSION, 'Checkout fingerprint defaults to CURRENT_CONSENT_VERSION');
+
+  const fpExplicit = computeCheckoutFingerprint({
+    name: 'Consent Test User',
+    amount: 500,
+    consentAccepted: true,
+    consentVersion: CURRENT_CONSENT_VERSION
+  });
+  const parsedFpExplicit = JSON.parse(fpExplicit);
+  assert.strictEqual(parsedFpExplicit.consentVersion, CURRENT_CONSENT_VERSION, 'Checkout fingerprint matches CURRENT_CONSENT_VERSION');
+
+  // Re-verify that fingerprint detects any divergent consent version
+  const fpStale = computeCheckoutFingerprint({
+    name: 'Consent Test User',
+    amount: 500,
+    consentAccepted: true,
+    consentVersion: '2026-09-24'
+  });
+  assert.notStrictEqual(fpExplicit, fpStale, 'Fingerprint detects version divergence');
+
+  pass('Frontend, server persistence, and checkout fingerprint all synchronize on authoritative CURRENT_CONSENT_VERSION (2026-09-29)');
+
 
   console.log('\n========================================================');
   console.log(`ALL PHASE 9 TESTS PASSED: ${passed} ASSERTIONS VERIFIED`);

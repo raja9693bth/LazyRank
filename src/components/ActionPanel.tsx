@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { ArrowRight, Loader2, Globe, Instagram, Linkedin, MessageSquareQuote, ShieldCheck, Minus, Plus, Tag } from 'lucide-react';
 import { UserProfile } from '../types.ts';
 import { BROWSE_CATEGORIES } from '../utils/showcase.ts';
+import { CURRENT_CONSENT_VERSION } from '../config/legal.ts';
+
 
 interface ActionPanelProps {
   topAmount: number;
@@ -188,7 +190,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       ownerToken: storedOwnerToken,
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     });
   };
 

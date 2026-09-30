@@ -1,4 +1,9 @@
-import { LEGAL_CONFIG } from '../../src/config/legal.ts';
+import {
+  LEGAL_CONFIG,
+  CURRENT_CONSENT_VERSION,
+  CURRENT_TERMS_VERSION,
+  CURRENT_PRIVACY_VERSION
+} from '../../src/config/legal.ts';
 
 // Validate that environment overrides do not silently diverge from published identity
 const appUrl = process.env.APP_URL || LEGAL_CONFIG.APP_URL;
@@ -14,4 +19,9 @@ export const SERVER_LEGAL_CONFIG = {
   SUPPORT_PHONE_HREF: supportPhoneHref,
 };
 
-export { LEGAL_CONFIG };
+export {
+  LEGAL_CONFIG,
+  CURRENT_CONSENT_VERSION,
+  CURRENT_TERMS_VERSION,
+  CURRENT_PRIVACY_VERSION
+};

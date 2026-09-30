@@ -9,7 +9,13 @@ import { generateRoast, generateFallbackRoast } from './server/roast.ts';
 import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE_SEO } from './server/seo.ts';
 import { stripTrailingSlash } from './src/utils/seo.ts';
 import { computeCheckoutFingerprint } from './src/utils/checkoutContract.ts';
-import { SERVER_LEGAL_CONFIG } from './server/config/legal.ts';
+import {
+  SERVER_LEGAL_CONFIG,
+  CURRENT_CONSENT_VERSION,
+  CURRENT_TERMS_VERSION,
+  CURRENT_PRIVACY_VERSION
+} from './server/config/legal.ts';
+
 import { paymentManager } from './server/payments/index.ts';
 import { prerenderRoute } from './server/prerender.tsx';
 import { validateContact, ContactInput, hashToken, verifyOwnerToken, constantTimeMatch } from './server/db/postgres.ts';
@@ -96,8 +102,8 @@ function getClientIp(req: Request): string {
   return req.ip || req.socket.remoteAddress || 'unknown';
 }
 
-export const CURRENT_TERMS_VERSION = '2026-09-24';
-export const CURRENT_PRIVACY_VERSION = '2026-09-24';
+export { CURRENT_CONSENT_VERSION, CURRENT_TERMS_VERSION, CURRENT_PRIVACY_VERSION };
+
 
 const ADMIN_SECRET = process.env.ADMIN_KEY || process.env.ADMIN_SECRET;
 
@@ -441,7 +447,7 @@ async function startServer() {
       consentVersion: reqConsentVersion,
       ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
     } = req.body;
-    const consentVersion = (reqConsentVersion && typeof reqConsentVersion === 'string') ? reqConsentVersion.trim() : CURRENT_TERMS_VERSION;
+    const consentVersion = (reqConsentVersion && typeof reqConsentVersion === 'string') ? reqConsentVersion.trim() : CURRENT_CONSENT_VERSION;
 
     const providedToken = (req.headers['x-profile-token'] as string) || bodyOwnerToken || pendingOwnerToken;
     const clientOrderAccessToken = (req.headers['x-order-access-token'] as string) || orderAccessToken;
@@ -527,7 +533,7 @@ async function startServer() {
       taxBasis: isTaxReady()
         ? 'GST not charged: supplier verified unregistered under applicable registration rules'
         : 'GST status being verified — checkout unavailable',
-      quoteVersion: CURRENT_TERMS_VERSION,
+      quoteVersion: CURRENT_CONSENT_VERSION,
       timestamp: new Date().toISOString()
     };
 
@@ -672,7 +678,7 @@ async function startServer() {
         customerPhone: phoneStr,
         consentAccepted: true,
         consentTimestamp: new Date().toISOString(),
-        consentVersion: CURRENT_TERMS_VERSION
+        consentVersion: consentVersion || CURRENT_CONSENT_VERSION
       });
     } catch (createErr: any) {
       if (createErr?.code === '23505' || createErr?.message?.includes('duplicate key') || createErr?.message?.includes('idempotency')) {

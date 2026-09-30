@@ -18,6 +18,8 @@ import {
   safeWebsiteUrl
 } from '../src/components/ProfileCard.tsx';
 import { formatIllustrativeUSD } from '../src/utils/showcase.ts';
+import { CURRENT_CONSENT_VERSION } from '../src/config/legal.ts';
+
 
 console.log('\n========================================================');
 console.log('RUNNING SUITE 8: FRONTEND CONTRACT SMOKE TESTS');
@@ -111,7 +113,7 @@ async function runFrontendContractTests() {
       lazyReason: 'Sleep Enthusiast',
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: null,
     currentIdempotencyKey: null,
@@ -169,7 +171,7 @@ async function runFrontendContractTests() {
       customerPhone: '9876543210',
       consentAccepted: false, // FALSE: user did not check consent
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: null,
     currentIdempotencyKey: null,
@@ -207,7 +209,7 @@ async function runFrontendContractTests() {
       profileId: 'prof_unauthorized_999',
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: null,
     currentIdempotencyKey: null,
@@ -253,7 +255,7 @@ async function runFrontendContractTests() {
       profileId: 'prof_valid_123',
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: null,
     currentIdempotencyKey: null,
@@ -297,7 +299,7 @@ async function runFrontendContractTests() {
       customerPhone: '9876543210',
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: null,
     currentIdempotencyKey: null,
@@ -318,7 +320,7 @@ async function runFrontendContractTests() {
       customerPhone: '9876543210',
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: {
       name: 'Retry Sloth',
@@ -349,7 +351,7 @@ async function runFrontendContractTests() {
       customerPhone: '9876543210',
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: {
       name: 'Retry Sloth',
@@ -390,7 +392,7 @@ async function runFrontendContractTests() {
       customerPhone: '9876543210',
       consentAccepted: true,
       consentTimestamp: new Date().toISOString(),
-      consentVersion: '2026-09-24'
+      consentVersion: CURRENT_CONSENT_VERSION
     },
     lastAttempt: null,
     currentIdempotencyKey: null,

@@ -44,7 +44,7 @@ pass('Protected order access with order access token and zero owner token disclo
 
 // 2. Server-Authoritative Quote Snapshot & Affirmative Consent (C8)
 console.log('\n--- 2. Server-Authoritative Quote Snapshot & Affirmative Consent (C8) ---');
-assert.strictEqual(CURRENT_TERMS_VERSION, '2026-09-24', 'Current terms version must be canonical 2026-09-24');
+assert.strictEqual(CURRENT_TERMS_VERSION, '2026-09-29', 'Current terms version must be canonical 2026-09-29');
 assert.ok(serverSrc.includes('basePaise = parsedAmount * 100'), 'Quote calculates base amount in integer minor units (paise)');
 assert.ok(serverSrc.includes('totalPaise = basePaise + taxPaise + feePaise'), 'Quote calculates exact total in paise');
 assert.ok(serverSrc.includes('taxBasis:'), 'Quote provides documented tax basis');

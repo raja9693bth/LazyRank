@@ -1,5 +1,6 @@
 // Frontend Checkout & Payment Contract Implementation
 // Strictly maintains the front-to-back payment contracts specified in server.ts:306-389
+import { CURRENT_CONSENT_VERSION } from '../config/legal.ts';
 
 export interface PendingCheckout {
   ownerToken: string;
@@ -171,7 +172,7 @@ export function computeCheckoutFingerprint(fields: CheckoutIntentFields): string
   const norm = {
     amount: Math.round(Number(fields.amount) || 0),
     consentAccepted: fields.consentAccepted === true,
-    consentVersion: (fields.consentVersion || '').trim(),
+    consentVersion: (fields.consentVersion ? fields.consentVersion : CURRENT_CONSENT_VERSION).trim(),
     customerEmail: (fields.customerEmail || '').trim().toLowerCase(),
     customerPhone: (fields.customerPhone || '').trim(),
     instagram: (fields.instagram || '').trim(),

@@ -66,7 +66,16 @@ export const LEGAL_CONFIG = {
 
   // Tax Disclosure
   TAX_DISCLOSURE:
-    'Amounts are displayed in INR. Applicable taxes, if any, will be handled in accordance with applicable law.'
+    'Amounts are displayed in INR. Applicable taxes, if any, will be handled in accordance with applicable law.',
+
+  // Authoritative Checkout & Legal Consent Versions
+  CURRENT_CONSENT_VERSION: '2026-09-29',
+  CURRENT_TERMS_VERSION: '2026-09-29',
+  CURRENT_PRIVACY_VERSION: '2026-09-28'
 } as const;
+
+export const CURRENT_CONSENT_VERSION = LEGAL_CONFIG.CURRENT_CONSENT_VERSION;
+export const CURRENT_TERMS_VERSION = LEGAL_CONFIG.CURRENT_TERMS_VERSION;
+export const CURRENT_PRIVACY_VERSION = LEGAL_CONFIG.CURRENT_PRIVACY_VERSION;
 
 export type LegalConfig = typeof LEGAL_CONFIG;

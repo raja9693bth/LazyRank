@@ -161,6 +161,55 @@ export function isSafeLocalTestDatabase(url?: string): boolean {
   }
 }
 
+export function sanitizeCanonicalPathAndQuery(inputUrl: string): string {
+  if (!inputUrl || typeof inputUrl !== 'string') {
+    return '/';
+  }
+
+  // Reject CR, LF, null byte, and all ASCII control characters
+  if (/[\r\n\0\t\x00-\x1F\x7F]/.test(inputUrl)) {
+    return '/';
+  }
+
+  // Reject backslashes (which browsers may normalize to slashes leading to open redirect)
+  if (inputUrl.includes('\\')) {
+    return '/';
+  }
+
+  // Must begin with a single forward slash and cannot be protocol-relative '//'
+  if (!inputUrl.startsWith('/') || inputUrl.startsWith('//')) {
+    return '/';
+  }
+
+  try {
+    // Parse against an inert trusted dummy base
+    const inertBase = 'http://127.0.0.1';
+    const parsed = new URL(inputUrl, inertBase);
+
+    // Host and origin must remain strictly identical to inert base
+    if (parsed.origin !== inertBase || parsed.hostname !== '127.0.0.1') {
+      return '/';
+    }
+
+    // Pathname must begin with single slash and not contain backslashes or leading double slash
+    if (!parsed.pathname.startsWith('/') || parsed.pathname.startsWith('//') || parsed.pathname.includes('\\')) {
+      return '/';
+    }
+
+    const safePathAndQuery = `${parsed.pathname}${parsed.search}`;
+
+    // Verify constructed URL on canonical origin
+    const canonicalTarget = new URL(safePathAndQuery, 'https://lazyproof.online');
+    if (canonicalTarget.origin !== 'https://lazyproof.online' || canonicalTarget.hostname !== 'lazyproof.online') {
+      return '/';
+    }
+
+    return safePathAndQuery;
+  } catch {
+    return '/';
+  }
+}
+
 export function getCanonicalRedirectUrl(
   host: string,
   proto: string,
@@ -175,7 +224,12 @@ export function getCanonicalRedirectUrl(
   const isHttp = cleanProto === 'http';
 
   if (isWww || (isApex && isHttp)) {
-    return `https://lazyproof.online${originalUrl}`;
+    const safePathAndQuery = sanitizeCanonicalPathAndQuery(originalUrl);
+    const targetUrl = new URL(safePathAndQuery, 'https://lazyproof.online');
+    if (targetUrl.origin === 'https://lazyproof.online' && targetUrl.hostname === 'lazyproof.online') {
+      return targetUrl.href;
+    }
+    return 'https://lazyproof.online/';
   }
   return null;
 }
@@ -267,7 +321,15 @@ async function startServer() {
 
     const redirectUrl = getCanonicalRedirectUrl(host, proto, req.originalUrl, process.env.NODE_ENV === 'production');
     if (redirectUrl) {
-      return res.redirect(301, redirectUrl);
+      try {
+        const dest = new URL(redirectUrl);
+        if (dest.origin === 'https://lazyproof.online' && dest.hostname === 'lazyproof.online') {
+          return res.redirect(301, dest.href);
+        }
+      } catch {
+        // Fallback to canonical home
+      }
+      return res.redirect(301, 'https://lazyproof.online/');
     }
     next();
   });

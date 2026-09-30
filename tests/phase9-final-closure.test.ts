@@ -694,8 +694,8 @@ async function runPhase9Tests() {
   assert.strictEqual(app.provider['@id'], 'https://lazyproof.online/#organization', 'WebApplication provider references authoritative Organization @id');
   pass('Homepage Schema.org structured data graph contains authoritative Organization, WebSite and WebApplication nodes with zero duplicates');
 
-  // 7.3 Canonical Host & Protocol Redirect Logic
-  const { getCanonicalRedirectUrl } = await import('../server.ts');
+  // 7.3 Canonical Host & Protocol Redirect Logic and Open-Redirect Security
+  const { getCanonicalRedirectUrl, sanitizeCanonicalPathAndQuery } = await import('../server.ts');
   assert.strictEqual(
     getCanonicalRedirectUrl('lazyproof.online', 'http', '/about?x=1', true),
     'https://lazyproof.online/about?x=1',
@@ -726,7 +726,47 @@ async function runPhase9Tests() {
     null,
     'Non-production local development passes through without redirect'
   );
-  pass('Canonical redirect matrix correctly consolidates HTTP, www, and preserves paths and query strings');
+
+  // Security Regression Tests: Open Redirect Prevention (Sonar S5146)
+  const maliciousInputs = [
+    '//evil.example',
+    '///evil.example',
+    'https://evil.example',
+    'http://evil.example',
+    'javascript:alert(1)',
+    'data:text/html,evil',
+    '\\evil.example',
+    '\\\\evil.example',
+    '/\\evil.example',
+    '/about\r\nSet-Cookie:bad=1',
+    '/about\nLocation:http://evil.example',
+    '/about\0test',
+    '//attacker.com/evil',
+    '/evil%2f%2fexample.com'
+  ];
+
+  for (const malicious of maliciousInputs) {
+    const sanitized = sanitizeCanonicalPathAndQuery(malicious);
+    assert.ok(sanitized.startsWith('/'), `Sanitized path must start with / for ${malicious}`);
+    assert.ok(!sanitized.startsWith('//'), `Sanitized path must not be protocol-relative for ${malicious}`);
+    assert.ok(!sanitized.includes('\\'), `Sanitized path must not contain backslashes for ${malicious}`);
+    assert.ok(!/[\r\n\0]/.test(sanitized), `Sanitized path must not contain CR/LF/null for ${malicious}`);
+
+    const redirected = getCanonicalRedirectUrl('www.lazyproof.online', 'https', malicious, true);
+    assert.ok(redirected !== null, `Must generate canonical redirect for ${malicious}`);
+    const dest = new URL(redirected!);
+    assert.strictEqual(dest.origin, 'https://lazyproof.online', `Origin must strictly be https://lazyproof.online for ${malicious}`);
+    assert.strictEqual(dest.hostname, 'lazyproof.online', `Hostname must strictly be lazyproof.online for ${malicious}`);
+  }
+
+  // Legitimate paths and query strings preserved
+  const legitimatePaths = ['/about', '/about?x=1', '/pricing', '/profile/claim_test_123', '/rules'];
+  for (const legit of legitimatePaths) {
+    const res = getCanonicalRedirectUrl('www.lazyproof.online', 'https', legit, true);
+    assert.strictEqual(res, `https://lazyproof.online${legit}`, `Legitimate path preserved: ${legit}`);
+  }
+
+  pass('Canonical redirect matrix and open-redirect security invariants verified with zero bypasses');
 
   // 7.4 Google Indexing Recovery Documentation
   const recoveryDoc = fs.readFileSync(path.join(process.cwd(), 'docs/GOOGLE_INDEXING_RECOVERY.md'), 'utf-8');

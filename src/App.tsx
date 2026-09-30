@@ -202,7 +202,7 @@ export default function App() {
     setCurrentPeriod(newPeriod);
     setCurrentPage(1);
     setProfiles([]);
-    loadLeaderboard(0, 20, 'verified', false, newPeriod);
+    void loadLeaderboard(0, 20, 'verified', false, newPeriod);
   };
 
   const handleLoadMore = () => {
@@ -210,7 +210,7 @@ export default function App() {
     setIsLoadingMore(true);
     const nextPage = currentPage + 1;
     setCurrentPage(nextPage);
-    loadLeaderboard((nextPage - 1) * 20, 20, 'verified', true, currentPeriod);
+    void loadLeaderboard((nextPage - 1) * 20, 20, 'verified', true, currentPeriod);
   };
 
   // Load Permanent All-Time Top 3 & Top Profile
@@ -285,16 +285,16 @@ export default function App() {
 
   // Initial Load + URL parameter triage
   useEffect(() => {
-    loadLeaderboard();
-    loadAllTimeTop3();
-    loadActivities();
-    loadGlobalActivity();
-    loadLiveStats();
+    void loadLeaderboard();
+    void loadAllTimeTop3();
+    void loadActivities();
+    void loadGlobalActivity();
+    void loadLiveStats();
 
     // Periodic live stats polling (every 25s)
     const statsInterval = setInterval(() => {
-      loadLiveStats();
-      loadGlobalActivity();
+      void loadLiveStats();
+      void loadGlobalActivity();
     }, 25000);
 
     // Track homepage view
@@ -336,7 +336,7 @@ export default function App() {
           setOrderError(result.error);
         }
       };
-      pollReturnOrder();
+      void pollReturnOrder();
       return () => {
         cancelled = true;
       };
@@ -394,9 +394,9 @@ export default function App() {
 
     const doRefresh = () => {
       lastRefreshedIstDate = new Date(Date.now() + 5.5 * 3600 * 1000).getUTCDate();
-      loadGlobalActivity();
-      loadAllTimeTop3();
-      loadLeaderboard(0, 20, 'verified', false, currentPeriod);
+      void loadGlobalActivity();
+      void loadAllTimeTop3();
+      void loadLeaderboard(0, 20, 'verified', false, currentPeriod);
       scheduleNext();
     };
 
@@ -575,10 +575,10 @@ export default function App() {
 
     window.history.pushState({}, '', `/profile/${encodeURIComponent(profile.id)}`);
 
-    loadLeaderboard(0, 20, 'verified', false);
-    loadAllTimeTop3();
-    loadActivities();
-    loadGlobalActivity();
+    void loadLeaderboard(0, 20, 'verified', false);
+    void loadAllTimeTop3();
+    void loadActivities();
+    void loadGlobalActivity();
   };
 
   // Upgrading existing rank
@@ -610,7 +610,7 @@ export default function App() {
         if (selectedProfile && selectedProfile.id === profileId) {
           setSelectedProfile(data.profile);
         }
-        loadActivities();
+        void loadActivities();
       }
     } catch (err) {
       console.warn('Network error voting for profile:', err);
@@ -737,7 +737,7 @@ export default function App() {
                 onUpgradeRank={handleUpgradeRank}
                 onProfileUpdated={(updatedProfile) => {
                   setSelectedProfile(updatedProfile);
-                  loadLeaderboard();
+                  void loadLeaderboard();
                 }}
               />
             ) : (
@@ -750,7 +750,7 @@ export default function App() {
                   minAmountToBeatTop={minAmountToBeatTop}
                   isLoadingMinAmount={isLoadingLeaderboard && profiles.length === 0}
                   hasLeaderboardError={leaderboardError}
-                  onRetryLeaderboard={() => loadLeaderboard(0, 20, 'verified', false, currentPeriod)}
+                  onRetryLeaderboard={() => void loadLeaderboard(0, 20, 'verified', false, currentPeriod)}
                   onClaimAmount={handleHeroClaim}
                   currencyMode={currencyMode}
                   canClaim={paymentConfig.enabled && paymentConfig.taxReady}
@@ -781,7 +781,7 @@ export default function App() {
                       onClaimSpecificRank={(target) => handleOpenDrawerWithClaim(target)}
                       isLoading={isLoadingLeaderboard}
                       hasError={leaderboardError}
-                      onRetry={() => loadLeaderboard(0, 20, 'verified', false, currentPeriod)}
+                      onRetry={() => void loadLeaderboard(0, 20, 'verified', false, currentPeriod)}
                       totalCount={totalCount}
                       hasMore={hasMore}
                       onLoadMore={handleLoadMore}
@@ -869,10 +869,10 @@ export default function App() {
           if (selectedProfile && selectedProfile.id === updatedProfile.id) {
             setSelectedProfile(updatedProfile);
           }
-          loadLeaderboard();
-          loadAllTimeTop3();
-          loadActivities();
-          loadGlobalActivity();
+          void loadLeaderboard();
+          void loadAllTimeTop3();
+          void loadActivities();
+          void loadGlobalActivity();
         }}
         onNavigateToClaim={() => {
           setSelectedProfile(null);
@@ -904,8 +904,8 @@ export default function App() {
           if (selectedProfile && selectedProfile.id === updatedProfile.id) {
             setSelectedProfile(updatedProfile);
           }
-          loadLeaderboard();
-          loadAllTimeTop3();
+          void loadLeaderboard();
+          void loadAllTimeTop3();
         }}
       />
 
@@ -933,7 +933,7 @@ export default function App() {
         targetType="profile"
         onReportSubmitted={() => {
           setReportingTargetId(null);
-          loadLeaderboard();
+          void loadLeaderboard();
         }}
       />
 
@@ -942,10 +942,10 @@ export default function App() {
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
         onRefreshLeaderboard={() => {
-          loadLeaderboard();
-          loadAllTimeTop3();
-          loadActivities();
-          loadGlobalActivity();
+          void loadLeaderboard();
+          void loadAllTimeTop3();
+          void loadActivities();
+          void loadGlobalActivity();
         }}
       />
 

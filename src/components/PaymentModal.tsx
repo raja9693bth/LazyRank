@@ -107,7 +107,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
         if (data.status === 'PAID' && data.profile) {
           clearInterval(pollIntervalRef.current);
-          handleSuccess(data.profile, data.ownerToken, orderId);
+          await handleSuccess(data.profile, data.ownerToken, orderId);
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
           clearInterval(pollIntervalRef.current);
           setStep('error');
@@ -259,7 +259,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         throw new Error(data.error || 'Payment verification failed.');
       }
 
-      handleSuccess(data.profile, data.ownerToken, orderData.orderId);
+      await handleSuccess(data.profile, data.ownerToken, orderData.orderId);
     } catch (err: any) {
       setStep('error');
       setErrorMessage(err?.message || 'Sandbox verification failed.');

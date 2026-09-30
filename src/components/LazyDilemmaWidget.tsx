@@ -49,7 +49,7 @@ export const LazyDilemmaWidget: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchDilemma();
+    void fetchDilemma();
   }, []);
 
   const handleVote = async (optionId: string) => {

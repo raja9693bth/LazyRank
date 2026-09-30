@@ -32,9 +32,11 @@ export const GlobalActivityHeatmap: React.FC<GlobalActivityHeatmapProps> = ({
   }, []);
 
   useEffect(() => {
-    fetchGlobalActivity();
+    void fetchGlobalActivity();
     // Non-intrusive polling every 30 seconds for live updates
-    const interval = setInterval(fetchGlobalActivity, 30000);
+    const interval = setInterval(() => {
+      void fetchGlobalActivity();
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchGlobalActivity, refreshTrigger]);
 

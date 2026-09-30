@@ -209,7 +209,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
     // Auto-fetch roast if not already present on profile
     if (!profile.roast && profile.id) {
-      fetchRoast(false);
+      void fetchRoast(false);
     }
   }, [profile.id, isNewClaim]);
 
@@ -1159,7 +1159,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
 
               <button
                 type="button"
-                onClick={() => fetchRoast(true)}
+                onClick={() => void fetchRoast(true)}
                 disabled={isGeneratingRoast}
                 aria-label="Regenerate AI roast"
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white hover:bg-zinc-100 border border-zinc-200 text-zinc-700 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 shadow-2xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
@@ -1192,7 +1192,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
               <span className="text-xs text-zinc-600">Want a personalized roast for this rank?</span>
               <button
                 type="button"
-                onClick={() => fetchRoast(false)}
+                onClick={() => void fetchRoast(false)}
                 aria-label="Generate AI roast for this rank"
                 className="px-3 py-1.5 rounded-lg bg-zinc-950 hover:bg-zinc-800 text-white text-xs font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2"
               >

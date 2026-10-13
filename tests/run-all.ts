@@ -19,7 +19,8 @@ const suites: SuiteDef[] = [
   { name: 'Suite 11: Phase 6 Payment & Reconciliation Hardening', file: 'tests/phase6-payment-reconciliation-hardening.test.ts' },
   { name: 'Suite 12: Phase 7 Frontend Interaction & Data Truth', file: 'tests/phase7-frontend-interaction-truth.test.ts' },
   { name: 'Suite 13: Phase 8 Payment Reconciliation & Refunds', file: 'tests/phase8-payment-reconciliation-refunds.test.ts' },
-  { name: 'Suite 14: Phase 9 Final Closure & Search Readiness', file: 'tests/phase9-final-closure.test.ts' }
+  { name: 'Suite 14: Phase 9 Final Closure & Search Readiness', file: 'tests/phase9-final-closure.test.ts' },
+  { name: 'Suite 15: Dodo Payments Integration', file: 'tests/dodo-payments.test.ts' }
 ];
 
 console.log('\n========================================================');

@@ -325,6 +325,19 @@ export class PostgresDatabase {
           console.log('[PostgreSQL] Migration 007_reconciliation_retries applied successfully.');
         }
 
+        // 9. Check and apply migration 008_dodo_payments if not already recorded
+        const mig008Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '008_dodo_payments'"
+        );
+        if (mig008Res.rows.length === 0) {
+          const mig008Path = path.join(process.cwd(), 'server', 'db', 'migrations', '008_dodo_payments.sql');
+          if (fs.existsSync(mig008Path)) {
+            const mig008Sql = fs.readFileSync(mig008Path, 'utf-8');
+            await client.query(mig008Sql);
+            console.log('[PostgreSQL] Migration 008_dodo_payments applied successfully.');
+          }
+        }
+
         this.isInitialized = true;
         console.log('[PostgreSQL] Database schema verified and up to date.');
         return true;
@@ -418,6 +431,7 @@ export class PostgresDatabase {
       provider: r.provider,
       providerOrderId: r.provider_order_id || undefined,
       paymentSessionId: r.payment_session_id || undefined,
+      checkoutUrl: r.checkout_url || undefined,
       idempotencyKey: r.idempotency_key || undefined,
       paymentRef: r.cf_payment_id || undefined,
       customerEmail: r.customer_email || undefined,
@@ -465,9 +479,10 @@ export class PostgresDatabase {
       `UPDATE payment_orders SET
         payment_session_id = COALESCE($1, payment_session_id),
         provider_order_id = COALESCE($2, provider_order_id),
+        checkout_url = COALESCE($3, checkout_url),
         updated_at = NOW()
-       WHERE order_id = $3`,
-      [paymentSessionId || null, providerOrderId || null, orderId]
+       WHERE order_id = $4`,
+      [paymentSessionId || null, providerOrderId || null, checkoutUrl || null, orderId]
     );
   }
 

@@ -924,6 +924,7 @@ export class LazyDatabase {
     customerEmail?: string;
     customerPhone?: string;
     paymentMode?: string;
+    provider?: string;
     consentAccepted?: boolean;
     consentTimestamp?: string;
     consentVersion?: string;
@@ -933,7 +934,7 @@ export class LazyDatabase {
         ...order,
         currency: order.currency || 'INR',
         paymentMode: order.paymentMode || process.env.PAYMENT_MODE || 'disabled',
-        provider: 'cashfree'
+        provider: order.provider || 'cashfree'
       });
       return await this.pg.getOrder(order.orderId);
     }

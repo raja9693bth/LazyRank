@@ -23,6 +23,7 @@ interface PaymentModalProps {
     website?: string;
     twitter?: string;
     reason?: string;
+    provider?: string;
     paymentMode?: string;
   } | null;
   isOpen: boolean;
@@ -50,7 +51,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   useEffect(() => {
     if (isOpen && orderData) {
-      if (orderData.paymentMode === 'disabled' || !orderData.paymentSessionId) {
+      const hasCheckoutSession = Boolean(orderData.paymentSessionId || orderData.checkoutUrl);
+      if (orderData.paymentMode === 'disabled' || !hasCheckoutSession) {
         setStep('disabled');
       } else {
         setStep('checkout');
@@ -169,10 +171,23 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setStep('success');
   };
 
-  const handleLaunchCashfreeCheckout = async () => {
+  const handleLaunchCheckout = async () => {
     setErrorMessage(null);
 
-    // Dynamically load Cashfree Web SDK on demand
+    // If Dodo checkout or hosted checkoutUrl without Cashfree session ID
+    if (orderData.provider === 'dodo' || (!orderData.paymentSessionId && orderData.checkoutUrl)) {
+      if (orderData.checkoutUrl) {
+        setStep('polling');
+        window.location.href = orderData.checkoutUrl;
+        startStatusPolling(orderData.orderId);
+      } else {
+        setStep('checkout');
+        setErrorMessage('Payment checkout URL could not load. Please retry.');
+      }
+      return;
+    }
+
+    // Cashfree Web SDK path
     if (orderData.paymentSessionId) {
       await loadCashfreeSdk();
     }
@@ -333,7 +348,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-zinc-600">
                   <span className="font-semibold">Intended Payment Provider / Gateway Under Review:</span>
-                  <span className="font-bold text-amber-700">Cashfree Payments India Pvt Ltd</span>
+                  <span className="font-bold text-amber-700">
+                    {orderData?.provider === 'dodo' ? 'Dodo Payments' : 'Cashfree Payments India Pvt Ltd'}
+                  </span>
                 </div>
               </div>
 
@@ -344,7 +361,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <span>Payment Gateway Onboarding in Progress</span>
                 </div>
                 <p className="text-xs text-amber-800 leading-relaxed">
-                  LazyProof is currently completing commercial merchant onboarding and verification with Cashfree Payments.
+                  LazyProof is currently completing commercial merchant onboarding and verification with {orderData?.provider === 'dodo' ? 'Dodo Payments' : 'Cashfree Payments'}.
                 </p>
                 <p className="text-[11px] text-amber-700 leading-relaxed">
                   Live payment collection can be enabled after merchant approval, valid live credentials, tax readiness and controlled production validation. No charges have been debited, and no fake QR codes or simulated transactions are permitted on this production domain.
@@ -404,7 +421,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
                 <div className="flex items-center justify-between text-zinc-600">
                   <span>Payment Gateway:</span>
-                  <span className="font-bold text-emerald-700">Cashfree PG (Secured)</span>
+                  <span className="font-bold text-emerald-700">
+                    {orderData.provider === 'dodo' ? 'Dodo Payments (Secured)' : 'Cashfree PG (Secured)'}
+                  </span>
                 </div>
               </div>
 
@@ -416,7 +435,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={handleLaunchCashfreeCheckout}
+                    onClick={handleLaunchCheckout}
                     className="px-3 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs cursor-pointer"
                   >
                     Retry Checkout
@@ -427,10 +446,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               <div className="pt-2 space-y-2">
                 <button
                   type="button"
-                  onClick={handleLaunchCashfreeCheckout}
+                  onClick={handleLaunchCheckout}
                   className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white font-black text-sm shadow-xs transition-all cursor-pointer"
                 >
-                  <span>PROCEED TO CASHFREE CHECKOUT</span>
+                  <span>{orderData.provider === 'dodo' ? 'PROCEED TO DODO PAYMENTS CHECKOUT' : 'PROCEED TO CASHFREE CHECKOUT'}</span>
                   <ExternalLink className="w-4 h-4 text-white" />
                 </button>
 

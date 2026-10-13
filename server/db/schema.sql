@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS payment_orders (
   provider VARCHAR(30) NOT NULL DEFAULT 'cashfree',
   provider_order_id VARCHAR(100),
   payment_session_id VARCHAR(255),
+  checkout_url TEXT,
   idempotency_key VARCHAR(128),
   cf_payment_id VARCHAR(100),
   customer_email VARCHAR(120),

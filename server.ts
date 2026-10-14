@@ -297,9 +297,9 @@ async function startServer() {
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https: blob:",
       isProd
-        ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com"
-        : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
-      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
+        ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com"
+        : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com",
+      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com",
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'"
@@ -520,6 +520,12 @@ async function startServer() {
       return res.status(400).json({ error: 'Payment amount must be a whole integer between ₹1 and ₹10,00,000.' });
     }
 
+    if (paymentManager.getProvider().name === 'dodo' && parsedAmount < 5) {
+      return res.status(400).json({
+        error: 'Dodo Payments requires a minimum one-time payment of ₹5 and a USD-equivalent minimum of $0.50 (subject to provider conversion).'
+      });
+    }
+
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'Display name is required.' });
     }
@@ -705,6 +711,7 @@ async function startServer() {
         paymentSessionId: existingOrder.paymentSessionId,
         checkoutUrl: existingOrder.checkoutUrl,
         providerOrderId: existingOrder.providerOrderId,
+        provider: existingOrder.provider || paymentManager.getProvider().name,
         idempotencyKey,
         name: existingOrder.name,
         amount: existingOrder.amount,
@@ -734,6 +741,7 @@ async function startServer() {
         amount: parsedAmount,
         currency: 'INR',
         profileId,
+        provider: paymentManager.getProvider().name,
         ownerToken: providedToken,
         orderAccessToken: clientOrderAccessToken,
         quoteSnapshot,
@@ -840,6 +848,7 @@ async function startServer() {
             paymentSessionId: concurrentOrder.paymentSessionId,
             checkoutUrl: concurrentOrder.checkoutUrl,
             providerOrderId: concurrentOrder.providerOrderId,
+            provider: concurrentOrder.provider || paymentManager.getProvider().name,
             idempotencyKey,
             name: concurrentOrder.name,
             amount: concurrentOrder.amount,
@@ -888,6 +897,7 @@ async function startServer() {
         paymentSessionId: providerOrder.paymentSessionId,
         checkoutUrl: providerOrder.checkoutUrl,
         providerOrderId: providerOrder.providerOrderId,
+        provider: paymentManager.getProvider().name,
         idempotencyKey,
         name: name.trim(),
         amount: parsedAmount,
@@ -1040,7 +1050,8 @@ async function startServer() {
     // Allow initial settlement ONLY from CREATED/PENDING with exact INR paise checks
     if (paymentManager.isEnabled() && (order.status === 'CREATED' || order.status === 'PENDING')) {
       try {
-        const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
+        const orderProvider = paymentManager.getProviderFor(order.provider);
+        const providerStatus = await orderProvider.getPaymentStatus(orderId);
         if (providerStatus.status === 'PAID') {
           const providerPaise = toSafePaise(providerStatus.amount);
           const orderPaise = toSafePaise(order.amount);
@@ -1053,7 +1064,7 @@ async function startServer() {
             const settlement = await db.pg.settlePaymentAtomic({
               orderId,
               providerPaymentId: providerStatus.providerPaymentId.trim(),
-              provider: 'cashfree',
+              provider: order.provider || orderProvider.name,
               amount: providerPaise / 100,
               currency: 'INR',
               status: 'PAID',
@@ -1166,29 +1177,54 @@ async function startServer() {
     }
     const rawBodyStr = rawBodyBuf.toString('utf8');
 
-    // Authoritative Cashfree Webhook Enforcement
+    // Authoritative Webhook Signature Enforcement
     // Missing timestamp or signature must fail closed in both sandbox and production.
     // Generic webhook settlement is disabled in production/live mode.
-    const webhookTimestamp = req.headers['x-webhook-timestamp'];
-    const webhookSignature = req.headers['x-webhook-signature'];
-    if (!webhookTimestamp || !webhookSignature) {
-      checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
-      return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+    const isDodoWebhook = Boolean(req.headers['webhook-signature'] || req.headers['webhook-id']);
+    let webhookProvider = paymentManager.getProvider();
+    let headerWebhookId: string | undefined;
+
+    if (isDodoWebhook) {
+      webhookProvider = paymentManager.getProviderFor('dodo');
+      const dodoId = req.headers['webhook-id'];
+      const dodoTimestamp = req.headers['webhook-timestamp'];
+      const dodoSignature = req.headers['webhook-signature'];
+      if (!dodoId || !dodoTimestamp || !dodoSignature) {
+        checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
+        return res.status(401).json({ error: 'Missing authoritative Dodo webhook signature headers.' });
+      }
+      headerWebhookId = typeof dodoId === 'string' ? dodoId : undefined;
+    } else {
+      webhookProvider = paymentManager.getProviderFor('cashfree');
+      const webhookTimestamp = req.headers['x-webhook-timestamp'];
+      const webhookSignature = req.headers['x-webhook-signature'];
+      if (!webhookTimestamp || !webhookSignature) {
+        checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
+        return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+      }
+      const cfId = req.headers['x-webhook-id'];
+      headerWebhookId = typeof cfId === 'string' ? cfId : undefined;
     }
 
-    const verification = await paymentManager.getProvider().verifyWebhook(rawBodyStr, req.headers as any);
+    const verification = await webhookProvider.verifyWebhook(rawBodyStr, req.headers as any);
     if (!verification.isValid) {
       checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
-      return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
+      return res.status(401).json({
+        error: verification.error || (isDodoWebhook ? 'Invalid Dodo webhook signature.' : 'Invalid Cashfree webhook signature.')
+      });
     }
 
-      // Generate event ID from validated x-webhook-id or rawBody hash (excluding timestamp so retries share event ID)
-      const headerWebhookId = req.headers['x-webhook-id'];
+      // Generate event ID from validated webhook ID or rawBody hash (excluding timestamp so retries share event ID)
       let eventId: string;
       if (typeof headerWebhookId === 'string' && headerWebhookId.trim().length > 0 && headerWebhookId.trim().length <= 128) {
         eventId = headerWebhookId.trim();
       } else {
         eventId = `wh_${crypto.createHash('sha256').update(rawBodyBuf).digest('hex').slice(0, 32)}`;
+      }
+
+      // Fast-path deduplication: if this exact webhook event was already recorded, acknowledge immediately
+      if (await db.isWebhookEventProcessed(eventId)) {
+        return res.json({ received: true, processed: true, duplicate: true, message: 'Webhook event already processed.' });
       }
 
       if ((verification.status === 'REFUNDED' || verification.refund) && verification.orderId) {
@@ -1210,9 +1246,11 @@ async function startServer() {
 
         if (refundStatus === 'SUCCESS') {
           // Authoritative server-to-server verification before reversing
-          if (paymentManager.isEnabled() && paymentManager.getProvider()?.isConfigured()) {
+          const refundOrder = await db.getOrderAsync(orderId);
+          const refundProvider = paymentManager.getProviderFor(refundOrder?.provider || webhookProvider.name);
+          if (paymentManager.isEnabled() && refundProvider?.isConfigured()) {
             try {
-              const authStatus = await paymentManager.getProvider().getRefundStatus(orderId, merchantRefundId);
+              const authStatus = await refundProvider.getRefundStatus(orderId, merchantRefundId);
               if (
                 authStatus.status !== 'SUCCESS' ||
                 authStatus.orderId !== orderId ||
@@ -1234,7 +1272,7 @@ async function startServer() {
           const reversed = await db.reverseRefund(
             orderId,
             refundAmount,
-            'Cashfree webhook refund confirmation',
+            `${refundOrder?.provider === 'dodo' ? 'Dodo' : 'Cashfree'} webhook refund confirmation`,
             merchantRefundId,
             providerRefundId,
             'INR'
@@ -1273,13 +1311,15 @@ async function startServer() {
           return res.json({ received: true, processed: true, message: 'Order already completed.' });
         }
 
-        // Gateway reconciliation: call /orders/{id}/payments to verify directly with provider
+        // Gateway reconciliation: call provider to verify directly
         let providerPaymentId = verification.providerPaymentId;
         let paymentMethod = verification.paymentMethod || 'UPI';
         let verifiedAmountINR = order.amount;
 
+        const orderProvider = paymentManager.getProviderFor(order.provider || webhookProvider.name);
+
         if (paymentManager.isEnabled()) {
-          const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
+          const providerStatus = await orderProvider.getPaymentStatus(orderId);
           if (providerStatus.status !== 'PAID' || !providerStatus.providerPaymentId) {
             return res.status(503).json({ error: 'Gateway payment record not in PAID state.' });
           }
@@ -1307,7 +1347,7 @@ async function startServer() {
           const settlementResult = await db.pg.settlePaymentAtomic({
             orderId,
             providerPaymentId: providerPaymentId.trim(),
-            provider: 'cashfree',
+            provider: order.provider || webhookProvider.name,
             amount: verifiedAmountINR,
             currency: 'INR',
             status: 'PAID',
@@ -1462,7 +1502,8 @@ async function startServer() {
 
     if (paymentManager.isEnabled()) {
       try {
-        const providerRes = await paymentManager.getProvider().createRefund({
+        const refundProvider = paymentManager.getProviderFor(order.provider);
+        const providerRes = await refundProvider.createRefund({
           orderId,
           refundId: merchantRefundId,
           amount: amountINR,
@@ -1493,7 +1534,9 @@ async function startServer() {
         }
 
         if (providerRes.status === 'SUCCESS') {
-          let providerRefundId = providerRes.raw?.cf_refund_id ? String(providerRes.raw.cf_refund_id) : merchantRefundId;
+          let providerRefundId = (providerRes.raw?.refund_id || providerRes.raw?.cf_refund_id)
+            ? String(providerRes.raw.refund_id || providerRes.raw.cf_refund_id)
+            : merchantRefundId;
           const providerCurrency = providerRes.raw?.refund_currency || providerRes.raw?.currency;
           if (providerCurrency !== undefined && providerCurrency !== 'INR') {
             return res.status(400).json({
@@ -1505,7 +1548,7 @@ async function startServer() {
 
           // Authoritative server-to-server check before reversing
           try {
-            const authStatus = await paymentManager.getProvider().getRefundStatus(orderId, merchantRefundId);
+            const authStatus = await refundProvider.getRefundStatus(orderId, merchantRefundId);
             if (
               authStatus.status === 'SUCCESS' &&
               authStatus.orderId === orderId &&
@@ -2489,7 +2532,7 @@ async function startServer() {
   const reconciliationTimer = setInterval(async () => {
     if (db.isPostgresAuthoritative() && paymentManager.isEnabled()) {
       try {
-        await db.pg.reconcilePendingTransactions(paymentManager.getProvider());
+        await db.pg.reconcilePendingTransactions(paymentManager);
       } catch (err) {
         console.error('[Reconciliation Worker] Scheduled pass failed:', err);
       }

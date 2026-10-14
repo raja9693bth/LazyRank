@@ -924,6 +924,7 @@ export class LazyDatabase {
     customerEmail?: string;
     customerPhone?: string;
     paymentMode?: string;
+    provider?: string;
     consentAccepted?: boolean;
     consentTimestamp?: string;
     consentVersion?: string;
@@ -933,7 +934,7 @@ export class LazyDatabase {
         ...order,
         currency: order.currency || 'INR',
         paymentMode: order.paymentMode || process.env.PAYMENT_MODE || 'disabled',
-        provider: 'cashfree'
+        provider: order.provider || 'cashfree'
       });
       return await this.pg.getOrder(order.orderId);
     }
@@ -1461,12 +1462,41 @@ export class LazyDatabase {
     return { success: false, message: 'Chargebacks require authoritative PostgreSQL.', statusCode: 501 };
   }
 
+  public async isWebhookEventProcessed(eventId: string): Promise<boolean> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.isWebhookEventProcessed(eventId);
+    }
+    return false;
+  }
+
   public async recordWebhookEvent(eventId: string, eventType: string, orderId?: string | null, providerPaymentId?: string | null, payload?: any): Promise<boolean> {
     if (this.isPostgresAuthoritative()) {
       return this.pg.recordWebhookEvent(eventId, eventType, orderId, providerPaymentId, payload);
     }
     return true;
   }
+
+  private memoryPaymentProducts: Map<string, string> = new Map();
+
+  public async getPaymentProductAsync(provider: string, currency: string, amountPaise: number | bigint): Promise<string | null> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.getPaymentProduct(provider, currency, amountPaise);
+    }
+    const key = `${provider}:${currency}:${amountPaise}`;
+    return this.memoryPaymentProducts.get(key) || null;
+  }
+
+  public async savePaymentProductAsync(provider: string, currency: string, amountPaise: number | bigint, productId: string): Promise<string> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.savePaymentProduct(provider, currency, amountPaise, productId);
+    }
+    const key = `${provider}:${currency}:${amountPaise}`;
+    if (!this.memoryPaymentProducts.has(key)) {
+      this.memoryPaymentProducts.set(key, productId);
+    }
+    return this.memoryPaymentProducts.get(key)!;
+  }
+
 
   public createParticipant(params: {
     name: string;

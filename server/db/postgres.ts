@@ -338,6 +338,19 @@ export class PostgresDatabase {
           }
         }
 
+        // 10. Check and apply migration 009_dodo_products if not already recorded
+        const mig009Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '009_dodo_products'"
+        );
+        if (mig009Res.rows.length === 0) {
+          const mig009Path = path.join(process.cwd(), 'server', 'db', 'migrations', '009_dodo_products.sql');
+          if (fs.existsSync(mig009Path)) {
+            const mig009Sql = fs.readFileSync(mig009Path, 'utf-8');
+            await client.query(mig009Sql);
+            console.log('[PostgreSQL] Migration 009_dodo_products applied successfully.');
+          }
+        }
+
         this.isInitialized = true;
         console.log('[PostgreSQL] Database schema verified and up to date.');
         return true;
@@ -497,6 +510,49 @@ export class PostgresDatabase {
     );
     return res.rows.length > 0;
   }
+
+  /**
+   * Check if a webhook event ID has already been recorded / processed
+   */
+  public async isWebhookEventProcessed(eventId: string): Promise<boolean> {
+    if (!this.pool) return false;
+    const res = await this.pool.query(
+      'SELECT 1 FROM payment_webhook_events WHERE event_id = $1 LIMIT 1',
+      [eventId]
+    );
+    return res.rows.length > 0;
+  }
+
+  /**
+   * Retrieve a durable fixed-price product mapping
+   */
+  public async getPaymentProduct(provider: string, currency: string, amountPaise: number | bigint): Promise<string | null> {
+    if (!this.pool) return null;
+    const res = await this.pool.query(
+      'SELECT product_id FROM payment_products WHERE provider = $1 AND currency = $2 AND amount_paise = $3 LIMIT 1',
+      [provider, currency, amountPaise]
+    );
+    if (res.rows.length === 0) return null;
+    return res.rows[0].product_id;
+  }
+
+  /**
+   * Save a durable fixed-price product mapping with ON CONFLICT DO UPDATE to ensure safe multi-instance concurrency
+   */
+  public async savePaymentProduct(provider: string, currency: string, amountPaise: number | bigint, productId: string): Promise<string> {
+    if (!this.pool) return productId;
+    const id = `prod_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const res = await this.pool.query(
+      `INSERT INTO payment_products (id, provider, currency, amount_paise, product_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())
+       ON CONFLICT (provider, currency, amount_paise)
+       DO UPDATE SET product_id = payment_products.product_id
+       RETURNING product_id`,
+      [id, provider, currency, amountPaise, productId]
+    );
+    return res.rows[0]?.product_id || productId;
+  }
+
 
   /**
    * Atomic Settlement Transaction
@@ -2525,13 +2581,23 @@ export class PostgresDatabase {
 
   /**
    * Reconcile pending payments and refunds using PostgreSQL advisory lock
-   * Prevents multi-replica duplicate work.
+   * Prevents multi-replica duplicate work. Provider-aware across Dodo and historical Cashfree orders.
    */
-  public async reconcilePendingTransactions(provider: any): Promise<{ reconciledOrders: number; reconciledRefunds: number }> {
+  public async reconcilePendingTransactions(providerOrResolver: any): Promise<{ reconciledOrders: number; reconciledRefunds: number }> {
     if (!this.pool) return { reconciledOrders: 0, reconciledRefunds: 0 };
     const client = await this.pool.connect();
     let reconciledOrders = 0;
     let reconciledRefunds = 0;
+
+    const resolveProvider = (providerName?: string) => {
+      if (providerOrResolver && typeof providerOrResolver.getProviderFor === 'function') {
+        return providerOrResolver.getProviderFor(providerName);
+      }
+      if (typeof providerOrResolver === 'function') {
+        return providerOrResolver(providerName);
+      }
+      return providerOrResolver;
+    };
 
     try {
       const lockRes = await client.query('SELECT pg_try_advisory_lock(554433221) AS locked');
@@ -2542,7 +2608,7 @@ export class PostgresDatabase {
       try {
         // Query up to 20 PENDING / CREATED orders without 24-hour starvation
         const pendingOrdersRes = await client.query(
-          `SELECT order_id, amount, currency, status, reconciliation_attempts, created_at FROM payment_orders
+          `SELECT order_id, amount, currency, status, reconciliation_attempts, created_at, provider FROM payment_orders
            WHERE status IN ('PENDING', 'CREATED')
              AND created_at <= NOW() - INTERVAL '5 minutes'
              AND (next_reconcile_at IS NULL OR next_reconcile_at <= NOW())
@@ -2556,7 +2622,8 @@ export class PostgresDatabase {
           const backoffMinutes = Math.min(360, Math.pow(2, Math.min(nextAttempts, 6)) * 5);
 
           try {
-            const providerStatus = await provider.getPaymentStatus(order.order_id);
+            const targetProvider = resolveProvider(order.provider);
+            const providerStatus = await targetProvider.getPaymentStatus(order.order_id);
             // Require provider status PAID, nonempty providerPaymentId, provider currency exactly INR, stored order currency INR
             if (
               providerStatus.status === 'PAID' &&
@@ -2571,7 +2638,7 @@ export class PostgresDatabase {
                 const res = await this.settlePaymentAtomic({
                   orderId: order.order_id,
                   providerPaymentId: providerStatus.providerPaymentId.trim(),
-                  provider: provider.name || 'cashfree',
+                  provider: order.provider || targetProvider?.name || 'dodo',
                   amount: Number(order.amount),
                   currency: 'INR',
                   status: 'PAID',
@@ -2625,13 +2692,15 @@ export class PostgresDatabase {
           }
         }
 
-        // Query up to 20 PENDING refunds without 24-hour starvation
+        // Query up to 20 PENDING refunds without 24-hour starvation (with provider attribution)
         const pendingRefundsRes = await client.query(
-          `SELECT order_id, merchant_refund_id, id, amount, currency, reason, reconciliation_attempts, created_at FROM refund_reversals
-           WHERE status = 'PENDING'
-             AND created_at <= NOW() - INTERVAL '5 minutes'
-             AND (next_reconcile_at IS NULL OR next_reconcile_at <= NOW())
-           ORDER BY COALESCE(next_reconcile_at, created_at) ASC, created_at ASC
+          `SELECT r.order_id, r.merchant_refund_id, r.id, r.amount, r.currency, r.reason, r.reconciliation_attempts, r.created_at, o.provider
+           FROM refund_reversals r
+           LEFT JOIN payment_orders o ON r.order_id = o.order_id
+           WHERE r.status = 'PENDING'
+             AND r.created_at <= NOW() - INTERVAL '5 minutes'
+             AND (r.next_reconcile_at IS NULL OR r.next_reconcile_at <= NOW())
+           ORDER BY COALESCE(r.next_reconcile_at, r.created_at) ASC, r.created_at ASC
            LIMIT 20`
         );
 
@@ -2642,7 +2711,9 @@ export class PostgresDatabase {
           const backoffMinutes = Math.min(360, Math.pow(2, Math.min(nextAttempts, 6)) * 5);
 
           try {
-            const refundStatus = await provider.getRefundStatus(ref.order_id, merchantRefId);
+            const targetRefundProvider = resolveProvider(ref.provider);
+            const refundStatus = await targetRefundProvider.getRefundStatus(ref.order_id, merchantRefId);
+
 
             // Validate returned order ID and merchant refund ID against locked reservation
             if (refundStatus.orderId !== ref.order_id || refundStatus.merchantRefundId !== merchantRefId) {

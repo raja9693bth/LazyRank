@@ -97,6 +97,12 @@ export class DodoPaymentsProvider implements PaymentProvider {
    * Strategy: Fixed-price INR products with quantity = 1.
    * Truthfully describes a single digital service profile sponsorship without misleading 'credits' or multi-unit counts.
    */
+  /**
+   * Resolve or safely create a fixed-price INR product for the required amount (in minor-unit paise).
+   * Strategy: Fixed-price INR products with quantity = 1.
+   * Coordinates durably across multiple instances and restarts using PostgreSQL backing store.
+   * Never mutates a shared product's price for another order.
+   */
   public async resolveProductForAmount(amountINR: number): Promise<string> {
     if (this.configuredProductId) {
       return this.configuredProductId;
@@ -107,13 +113,24 @@ export class DodoPaymentsProvider implements PaymentProvider {
       throw new Error(`Invalid payment amount ${amountINR} INR.`);
     }
 
-    // Check in-memory cache
+    // 1. Check L1 in-memory cache
     const cached = this.productCache.get(amountPaise);
     if (cached) {
       return cached;
     }
 
-    // Check if another concurrent request is currently creating the product for this amount
+    // 2. Check L2 durable database (cross-process, restart, and replica safe)
+    try {
+      const durableProductId = await db.getPaymentProductAsync('dodo', 'INR', amountPaise);
+      if (durableProductId) {
+        this.productCache.set(amountPaise, durableProductId);
+        return durableProductId;
+      }
+    } catch (dbErr: any) {
+      console.warn('[Dodo] Durable product lookup warning:', sanitizeLog(dbErr?.message || dbErr));
+    }
+
+    // 3. Coordinate within this process to avoid duplicate concurrent API calls
     const inFlight = this.inFlightCreations.get(amountPaise);
     if (inFlight) {
       return await inFlight;
@@ -124,26 +141,64 @@ export class DodoPaymentsProvider implements PaymentProvider {
     }
 
     const creationPromise = (async () => {
+      // Re-check durable storage in case another worker created it
       try {
-        const product = await this.client!.products.create({
-          name: `LazyProof Verified Placement - ₹${amountINR}`,
-          description: `Verified public leaderboard digital placement on LazyProof (operated by ADABHRA GROUP). Amount: ₹${amountINR} INR`,
-          tax_category: 'digital_products',
-          price: {
-            type: 'one_time_price',
-            currency: 'INR',
-            price: amountPaise
+        const doubleCheck = await db.getPaymentProductAsync('dodo', 'INR', amountPaise);
+        if (doubleCheck) {
+          this.productCache.set(amountPaise, doubleCheck);
+          return doubleCheck;
+        }
+      } catch {}
+
+      const productDeterministicId = `prod_dodo_inr_${amountPaise}`;
+
+      try {
+        const product = await this.client!.products.create(
+          {
+            name: `LazyProof Verified Placement - ₹${amountINR}`,
+            description: `Verified public leaderboard digital placement on LazyProof (operated by ADABHRA GROUP). Amount: ₹${amountINR} INR`,
+            tax_category: 'digital_products',
+            price: {
+              type: 'one_time_price',
+              currency: 'INR',
+              price: amountPaise
+            }
+          },
+          {
+            idempotencyKey: productDeterministicId,
+            headers: { 'Idempotency-Key': productDeterministicId }
           }
-        });
+        );
 
         if (!product?.product_id) {
           throw new Error('Dodo product creation did not return a product_id.');
         }
 
-        this.productCache.set(amountPaise, product.product_id);
-        return product.product_id;
+        // Durably save product mapping for multi-replica and restart coordination
+        let finalProductId = product.product_id;
+        try {
+          finalProductId = await db.savePaymentProductAsync('dodo', 'INR', amountPaise, product.product_id);
+        } catch (saveErr: any) {
+          console.warn('[Dodo] Failed to save product to durable storage:', sanitizeLog(saveErr?.message || saveErr));
+        }
+
+        this.productCache.set(amountPaise, finalProductId);
+        return finalProductId;
       } catch (err: any) {
+        // Handle ambiguous API timeout or network retry by checking if product was recorded
+        try {
+          const recovered = await db.getPaymentProductAsync('dodo', 'INR', amountPaise);
+          if (recovered) {
+            this.productCache.set(amountPaise, recovered);
+            return recovered;
+          }
+        } catch {}
+
         console.error('[Dodo] Failed to create fixed-price product for %d paise: %s', amountPaise, sanitizeLog(err?.message || err));
+        const errMsg = String(err?.message || err);
+        if (errMsg.includes('0.50') || errMsg.toLowerCase().includes('minimum') || errMsg.toLowerCase().includes('equivalent')) {
+          throw new Error(`Dodo Payments minimum payment requirement not met: amount ₹${amountINR} must be at least $0.50 USD equivalent (and at least ₹5).`);
+        }
         throw new Error(err?.message || `Failed to create fixed-price product for ₹${amountINR}`);
       }
     })();
@@ -172,9 +227,9 @@ export class DodoPaymentsProvider implements PaymentProvider {
       throw new Error('Dodo Payments requires whole integer INR amounts.');
     }
 
-    // Dodo Payments minimum transaction threshold for INR is ₹5.00
+    // Dodo Payments minimum transaction threshold requires both INR ₹5 floor and $0.50 USD equivalent
     if (params.amount < 5) {
-      throw new Error('Dodo Payments requires a minimum purchase amount of ₹5.');
+      throw new Error('Dodo Payments requires a minimum one-time payment of ₹5 and a USD-equivalent minimum of $0.50.');
     }
 
     if (params.amount > 1000000) {
@@ -195,43 +250,59 @@ export class DodoPaymentsProvider implements PaymentProvider {
       customerDetails.phone_number = params.customerPhone.trim();
     }
 
-    const session = await this.client.checkoutSessions.create({
-      product_cart: [
+    try {
+      const session = await this.client.checkoutSessions.create(
         {
-          product_id: productId,
-          quantity: 1
+          product_cart: [
+            {
+              product_id: productId,
+              quantity: 1
+            }
+          ],
+          return_url: returnUrl,
+          customer: customerDetails,
+          metadata: {
+            order_id: params.orderId,
+            idempotency_key: idempotencyKey,
+            customer_name: params.customerName.slice(0, 50),
+            service: 'LazyProof Digital Sponsored Profile Placement'
+          }
+        },
+        {
+          idempotencyKey,
+          headers: { 'Idempotency-Key': idempotencyKey }
         }
-      ],
-      return_url: returnUrl,
-      customer: customerDetails,
-      metadata: {
-        order_id: params.orderId,
-        idempotency_key: idempotencyKey,
-        customer_name: params.customerName.slice(0, 50),
-        service: 'LazyProof Digital Sponsored Profile Placement'
+      );
+
+      if (!session?.session_id) {
+        throw new Error('Dodo checkout session creation did not return a session_id.');
       }
-    });
 
-    if (!session?.session_id) {
-      throw new Error('Dodo checkout session creation did not return a session_id.');
+      this.orderSessions.set(params.orderId, session.session_id);
+      if (session.payment_id) {
+        this.orderPayments.set(params.orderId, session.payment_id);
+      }
+
+      return {
+        orderId: params.orderId,
+        providerOrderId: session.session_id,
+        paymentSessionId: session.session_id,
+        checkoutUrl: session.checkout_url || undefined,
+        idempotencyKey,
+        currency: 'INR',
+        amount: params.amount,
+        status: 'ACTIVE'
+      };
+    } catch (err: any) {
+      console.error('[Dodo] checkoutSession creation failed for %s: %s', sanitizeLog(params.orderId), sanitizeLog(err?.message || err));
+      const errMsg = String(err?.message || err);
+      if (errMsg.includes('0.50') || errMsg.toLowerCase().includes('minimum') || errMsg.toLowerCase().includes('equivalent')) {
+        throw new Error(`Dodo Payments minimum payment requirement not met: amount ₹${params.amount} must be at least $0.50 USD equivalent (and at least ₹5).`);
+      }
+      throw err;
     }
-
-    this.orderSessions.set(params.orderId, session.session_id);
-    if (session.payment_id) {
-      this.orderPayments.set(params.orderId, session.payment_id);
-    }
-
-    return {
-      orderId: params.orderId,
-      providerOrderId: session.session_id,
-      paymentSessionId: session.session_id,
-      checkoutUrl: session.checkout_url || undefined,
-      idempotencyKey,
-      currency: 'INR',
-      amount: params.amount,
-      status: 'ACTIVE'
-    };
   }
+
 
   /**
    * Authoritative Payment Status Retrieval
@@ -495,14 +566,21 @@ export class DodoPaymentsProvider implements PaymentProvider {
     }
 
     try {
-      const refund = await this.client.refunds.create({
-        payment_id: paymentId,
-        reason: params.reason,
-        metadata: {
-          merchant_refund_id: params.refundId,
-          order_id: params.orderId
+      const refund = await this.client.refunds.create(
+        {
+          payment_id: paymentId,
+          reason: params.reason,
+          metadata: {
+            merchant_refund_id: params.refundId,
+            order_id: params.orderId
+          }
+        },
+        {
+          idempotencyKey: params.refundId,
+          headers: { 'Idempotency-Key': params.refundId }
         }
-      });
+      );
+
 
       const rawStatus = (refund.status || '').toLowerCase();
       let status: 'SUCCESS' | 'FAILED' | 'PENDING' = 'PENDING';

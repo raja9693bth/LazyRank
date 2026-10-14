@@ -521,7 +521,9 @@ async function startServer() {
     }
 
     if (paymentManager.getProvider().name === 'dodo' && parsedAmount < 5) {
-      return res.status(400).json({ error: 'Dodo Payments requires a minimum purchase amount of ₹5.' });
+      return res.status(400).json({
+        error: 'Dodo Payments requires a minimum one-time payment of ₹5 and a USD-equivalent minimum of $0.50 (subject to provider conversion).'
+      });
     }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -1218,6 +1220,11 @@ async function startServer() {
         eventId = headerWebhookId.trim();
       } else {
         eventId = `wh_${crypto.createHash('sha256').update(rawBodyBuf).digest('hex').slice(0, 32)}`;
+      }
+
+      // Fast-path deduplication: if this exact webhook event was already recorded, acknowledge immediately
+      if (await db.isWebhookEventProcessed(eventId)) {
+        return res.json({ received: true, processed: true, duplicate: true, message: 'Webhook event already processed.' });
       }
 
       if ((verification.status === 'REFUNDED' || verification.refund) && verification.orderId) {
@@ -2525,7 +2532,7 @@ async function startServer() {
   const reconciliationTimer = setInterval(async () => {
     if (db.isPostgresAuthoritative() && paymentManager.isEnabled()) {
       try {
-        await db.pg.reconcilePendingTransactions(paymentManager.getProvider());
+        await db.pg.reconcilePendingTransactions(paymentManager);
       } catch (err) {
         console.error('[Reconciliation Worker] Scheduled pass failed:', err);
       }

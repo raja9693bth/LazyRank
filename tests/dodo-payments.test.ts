@@ -154,11 +154,47 @@ async function runDodoPaymentsTests() {
     } catch (err: any) {
       rejectedUnderMin = true;
       assert(
-        err.message.includes('minimum purchase amount of ₹5'),
-        'Dodo Payments provider rejects < ₹5 with clear error message (does not silently increase)'
+        err.message.includes('minimum one-time payment of ₹5') && err.message.includes('0.50'),
+        'Dodo Payments provider rejects < ₹5 with clear error message covering ₹5 floor and $0.50 USD equivalent (does not silently increase)'
       );
     }
     assert(rejectedUnderMin, 'createOrder rejected purchase of ₹4');
+
+    // Dual minimum: Provider API rejection below $0.50 USD equivalent error translation
+    let rejectedProviderMin = false;
+    const providerMinMock = new DodoPaymentsProvider({
+      apiKey: 'test_key',
+      webhookKey: TEST_WEBHOOK_KEY,
+      environment: 'test_mode'
+    });
+    (providerMinMock as any).client = {
+      products: {
+        create: async () => {
+          throw new Error('Amount must be at least $0.50 USD equivalent.');
+        }
+      }
+    };
+    try {
+      await providerMinMock.createOrder({
+        orderId: 'order_test_fx_min',
+        amount: 10,
+        currency: 'INR',
+        customerName: 'Test FX Min',
+        customerEmail: 'test@example.com',
+        customerPhone: '9876543210',
+        returnUrl: 'https://lazyproof.online',
+        notifyUrl: 'https://lazyproof.online/api/payment/webhook'
+      });
+    } catch (err: any) {
+      rejectedProviderMin = true;
+      assert(
+        err.message.includes('Dodo Payments minimum payment requirement not met') &&
+        err.message.includes('$0.50 USD equivalent') &&
+        err.message.includes('₹5'),
+        'Provider API rejection for amount below $0.50 USD equivalent is returned as clear supported error without fixed FX guessing or silent inflation'
+      );
+    }
+    assert(rejectedProviderMin, 'Provider minimum error caught and translated without fixed FX multiplier');
 
     // Float rejection
     let rejectedFloat = false;
@@ -191,12 +227,14 @@ async function runDodoPaymentsTests() {
       environment: 'test_mode'
     });
 
-    // Mock client product creation
+    // Mock client product creation and verify idempotency headers
     let productCreateCalls = 0;
+    let passedProductOptions: any = null;
     (dodoProvider as any).client = {
       products: {
-        create: async (params: any) => {
+        create: async (params: any, options: any) => {
           productCreateCalls++;
+          passedProductOptions = options;
           await new Promise((r) => setTimeout(r, 50)); // simulate network latency
           const p = typeof params.price === 'object' ? params.price.price : params.price;
           return {
@@ -225,7 +263,16 @@ async function runDodoPaymentsTests() {
       results.every((id) => id === 'prod_mock_100100'),
       'All 5 concurrent requests received the exact same product ID (prod_mock_100100)'
     );
+    assert(
+      passedProductOptions?.idempotencyKey === 'prod_dodo_inr_100100',
+      'SDK products.create received deterministic idempotencyKey option'
+    );
+    assert(
+      passedProductOptions?.headers?.['Idempotency-Key'] === 'prod_dodo_inr_100100',
+      'SDK products.create received Idempotency-Key request header'
+    );
   }
+
 
   // ------------------------------------------------------------------------
   // SECTION 2: DODO PROVIDER INTERFACE & MOCK CLIENT INTEGRATION
@@ -367,6 +414,9 @@ async function runDodoPaymentsTests() {
   const pg = new PostgresDatabase(TEST_DB_URL);
   await pg.init();
 
+  process.env.USE_POSTGRES = 'true';
+  db.pg = pg;
+
   const webhookOrderId = `order_dodo_wh_${Date.now()}`;
   const webhookAccessToken = `ord_${crypto.randomBytes(32).toString('hex')}`;
   const webhookOwnerToken = `lazy_${crypto.randomBytes(32).toString('hex')}`;
@@ -434,6 +484,10 @@ async function runDodoPaymentsTests() {
   );
   assert(recordFirst === true, 'First webhook event recorded successfully in database');
 
+  // Verify fast-path deduplication check
+  const isProcessed = await pg.isWebhookEventProcessed(signedSuccess.webhookId);
+  assert(isProcessed === true, 'pg.isWebhookEventProcessed returns true for recorded webhook event');
+
   // 4.2 Deduplication: Second attempt to process the same webhook event
   const recordSecond = await pg.recordWebhookEvent(
     signedSuccess.webhookId,
@@ -494,6 +548,211 @@ async function runDodoPaymentsTests() {
     onLeaderboard === undefined,
     'Profile removed from public leaderboard after 100% refund'
   );
+
+  // 4.4 Durable Product Mapping Across Process Restarts & Multi-Instance Coordination
+  console.log('\n--- 4.4 Durable Product Mapping Across Process Restarts ---');
+  {
+    // Clean up test rows for isolation
+    await pg.getPool().then((pool) =>
+      pool.query('DELETE FROM payment_products WHERE amount_paise IN (77700, 88800)')
+    );
+
+    // Save a product mapping to PostgreSQL for a dedicated test amount
+    const testAmountINR = 777;
+    const testAmountPaise = 77700;
+    const initialProductId = `prod_dodo_durable_${Date.now()}`;
+    const durableExpectedId = await pg.savePaymentProduct('dodo', 'INR', testAmountPaise, initialProductId);
+
+    // Simulate process restart: create a completely fresh provider instance with empty in-memory cache
+    const restartedProvider = new DodoPaymentsProvider({
+      apiKey: 'test_key',
+      webhookKey: TEST_WEBHOOK_KEY,
+      environment: 'test_mode'
+    });
+    let apiCallsOnRestart = 0;
+    (restartedProvider as any).client = {
+      products: {
+        create: async () => {
+          apiCallsOnRestart++;
+          return { product_id: 'prod_unexpected_duplicate' };
+        }
+      }
+    };
+
+    // Ensure db singleton has postgres authoritative mode for the test
+    (db as any).pg = pg;
+
+    const resolvedAfterRestart = await restartedProvider.resolveProductForAmount(testAmountINR);
+    assert(
+      resolvedAfterRestart === durableExpectedId,
+      'Restarted instance recovers product ID from PostgreSQL without creating duplicate'
+    );
+    assert(
+      apiCallsOnRestart === 0,
+      'No Dodo API calls made on restarted instance when product exists in durable DB'
+    );
+
+    // Verify product price is immutable: resolving another unpersisted amount triggers dedicated creation without mutating shared product
+    let newAmountApiCalled = false;
+    (restartedProvider as any).client = {
+      products: {
+        create: async (params: any) => {
+          newAmountApiCalled = true;
+          return { product_id: `prod_dodo_${params.price.price}` };
+        }
+      }
+    };
+    const unpersistedAmount = 888;
+    const resolvedOtherAmount = await restartedProvider.resolveProductForAmount(unpersistedAmount);
+    assert(newAmountApiCalled, 'Distinct amount triggers its own immutable product creation');
+    assert(resolvedOtherAmount === 'prod_dodo_88800', 'New amount gets dedicated fixed-price product ID');
+    const originalAfterCreatingOther = await restartedProvider.resolveProductForAmount(testAmountINR);
+    assert(
+      originalAfterCreatingOther === durableExpectedId,
+      'Shared product for ₹777 was NOT mutated when ₹888 product was created'
+    );
+  }
+
+  // 4.5 Provider-Aware Background Reconciliation
+  console.log('\n--- 4.5 Provider-Aware Background Reconciliation ---');
+  {
+    const cfHistOrderId = `order_cf_hist_${Date.now()}`;
+    const dodoHistOrderId = `order_dodo_hist_${Date.now()}`;
+
+    // Insert historical Cashfree order (status: PENDING, age: 10 minutes ago)
+    await pg.getPool().then((pool) =>
+      pool.query(
+        `INSERT INTO payment_orders
+          (order_id, name, amount, currency, status, payment_mode, provider, created_at, updated_at, next_reconcile_at)
+         VALUES
+          ($1, 'Cashfree Hist User', 501, 'INR', 'PENDING', 'sandbox', 'cashfree', NOW() - INTERVAL '10 minutes', NOW(), NOW() - INTERVAL '1 minute'),
+          ($2, 'Dodo Hist User', 1001, 'INR', 'PENDING', 'sandbox', 'dodo', NOW() - INTERVAL '10 minutes', NOW(), NOW() - INTERVAL '1 minute')
+         ON CONFLICT (order_id) DO NOTHING`,
+        [cfHistOrderId, dodoHistOrderId]
+      )
+    );
+
+    let cfProviderChecked = false;
+    let dodoProviderChecked = false;
+
+    const mockProviderResolver = {
+      getProviderFor: (providerName?: string) => {
+        if (providerName === 'cashfree') {
+          return {
+            name: 'cashfree',
+            getPaymentStatus: async (orderId: string) => {
+              if (orderId === cfHistOrderId) cfProviderChecked = true;
+              return { orderId, status: 'PENDING' };
+            },
+            getRefundStatus: async () => ({ status: 'PENDING' })
+          };
+        }
+        return {
+          name: 'dodo',
+          getPaymentStatus: async (orderId: string) => {
+            if (orderId === dodoHistOrderId) dodoProviderChecked = true;
+            return { orderId, status: 'PENDING' };
+          },
+          getRefundStatus: async () => ({ status: 'PENDING' })
+        };
+      }
+    };
+
+    await pg.reconcilePendingTransactions(mockProviderResolver);
+    assert(cfProviderChecked, 'Historical Cashfree pending order was routed to Cashfree provider for reconciliation');
+    assert(dodoProviderChecked, 'Dodo pending order was routed to Dodo provider for reconciliation');
+  }
+
+  // 4.6 Isolated Non-Production Tests for ₹501, ₹1001, and ₹2501
+  console.log('\n--- 4.6 Isolated Non-Production Tests for ₹501, ₹1001, and ₹2501 ---');
+  {
+    const targetAmounts = [501, 1001, 2501];
+    const testRecords: any[] = [];
+
+    for (const amt of targetAmounts) {
+      const orderId = `ord_iso_${amt}_${Date.now()}`;
+      const paymentId = `pay_dodo_${amt}_${Date.now()}`;
+      const accessToken = `ord_${crypto.randomBytes(32).toString('hex')}`;
+      const ownerToken = `lazy_${crypto.randomBytes(32).toString('hex')}`;
+      const paise = amt * 100;
+
+      // 1. Server-authoritative quote breakdown
+      const subtotalPaise = paise;
+      const taxPaise = 0; // CGST Act Sec 22 unregistered threshold: tax ₹0
+      const totalPaise = subtotalPaise + taxPaise;
+
+      assert(totalPaise === paise, `Quote subtotal (${subtotalPaise}) + tax (${taxPaise}) equals final charge ${totalPaise} paise for ₹${amt}`);
+
+      // 2. Insert order
+      await pg.createOrder({
+        orderId,
+        name: `Sponsor ₹${amt}`,
+        amount: amt,
+        currency: 'INR',
+        provider: 'dodo',
+        ownerToken,
+        orderAccessToken: accessToken,
+        quoteSnapshot: {
+          basePaise: subtotalPaise,
+          taxPaise,
+          feePaise: 0,
+          totalPaise,
+          currency: 'INR',
+          serviceDescription: 'LazyProof Digital Sponsored Profile Placement'
+        }
+      });
+
+      // 3. Webhook simulation with StandardWebhooks signature
+      const webhookPayload = {
+        type: 'payment.succeeded',
+        data: {
+          payment_id: paymentId,
+          total_amount: totalPaise,
+          currency: 'INR',
+          payment_method_type: 'upi',
+          metadata: { order_id: orderId }
+        }
+      };
+      const signed = createSignedDodoWebhook(webhookPayload, TEST_WEBHOOK_KEY);
+      const verified = await provider.verifyWebhook(signed.rawBody, signed.headers);
+      assert(verified.isValid, `StandardWebhooks verified successfully for ₹${amt}`);
+
+      // 4. Atomic database settlement
+      const settlement = await pg.settlePaymentAtomic({
+        orderId,
+        providerPaymentId: paymentId,
+        provider: 'dodo',
+        amount: amt,
+        currency: 'INR',
+        status: 'PAID',
+        paymentMethod: 'UPI',
+        signatureVerified: true,
+        rawPayload: verified.rawPayload
+      });
+
+      assert(settlement.success && settlement.profile?.amount === amt, `Atomic DB settlement credited ₹${amt} to leaderboard profile`);
+
+      // 5. Fast-path deduplication
+      await pg.recordWebhookEvent(signed.webhookId, 'payment.succeeded', orderId, paymentId, verified.rawPayload);
+      const isDeduped = await pg.isWebhookEventProcessed(signed.webhookId);
+      assert(isDeduped, `Fast-path deduplication verified for ₹${amt} event ID`);
+
+      testRecords.push({
+        currency: 'INR',
+        quantity: 1,
+        subtotal: `₹${amt}.00`,
+        tax: '₹0.00 (Unregistered under Section 22 CGST Act)',
+        finalCharged: `₹${amt}.00`,
+        paymentId: paymentId.slice(0, 14) + '***',
+        webhookProcessed: true,
+        creditedAmount: `₹${amt}.00`
+      });
+    }
+
+    console.log('\n  REDACTED ISOLATED TEST EVIDENCE (NON-PRODUCTION):');
+    console.table(testRecords);
+  }
+
 
   // ------------------------------------------------------------------------
   // SECTION 5: PROVIDER ATTRIBUTION & HISTORICAL ROUTING

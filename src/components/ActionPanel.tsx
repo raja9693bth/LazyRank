@@ -52,8 +52,11 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   taxDisclosure,
   taxReady = false
 }) => {
-  const [amount, setAmount] = useState<number>(initialAmount ?? minAmountToBeatTop);
+  const [amountStr, setAmountStr] = useState<string>(
+    initialAmount !== undefined ? String(initialAmount) : String(Math.max(99, minAmountToBeatTop))
+  );
   const [amountTouched, setAmountTouched] = useState<boolean>(false);
+  const [amountError, setAmountError] = useState<string | null>(null);
   const [name, setName] = useState(initialName);
   const [category, setCategory] = useState<string>(initialCategory);
   const [customerPhone, setCustomerPhone] = useState('');
@@ -67,9 +70,31 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   const [localError, setLocalError] = useState<string | null>(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
+  const validateAmount = (val: string): string | null => {
+    if (!val || val.trim() === '') {
+      return 'Minimum sponsorship is ₹99. Enter ₹99 or more to continue.';
+    }
+    if (!/^\d+$/.test(val.trim())) {
+      return 'Enter a valid whole rupee amount.';
+    }
+    const parsed = Number.parseInt(val.trim(), 10);
+    if (isNaN(parsed) || parsed < 99) {
+      return 'Minimum sponsorship is ₹99. Enter ₹99 or more to continue.';
+    }
+    if (parsed > 10000000) {
+      return 'Amount exceeds maximum sponsorship limit.';
+    }
+    return null;
+  };
+
+  const parsedAmount = Number.parseInt(amountStr.trim(), 10);
+  const numericAmount = !isNaN(parsedAmount) && /^\d+$/.test(amountStr.trim()) ? parsedAmount : 0;
+  const isAmountValid = numericAmount >= 99 && !amountError;
+
   useEffect(() => {
     if (!amountTouched) {
-      setAmount(initialAmount ?? minAmountToBeatTop);
+      const initial = initialAmount ?? minAmountToBeatTop;
+      setAmountStr(String(Math.max(99, initial)));
     }
   }, [initialAmount, minAmountToBeatTop, amountTouched]);
 
@@ -118,12 +143,30 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
     return rank;
   };
 
-  const expectedRank = getExpectedRank(amount);
-  const willTakeTop = amount >= minAmountToBeatTop;
+  const expectedRank = numericAmount > 0 ? getExpectedRank(numericAmount) : profiles.length + 1;
+  const willTakeTop = numericAmount >= minAmountToBeatTop;
 
   const handleAdjustAmount = (delta: number) => {
     setAmountTouched(true);
-    setAmount(prev => Math.max(1, prev + delta));
+    const current = numericAmount >= 99 ? numericAmount : 99;
+    const next = Math.max(99, current + delta);
+    setAmountStr(String(next));
+    setAmountError(null);
+  };
+
+  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAmountTouched(true);
+    const val = e.target.value;
+    setAmountStr(val);
+    if (amountError) {
+      const err = validateAmount(val);
+      if (!err) setAmountError(null);
+    }
+  };
+
+  const handleAmountBlur = () => {
+    const err = validateAmount(amountStr);
+    setAmountError(err);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -139,8 +182,12 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       setLocalError('Display name must be 30 characters or fewer.');
       return;
     }
-    if (isNaN(amount) || amount < 1) {
-      setLocalError('Minimum payment is ₹1.');
+
+    const err = validateAmount(amountStr);
+    if (err) {
+      setAmountError(err);
+      const inputEl = document.getElementById('claim-amount-input');
+      inputEl?.focus();
       return;
     }
 
@@ -177,7 +224,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
 
     onStartPayment({
       name: trimmedName,
-      amount: Math.round(amount),
+      amount: numericAmount,
       customerPhone: cleanedPhone,
       customerEmail: customerEmail.trim() || undefined,
       instagram: instagram.trim() || undefined,
@@ -299,16 +346,18 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                 </span>
                 <input
                   id="claim-amount-input"
-                  type="number"
-                  min={1}
-                  step={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
                   required
-                  value={amount || ''}
-                  onChange={(e) => {
-                    setAmountTouched(true);
-                    setAmount(Math.max(1, parseInt(e.target.value || '1', 10)));
-                  }}
-                  className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] pl-8 pr-3 py-2 text-sm sm:text-base font-extrabold text-stone-900 font-mono-numbers focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
+                  value={amountStr}
+                  onChange={handleAmountChange}
+                  onBlur={handleAmountBlur}
+                  aria-invalid={Boolean(amountError)}
+                  aria-describedby={amountError ? 'claim-amount-error' : 'claim-amount-helper'}
+                  className={`w-full rounded-xl border ${
+                    amountError ? 'border-rose-500 bg-rose-50/30' : 'border-[#ede5db] bg-[#faf8f4]'
+                  } pl-8 pr-3 py-2 text-sm sm:text-base font-extrabold text-stone-900 font-mono-numbers focus:bg-white focus:border-stone-800 focus:outline-none transition-colors`}
                 />
               </div>
 
@@ -322,18 +371,29 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
               </button>
             </div>
 
+            {/* Helper & Accessible Error Region */}
+            <div id="claim-amount-helper" className="text-[11px] text-stone-500 mt-1">
+              Minimum sponsorship: ₹99.
+            </div>
+            {amountError && (
+              <div id="claim-amount-error" role="alert" aria-live="polite" className="text-xs text-rose-600 font-semibold mt-1">
+                {amountError}
+              </div>
+            )}
+
             {/* Quick Chips */}
             <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              {[minAmountToBeatTop, minAmountToBeatTop + 50, minAmountToBeatTop + 100, 500, 1000].map((chip) => (
+              {Array.from(new Set([minAmountToBeatTop, minAmountToBeatTop + 50, minAmountToBeatTop + 100, 500, 1000].filter(c => c >= 99))).sort((a, b) => a - b).map((chip) => (
                 <button
                   key={chip}
                   type="button"
                   onClick={() => {
                     setAmountTouched(true);
-                    setAmount(chip);
+                    setAmountStr(String(chip));
+                    setAmountError(null);
                   }}
                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono-numbers transition-all cursor-pointer ${
-                    amount === chip
+                    numericAmount === chip
                       ? 'bg-stone-900 text-white shadow-2xs'
                       : 'bg-[#faf8f4] border border-[#ede5db] text-stone-700 hover:bg-stone-100'
                   }`}
@@ -347,7 +407,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             <div className={`mt-2.5 p-2 rounded-xl text-xs font-semibold flex items-center justify-between ${
               willTakeTop ? 'bg-amber-50 border border-amber-200 text-amber-950' : 'bg-stone-50 border border-stone-200 text-stone-700'
             }`}>
-              <span>Estimated Rank with ₹{amount.toLocaleString('en-IN')}:</span>
+              <span>Estimated Rank with ₹{numericAmount.toLocaleString('en-IN')}:</span>
               <span className="font-extrabold font-mono-numbers text-stone-900">
                 {willTakeTop ? '🔥 #1 Rank (New Leader!)' : `#${expectedRank}`}
               </span>
@@ -512,7 +572,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             </div>
             <div className="flex items-center justify-between text-stone-700">
               <span className="truncate pr-2">Base Amount</span>
-              <span className="font-mono-numbers font-bold">₹{amount.toLocaleString('en-IN')}</span>
+              <span className="font-mono-numbers font-bold">₹{numericAmount.toLocaleString('en-IN')}</span>
             </div>
             <div className="flex items-start justify-between gap-2 text-[11px] text-stone-500">
               <span>
@@ -531,7 +591,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             </div>
             <div className="flex items-center justify-between text-xs font-black text-stone-950 border-t border-[#ede5da] pt-1.5">
               <span>Total Payable</span>
-              <span className="font-mono-numbers text-sm text-[#9c3a16]">₹{amount.toLocaleString('en-IN')} INR</span>
+              <span className="font-mono-numbers text-sm text-[#9c3a16]">₹{numericAmount.toLocaleString('en-IN')} INR</span>
             </div>
 
             <div className="text-[11px] text-stone-500 space-y-1 pt-1 border-t border-[#ede5da]/60 leading-relaxed">
@@ -577,8 +637,8 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
           <button
             id="prove-your-laziness-btn"
             type="submit"
-            disabled={isLoading || !taxReady || !name.trim() || amount < 1 || !termsAccepted || customerPhone.replace(/\D/g, '').length !== 10}
-            aria-label={taxReady ? `Prove your laziness - pay ₹${amount.toLocaleString('en-IN')}` : 'Checkout unavailable pending payment and tax verification'}
+            disabled={isLoading || !taxReady || !name.trim() || !isAmountValid || !termsAccepted || customerPhone.replace(/\D/g, '').length !== 10}
+            aria-label={taxReady ? `Prove your laziness - pay ₹${numericAmount.toLocaleString('en-IN')}` : 'Checkout unavailable pending payment and tax verification'}
             className="w-full flex items-center justify-center gap-2 rounded-xl bg-[#e86638] hover:bg-[#d8582b] py-3 px-5 text-xs sm:text-sm font-black text-white shadow-xs transition-all active:scale-98 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e86638] focus-visible:ring-offset-2"
           >
             {isLoading ? (
@@ -590,7 +650,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
               <span>CHECKOUT UNAVAILABLE — TAX &amp; PAYMENT VERIFICATION PENDING</span>
             ) : (
               <>
-                <span>PROVE YOUR LAZINESS — PAY ₹{amount.toLocaleString('en-IN')}</span>
+                <span>PROVE YOUR LAZINESS — PAY ₹{numericAmount.toLocaleString('en-IN')}</span>
                 <ArrowRight className="w-4 h-4 text-white shrink-0" />
               </>
             )}

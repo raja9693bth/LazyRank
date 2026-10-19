@@ -48,7 +48,7 @@ export default function App() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [allTimeTop3, setAllTimeTop3] = useState<UserProfile[]>([]);
   const [topAmount, setTopAmount] = useState<number>(0);
-  const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(1);
+  const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(99);
   const [_activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentPeriod, setCurrentPeriod] = useState<RankPeriod>('all');
   const [allTimeTopProfile, setAllTimeTopProfile] = useState<UserProfile | null>(null);
@@ -172,7 +172,7 @@ export default function App() {
           setProfiles(data.profiles || []);
           if (data.topAmount !== undefined) {
             setTopAmount(data.topAmount);
-            setMinAmountToBeatTop(data.topAmount + 1);
+            setMinAmountToBeatTop(data.minAmountToBeatTop ?? Math.max(99, Math.ceil(data.topAmount + 1)));
           }
           if (targetPeriod === 'all' && data.profiles && data.profiles.length > 0 && filterParam === 'verified') {
             setAllTimeTopProfile(data.profiles[0]);
@@ -229,7 +229,7 @@ export default function App() {
         }
         if (data.topAmount !== undefined) {
           setTopAmount(data.topAmount);
-          setMinAmountToBeatTop(data.topAmount + 1);
+          setMinAmountToBeatTop(data.minAmountToBeatTop ?? Math.max(99, Math.ceil(data.topAmount + 1)));
         }
       }
     } catch {
@@ -585,7 +585,8 @@ export default function App() {
   const handleUpgradeRank = (profile: UserProfile) => {
     setUpgradingProfile(profile);
     setSelectedProfile(null);
-    setInitialClaimAmount(minAmountToBeatTop);
+    const upgradeSuggested = Math.max(99, Math.ceil(topAmount - profile.amount + 1));
+    setInitialClaimAmount(upgradeSuggested);
     setDrawerPrefill({ name: profile.name, category: profile.lazyReason });
     setIsDrawerOpen(true);
   };

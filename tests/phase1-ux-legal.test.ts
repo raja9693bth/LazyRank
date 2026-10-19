@@ -46,8 +46,8 @@ export async function runPhase1Tests() {
   console.log('\n--- 3. Price Defaults & User Input Protection ---');
   const appSrc = fs.readFileSync(path.join(process.cwd(), 'src/App.tsx'), 'utf-8');
   assert(appSrc.includes('const [topAmount, setTopAmount] = useState<number>(0);'), 'topAmount default is 0');
-  assert(appSrc.includes('const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(1);'), 'minAmountToBeatTop default is 1');
-  pass('App defaults topAmount to 0 and minAmountToBeatTop to 1');
+  assert(appSrc.includes('const [minAmountToBeatTop, setMinAmountToBeatTop] = useState<number>(99);'), 'minAmountToBeatTop default is 99');
+  pass('App defaults topAmount to 0 and minAmountToBeatTop to 99');
 
   const actionPanelSrc = fs.readFileSync(path.join(process.cwd(), 'src/components/ActionPanel.tsx'), 'utf-8');
   assert(actionPanelSrc.includes('const [amountTouched, setAmountTouched] = useState<boolean>(false);'), 'Tracks amountTouched state');

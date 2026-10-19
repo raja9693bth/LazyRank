@@ -66,7 +66,8 @@ export interface RefundRequestParams {
 export interface RefundResult {
   success: boolean;
   refundId: string;
-  status: 'PENDING' | 'SUCCESS' | 'FAILED';
+  providerRefundId?: string;
+  status: 'PENDING' | 'SUCCESS' | 'FAILED' | 'UNKNOWN';
   raw?: any;
   error?: string;
 }

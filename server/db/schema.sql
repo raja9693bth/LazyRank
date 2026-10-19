@@ -75,6 +75,14 @@ CREATE TABLE IF NOT EXISTS payment_orders (
   reconciliation_attempts INT NOT NULL DEFAULT 0,
   next_reconcile_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   reconciliation_error TEXT,
+  charge_currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+  charge_amount_minor BIGINT,
+  canonical_rank_credit_paise BIGINT,
+  fx_quote_id VARCHAR(64),
+  fx_rate_numerator BIGINT,
+  fx_rate_denominator BIGINT,
+  provider_account_id VARCHAR(64),
+  provider_environment VARCHAR(32),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -149,6 +157,9 @@ CREATE TABLE IF NOT EXISTS refund_reversals (
   reconciliation_attempts INT NOT NULL DEFAULT 0,
   next_reconcile_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   reconciliation_error TEXT,
+  charge_currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+  charge_refund_amount_minor BIGINT,
+  reversed_rank_credit_paise BIGINT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -303,8 +314,12 @@ CREATE INDEX IF NOT EXISTS idx_profile_votes_profile_id ON profile_votes (profil
 CREATE TABLE IF NOT EXISTS payment_products (
   id VARCHAR(64) PRIMARY KEY,
   provider VARCHAR(32) NOT NULL DEFAULT 'dodo',
+  environment VARCHAR(32) NOT NULL DEFAULT 'live_mode',
+  account_id VARCHAR(64) NOT NULL DEFAULT 'primary',
+  pricing_version VARCHAR(32) NOT NULL DEFAULT 'v1',
   currency VARCHAR(10) NOT NULL DEFAULT 'INR',
   amount_paise BIGINT NOT NULL,
+  amount_minor BIGINT,
   product_id VARCHAR(128) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT uq_payment_products_provider_amt UNIQUE (provider, currency, amount_paise)
@@ -312,4 +327,7 @@ CREATE TABLE IF NOT EXISTS payment_products (
 
 CREATE INDEX IF NOT EXISTS idx_payment_products_lookup
   ON payment_products (provider, currency, amount_paise);
+
+CREATE INDEX IF NOT EXISTS idx_payment_products_namespaced
+  ON payment_products (provider, environment, account_id, currency, amount_minor, pricing_version);
 

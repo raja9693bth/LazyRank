@@ -87,13 +87,13 @@ async function runDodoPaymentsTests() {
 
   // Candidate 1 (₹1 x Quantity) Evaluation & Rejection
   {
-    // Dodo Payments minimum transaction amount is ₹5.00 INR (500 paise)
-    // Candidate 1 cannot fulfill ₹1 to ₹4 payments
-    const minTransactionThresholdPaise = 500;
+    // Dodo Payments minimum transaction amount is ₹99.00 INR (9,900 paise)
+    // Candidate 1 cannot fulfill ₹1 to ₹98 payments
+    const minTransactionThresholdPaise = 9900;
     const testAmountPaise = toSafePaise(1);
     assert(
       testAmountPaise !== null && testAmountPaise < minTransactionThresholdPaise,
-      'Candidate 1 (₹1 x qty) fails minimum transaction threshold of ₹5.00 INR for ₹1-₹4'
+      'Candidate 1 (₹1 x qty) fails minimum transaction threshold of ₹99.00 INR for ₹1-₹98'
     );
 
     // Quantity truthfulness: If ₹501 was charged as ₹1 x 501 units,
@@ -125,8 +125,8 @@ async function runDodoPaymentsTests() {
     for (const amt of representativeAmounts) {
       const paise = toSafePaise(amt);
       assert(
-        paise !== null && paise === amt * 100 && paise >= 500,
-        `Representative purchase ₹${amt} converts to exact ${paise} paise and exceeds ₹5.00 min threshold`
+        paise !== null && paise === amt * 100 && paise >= 9900,
+        `Representative purchase ₹${amt} converts to exact ${paise} paise and exceeds ₹99.00 min threshold`
       );
     }
   }
@@ -143,7 +143,7 @@ async function runDodoPaymentsTests() {
     try {
       await dodoProvider.createOrder({
         orderId: 'order_test_min',
-        amount: 4, // Below ₹5
+        amount: 50, // Below ₹99
         currency: 'INR',
         customerName: 'Test Min',
         customerEmail: 'test@example.com',
@@ -154,11 +154,11 @@ async function runDodoPaymentsTests() {
     } catch (err: any) {
       rejectedUnderMin = true;
       assert(
-        err.message.includes('minimum one-time payment of ₹5') && err.message.includes('0.50'),
-        'Dodo Payments provider rejects < ₹5 with clear error message covering ₹5 floor and $0.50 USD equivalent (does not silently increase)'
+        err.message.includes('₹99') && err.message.includes('Enter ₹99 or more to continue'),
+        'Dodo Payments provider rejects < ₹99 with clear error message (does not silently increase)'
       );
     }
-    assert(rejectedUnderMin, 'createOrder rejected purchase of ₹4');
+    assert(rejectedUnderMin, 'createOrder rejected purchase of ₹50');
 
     // Dual minimum: Provider API rejection below $0.50 USD equivalent error translation
     let rejectedProviderMin = false;
@@ -177,7 +177,7 @@ async function runDodoPaymentsTests() {
     try {
       await providerMinMock.createOrder({
         orderId: 'order_test_fx_min',
-        amount: 10,
+        amount: 99,
         currency: 'INR',
         customerName: 'Test FX Min',
         customerEmail: 'test@example.com',
@@ -190,7 +190,7 @@ async function runDodoPaymentsTests() {
       assert(
         err.message.includes('Dodo Payments minimum payment requirement not met') &&
         err.message.includes('$0.50 USD equivalent') &&
-        err.message.includes('₹5'),
+        err.message.includes('₹99'),
         'Provider API rejection for amount below $0.50 USD equivalent is returned as clear supported error without fixed FX guessing or silent inflation'
       );
     }
@@ -264,11 +264,11 @@ async function runDodoPaymentsTests() {
       'All 5 concurrent requests received the exact same product ID (prod_mock_100100)'
     );
     assert(
-      passedProductOptions?.idempotencyKey === 'prod_dodo_inr_100100',
+      passedProductOptions?.idempotencyKey?.startsWith('prod_dodo_inr_100100'),
       'SDK products.create received deterministic idempotencyKey option'
     );
     assert(
-      passedProductOptions?.headers?.['Idempotency-Key'] === 'prod_dodo_inr_100100',
+      passedProductOptions?.headers?.['Idempotency-Key']?.startsWith('prod_dodo_inr_100100'),
       'SDK products.create received Idempotency-Key request header'
     );
   }
@@ -805,6 +805,7 @@ async function runDodoPaymentsTests() {
     }
   }
 
+  assert(connected, 'HTTP test server started and connected successfully on port ' + TEST_PORT);
   if (connected) {
     const configRes = await fetchJson(`${BASE}/api/payment/config`);
     assert(configRes.status === 200, 'GET /api/payment/config returned 200');
@@ -816,8 +817,6 @@ async function runDodoPaymentsTests() {
       configRes.headers['content-security-policy'].includes('checkout.dodopayments.com'),
       'Content-Security-Policy headers allow checkout.dodopayments.com'
     );
-  } else {
-    console.log('  ⚠ Server already listening on other port; verified config logic via PaymentManager');
   }
 
   console.log('\n========================================================');

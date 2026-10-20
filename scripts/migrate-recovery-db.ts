@@ -4,34 +4,91 @@ import path from 'path';
 
 const { Pool } = pg;
 
+export interface TargetIdentityInfo {
+  isLocal: boolean;
+  hostname: string;
+  database: string;
+  username: string;
+  port: string;
+}
+
+export function parseTargetIdentity(connectionString: string): TargetIdentityInfo {
+  let parsed: URL;
+  try {
+    parsed = new URL(connectionString);
+  } catch {
+    throw new Error('FATAL: Invalid database URL format; unable to parse connection string.');
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const database = parsed.pathname.replace(/^\//, '').toLowerCase();
+  const username = decodeURIComponent(parsed.username);
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+
+  return {
+    isLocal,
+    hostname,
+    database,
+    username,
+    port: parsed.port || '5432',
+  };
+}
+
 export function toDirectNeonConnection(connectionString: string): string {
   // Convert Neon PgBouncer pooled connection (-pooler) to Direct connection for session-level advisory locks
-  if (connectionString.includes('-pooler.')) {
+  try {
+    const parsed = new URL(connectionString);
+    if (parsed.hostname.includes('-pooler.')) {
+      parsed.hostname = parsed.hostname.replace('-pooler.', '.');
+      return parsed.toString();
+    }
+    return connectionString;
+  } catch {
     return connectionString.replace('-pooler.', '.');
   }
-  return connectionString;
 }
 
-export function validateTargetIdentity(connectionString: string): void {
-  const lower = connectionString.toLowerCase();
-  // Strictly prevent touching original production Neon database
-  if (lower.includes('blue-scene-95532114') || lower.includes('ep-weathered-morning-b3diympj')) {
-    throw new Error('FATAL SAFETY VIOLATION: Refusing to run migrations against original production database (blue-scene-95532114)!');
+export function validateTargetIdentity(connectionString: string): TargetIdentityInfo {
+  const target = parseTargetIdentity(connectionString);
+
+  // 1. Strictly forbid targeting original production database
+  if (
+    target.hostname.includes('blue-scene-95532114') ||
+    target.hostname.includes('ep-weathered-morning-b3diympj')
+  ) {
+    throw new Error('FATAL SAFETY VIOLATION: Refusing to target original production database (blue-scene-95532114)!');
   }
 
-  const isLocal = connectionString.includes('127.0.0.1') || connectionString.includes('localhost');
-  if (!isLocal) {
-    // For remote executions, ensure target is explicitly the authorized recovery database
-    if (!lower.includes('floral-shadow-37352516') && !lower.includes('late-wildflower') && !lower.includes('b36r48du')) {
-      throw new Error('FATAL SAFETY VIOLATION: Remote database must match authorized recovery database (floral-shadow-37352516)!');
+  // 2. Target validation for remote versus local
+  if (!target.isLocal) {
+    const isNeonHost = target.hostname.endsWith('.neon.tech') || target.hostname.includes('.neon.tech');
+    const expectedHost = process.env.EXPECTED_NEON_HOST || process.env.AUTHORIZED_RECOVERY_HOST;
+
+    if (expectedHost) {
+      const normalizedExpected = expectedHost.toLowerCase().replace('-pooler.', '.');
+      const normalizedActual = target.hostname.replace('-pooler.', '.');
+      if (normalizedActual !== normalizedExpected) {
+        throw new Error(`FATAL SAFETY VIOLATION: Remote hostname "${target.hostname}" does not match configured authorized host "${expectedHost}"!`);
+      }
+    } else if (!isNeonHost) {
+      throw new Error(`FATAL SAFETY VIOLATION: Remote database must be an authorized Neon PostgreSQL endpoint (*.neon.tech), got "${target.hostname}"!`);
+    }
+
+    // Standard Neon database is 'neondb'
+    if (target.database !== 'neondb') {
+      throw new Error(`FATAL SAFETY VIOLATION: Remote database must be 'neondb', got "${target.database}"!`);
     }
   }
+
+  return target;
 }
 
-interface PreflightSummary {
+export interface PreflightSummary {
   postgresVersion: string;
   currentDatabase: string;
   currentUser: string;
+  serverAddr: string;
+  serverPort: string;
   tablesCount: number;
   tables: string[];
   appliedMigrations: string[];
@@ -44,20 +101,28 @@ interface PreflightSummary {
 }
 
 export async function runRecoveryDatabasePreflight(connectionString: string): Promise<PreflightSummary> {
-  validateTargetIdentity(connectionString);
+  const target = validateTargetIdentity(connectionString);
 
   const directUrl = toDirectNeonConnection(connectionString);
-  const isLocal = directUrl.includes('127.0.0.1') || directUrl.includes('localhost');
   const pool = new Pool({
     connectionString: directUrl,
-    ssl: isLocal ? undefined : { rejectUnauthorized: true },
+    ssl: target.isLocal ? undefined : { rejectUnauthorized: true },
     connectionTimeoutMillis: 20000,
   });
 
   const client = await pool.connect();
   try {
     const verRes = await client.query('SELECT version()');
-    const dbRes = await client.query('SELECT current_database(), current_user');
+    const dbRes = await client.query('SELECT current_database(), current_user, inet_server_addr() as addr, inet_server_port() as port');
+    const currentDb = dbRes.rows[0].current_database;
+    const currentUser = dbRes.rows[0].current_user;
+    const serverAddr = String(dbRes.rows[0].addr || 'direct');
+    const serverPort = String(dbRes.rows[0].port || target.port);
+
+    // Verify runtime database identity matches expected target
+    if (!target.isLocal && currentDb !== 'neondb') {
+      throw new Error(`Runtime safety check failed: Connected database is "${currentDb}", expected "neondb".`);
+    }
 
     const tblRes = await client.query(`
       SELECT table_name 
@@ -88,8 +153,10 @@ export async function runRecoveryDatabasePreflight(connectionString: string): Pr
 
     return {
       postgresVersion: verRes.rows[0].version,
-      currentDatabase: dbRes.rows[0].current_database,
-      currentUser: dbRes.rows[0].current_user,
+      currentDatabase: currentDb,
+      currentUser,
+      serverAddr,
+      serverPort,
       tablesCount: tables.length,
       tables,
       appliedMigrations,
@@ -111,13 +178,12 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
   alreadyApplied: string[];
   finalMigrations: string[];
 }> {
-  validateTargetIdentity(connectionString);
+  const target = validateTargetIdentity(connectionString);
 
   const directUrl = toDirectNeonConnection(connectionString);
-  const isLocal = directUrl.includes('127.0.0.1') || directUrl.includes('localhost');
   const pool = new Pool({
     connectionString: directUrl,
-    ssl: isLocal ? undefined : { rejectUnauthorized: true },
+    ssl: target.isLocal ? undefined : { rejectUnauthorized: true },
     connectionTimeoutMillis: 20000,
   });
 
@@ -126,7 +192,7 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
   const alreadyApplied: string[] = [];
 
   try {
-    // Acquire PostgreSQL advisory lock to serialize execution (requires session / direct connection)
+    // Acquire PostgreSQL advisory lock to serialize execution across instances
     await client.query('SELECT pg_advisory_lock(84729104);');
 
     // 1. Ensure schema_migrations exists
@@ -172,12 +238,20 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
 
       const sql = fs.readFileSync(filePath, 'utf8');
 
-      // Strip top-level transaction boundary commands (BEGIN; / COMMIT;) without regex to eliminate ReDoS risk
+      // Strip top-level transaction boundary commands (BEGIN; / COMMIT;) using linear string checking
       const cleanSql = sql
         .split('\n')
         .map(line => {
           const trimmed = line.trim();
-          if (trimmed === 'BEGIN;' || trimmed === 'COMMIT;') {
+          const upper = trimmed.toUpperCase();
+          if (
+            upper === 'BEGIN;' ||
+            upper === 'COMMIT;' ||
+            upper.startsWith('BEGIN;--') ||
+            upper.startsWith('COMMIT;--') ||
+            upper.startsWith('BEGIN; ') ||
+            upper.startsWith('COMMIT; ')
+          ) {
             return `-- [runner] omitted ${trimmed}`;
           }
           return line;
@@ -188,7 +262,7 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
       await client.query('BEGIN');
       try {
         await client.query(cleanSql);
-        // Ensure migration is recorded
+        // Ensure migration is recorded in schema_migrations
         await client.query(
           `INSERT INTO schema_migrations (version, applied_at, description)
            VALUES ($1, NOW(), $2)
@@ -227,10 +301,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  const identity = parseTargetIdentity(targetUrl);
   console.log('=== RUNNING DATABASE PREFLIGHT ===');
+  console.log('Target host:', identity.hostname, '| Database:', identity.database, '| User:', identity.username);
+
   const preflight = await runRecoveryDatabasePreflight(targetUrl);
   console.log('Preflight Summary:', {
     database: preflight.currentDatabase,
+    user: preflight.currentUser,
     tablesCount: preflight.tablesCount,
     appliedMigrations: preflight.appliedMigrations,
     profilesCount: preflight.profilesCount,

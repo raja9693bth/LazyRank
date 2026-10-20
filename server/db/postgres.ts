@@ -109,7 +109,7 @@ export interface RefundReservationResult {
   statusCode?: number;
 }
 
-export interface CreateQuoteParams {
+export interface CreatePaymentQuoteParams {
   quoteId: string;
   provider: string;
   environment: string;
@@ -119,13 +119,15 @@ export interface CreateQuoteParams {
   rankCreditPaise: number | bigint;
   taxMode?: string;
   pricingVersion: string;
-  purpose: string;
-  profileId?: string;
-  claimantName: string;
+  purpose: 'new' | 'upgrade' | string;
+  profileId?: string | null;
+  claimantName?: string | null;
   authHash: string;
-  expiresAt: Date;
-  quoteSnapshot: any;
+  expiresAt: string | Date;
+  quoteSnapshot: Record<string, any>;
 }
+
+export type CreateQuoteParams = CreatePaymentQuoteParams;
 
 export interface PaymentQuote {
   id: string;
@@ -847,12 +849,34 @@ export class PostgresDatabase {
   /**
    * Create durable payment quote snapshot
    */
-  public async createPaymentQuote(params: any): Promise<PaymentQuote> {
+  public async createPaymentQuote(params: CreatePaymentQuoteParams | any): Promise<PaymentQuote> {
     if (!this.pool) throw new Error('Database pool unavailable');
     const id = `pq_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
     const expiresAt = params.expiresAt
       ? (typeof params.expiresAt === 'string' ? params.expiresAt : (params.expiresAt as Date).toISOString())
       : new Date(Date.now() + (params.ttlSeconds || 300) * 1000).toISOString();
+
+    const amountMinor = params.amountMinor !== undefined
+      ? Number(params.amountMinor)
+      : (params as any).chargeAmountMinor !== undefined
+        ? Number((params as any).chargeAmountMinor)
+        : undefined;
+
+    const rankCreditPaise = params.rankCreditPaise !== undefined
+      ? Number(params.rankCreditPaise)
+      : (params as any).canonicalRankCreditPaise !== undefined
+        ? Number((params as any).canonicalRankCreditPaise)
+        : amountMinor;
+
+    const authHash = params.authHash || (params as any).auth_hash;
+    const quoteSnapshot = params.quoteSnapshot || (params as any).snapshot || {};
+
+    if (amountMinor === undefined || !Number.isFinite(amountMinor)) {
+      throw new Error('amountMinor is required for payment quote creation.');
+    }
+    if (!authHash || typeof authHash !== 'string') {
+      throw new Error('authHash is required for payment quote creation.');
+    }
 
     const res = await this.pool.query(
       `INSERT INTO payment_quotes (
@@ -869,16 +893,16 @@ export class PostgresDatabase {
         params.environment || 'sandbox',
         params.accountId || 'primary',
         params.currency || 'INR',
-        params.amountMinor,
-        params.rankCreditPaise || params.amountMinor,
+        amountMinor,
+        rankCreditPaise,
         params.taxMode || 'tax_inclusive',
         params.pricingVersion || 'v1',
         params.purpose || 'new',
         params.profileId || null,
         params.claimantName || null,
-        params.authHash,
+        authHash,
         expiresAt,
-        JSON.stringify(params.quoteSnapshot || {})
+        JSON.stringify(quoteSnapshot)
       ]
     );
     const r = res.rows[0];
@@ -905,7 +929,7 @@ export class PostgresDatabase {
     };
   }
 
-  public async createPaymentQuoteAsync(params: any): Promise<PaymentQuote> {
+  public async createPaymentQuoteAsync(params: CreatePaymentQuoteParams | any): Promise<PaymentQuote> {
     return this.createPaymentQuote(params);
   }
 
@@ -1047,6 +1071,176 @@ export class PostgresDatabase {
     amountMinorParam?: number
   ): Promise<{ success: boolean; error?: string; quote?: PaymentQuote }> {
     return this.consumePaymentQuoteAtomic(quoteId, orderId, authHashOrOptions, currencyParam, amountMinorParam);
+  }
+
+  /**
+   * Atomically verify quote, consume quote, and create payment order in ONE single ACID transaction.
+   * If quote verification fails or is already consumed, transaction immediately rolls back and NO order is created.
+   */
+  public async createOrderWithQuoteAtomic(
+    order: any,
+    quoteParams?: {
+      quoteId?: string;
+      authHash?: string;
+      currency?: string;
+      amountMinor?: number;
+    }
+  ): Promise<{ success: boolean; error?: string; order?: any; quote?: PaymentQuote }> {
+    if (!this.pool) throw new Error('Database pool unavailable');
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      let boundQuote: PaymentQuote | undefined;
+
+      if (quoteParams?.quoteId) {
+        const qRes = await client.query(
+          'SELECT * FROM payment_quotes WHERE quote_id = $1 FOR UPDATE',
+          [quoteParams.quoteId]
+        );
+        if (qRes.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_NOT_FOUND' };
+        }
+        const q = qRes.rows[0];
+        if (q.consumed_at) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_ALREADY_CONSUMED' };
+        }
+        if (new Date(q.expires_at) <= new Date()) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_EXPIRED' };
+        }
+        if (quoteParams.currency && q.currency !== quoteParams.currency) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+        }
+        if (quoteParams.amountMinor !== undefined && Number(q.amount_minor) !== quoteParams.amountMinor) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+        }
+        const expectedPurpose = order.profileId ? 'upgrade' : 'new';
+        if (q.purpose && q.purpose !== expectedPurpose) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_PURPOSE_MISMATCH' };
+        }
+        if (order.profileId && q.profile_id && q.profile_id !== order.profileId) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_PROFILE_MISMATCH' };
+        }
+        if (quoteParams.authHash && q.auth_hash && q.auth_hash !== quoteParams.authHash) {
+          await client.query('ROLLBACK');
+          return { success: false, error: 'QUOTE_AUTH_MISMATCH' };
+        }
+
+        // Consume quote atomically bound to this order
+        await client.query(
+          'UPDATE payment_quotes SET consumed_at = NOW(), consumed_by_order_id = $1 WHERE quote_id = $2',
+          [order.orderId, quoteParams.quoteId]
+        );
+
+        boundQuote = {
+          id: q.id,
+          quoteId: q.quote_id,
+          provider: q.provider,
+          environment: q.environment,
+          accountId: q.account_id,
+          currency: q.currency,
+          amountMinor: Number(q.amount_minor),
+          rankCreditPaise: Number(q.rank_credit_paise),
+          taxMode: q.tax_mode,
+          pricingVersion: q.pricing_version,
+          purpose: q.purpose,
+          profileId: q.profile_id || undefined,
+          claimantName: q.claimant_name || undefined,
+          authHash: q.auth_hash,
+          consumedAt: new Date().toISOString(),
+          consumedByOrderId: order.orderId,
+          expiresAt: q.expires_at.toISOString(),
+          quoteSnapshot: q.quote_snapshot,
+          createdAt: q.created_at.toISOString()
+        };
+      }
+
+      // Check if order already exists (idempotency key lookup)
+      if (order.idempotencyKey) {
+        const existingRes = await client.query(
+          'SELECT * FROM payment_orders WHERE idempotency_key = $1 LIMIT 1',
+          [order.idempotencyKey]
+        );
+        if (existingRes.rows.length > 0) {
+          await client.query('COMMIT');
+          return { success: true, order: this.mapOrder(existingRes.rows[0]), quote: boundQuote };
+        }
+      }
+
+      // Insert order in the SAME transaction!
+      const tokenHash = order.ownerToken ? hashToken(order.ownerToken) : (order.ownerTokenHash || null);
+      const orderAccessTokenHash = order.orderAccessToken ? hashToken(order.orderAccessToken) : (order.orderAccessTokenHash || null);
+      const chargeCurrency = order.chargeCurrency || order.currency || 'INR';
+      const chargeAmountMinor = order.chargeAmountMinor !== undefined ? Number(order.chargeAmountMinor) : Math.round(order.amount * 100);
+      const canonicalRankCreditPaise = order.canonicalRankCreditPaise !== undefined ? Number(order.canonicalRankCreditPaise) : Math.round(order.amount * 100);
+
+      const query = `
+        INSERT INTO payment_orders (
+          order_id, profile_id, owner_token_hash, order_access_token_hash, quote_snapshot,
+          name, amount, currency, status, payment_mode, provider, idempotency_key,
+          customer_email, customer_phone, instagram, linkedin, website, twitter,
+          reason, lazy_reason, consent_accepted, consent_timestamp, consent_version,
+          charge_currency, charge_amount_minor, canonical_rank_credit_paise, fx_quote_id,
+          fx_rate_numerator, fx_rate_denominator, provider_account_id, provider_environment,
+          created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, NOW(), NOW()
+        )
+        RETURNING *
+      `;
+
+      const insertRes = await client.query(query, [
+        order.orderId,
+        order.profileId || null,
+        tokenHash,
+        orderAccessTokenHash,
+        order.quoteSnapshot
+          ? JSON.stringify({ ...order.quoteSnapshot, ...(quoteParams?.quoteId ? { quoteId: quoteParams.quoteId } : {}) })
+          : (boundQuote ? JSON.stringify({ ...(boundQuote.quoteSnapshot || {}), quoteId: boundQuote.quoteId }) : null),
+        order.name,
+        order.amount,
+        order.currency || 'INR',
+        'PENDING',
+        order.paymentMode || 'disabled',
+        order.provider || 'dodo',
+        order.idempotencyKey || null,
+        order.customerEmail || null,
+        order.customerPhone || null,
+        order.instagram || null,
+        order.linkedin || null,
+        order.website || null,
+        order.twitter || null,
+        order.reason || null,
+        order.lazyReason || null,
+        Boolean(order.consentAccepted),
+        order.consentTimestamp ? new Date(order.consentTimestamp) : null,
+        order.consentVersion || null,
+        chargeCurrency,
+        chargeAmountMinor,
+        canonicalRankCreditPaise,
+        order.fxQuoteId || null,
+        order.fxRateNumerator ? Number(order.fxRateNumerator) : null,
+        order.fxRateDenominator ? Number(order.fxRateDenominator) : null,
+        order.providerAccountId || null,
+        order.providerEnvironment || null
+      ]);
+
+      await client.query('COMMIT');
+      return { success: true, order: this.mapOrder(insertRes.rows[0]), quote: boundQuote };
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
 

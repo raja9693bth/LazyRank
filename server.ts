@@ -544,10 +544,20 @@ async function startServer() {
     quoteId: string;
     currency: 'INR' | 'USD';
     amountMinor: number;
+    chargeAmountMinor?: number;
     rankCreditPaise: number;
+    pricingVersion?: string;
+    provider?: string;
+    environment?: string;
+    accountId?: string;
+    taxMode?: string;
+    purpose?: string;
+    profileId?: string | null;
+    authHash?: string;
     createdAt: string;
     expiresAt: string;
     conversionDetails?: any;
+    consumedAt?: string;
   }
 
   const serverQuotes = new Map<string, StoredQuote>();
@@ -619,15 +629,28 @@ async function startServer() {
     const quoteId = `qte_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
     const now = Date.now();
     const expiresAt = new Date(now + 5 * 60 * 1000).toISOString();
+    const purpose = profileId ? 'upgrade' : 'new';
 
-    const snapshot = {
+    // Compute secure authorization intent hash without persisting raw tokens
+    const authHash = crypto.createHash('sha256').update(
+      `${quoteId}:${validation.amountMinor}:${selectedCurrency}:${purpose}:${profileId || 'new'}:${clientIp}`
+    ).digest('hex');
+
+    const snapshot: StoredQuote = {
       quoteId,
-      currency: selectedCurrency,
+      currency: selectedCurrency as 'INR' | 'USD',
+      amountMinor: validation.amountMinor,
       chargeAmountMinor: validation.amountMinor,
       rankCreditPaise,
       pricingVersion: CURRENT_PRICING_VERSION,
       provider: providerObj.name,
       environment: paymentManager.getMode(),
+      accountId: 'primary',
+      taxMode: 'tax_inclusive',
+      purpose,
+      profileId: profileId || null,
+      authHash,
+      createdAt: new Date(now).toISOString(),
       expiresAt,
       conversionDetails
     };
@@ -635,43 +658,43 @@ async function startServer() {
     if (db.createPaymentQuoteAsync) {
       await db.createPaymentQuoteAsync({
         quoteId,
-        currency: selectedCurrency,
-        chargeAmountMinor: validation.amountMinor,
-        canonicalRankCreditPaise: rankCreditPaise,
-        pricingVersion: CURRENT_PRICING_VERSION,
         provider: providerObj.name,
         environment: paymentManager.getMode(),
-        purpose: profileId ? 'upgrade' : 'new',
-        profileId: profileId || undefined,
-        conversionDetails,
-        snapshot,
-        expiresAt
+        accountId: 'primary',
+        currency: selectedCurrency,
+        amountMinor: validation.amountMinor,
+        rankCreditPaise,
+        taxMode: 'tax_inclusive',
+        pricingVersion: CURRENT_PRICING_VERSION,
+        purpose,
+        profileId: profileId || null,
+        claimantName: null,
+        authHash,
+        expiresAt,
+        quoteSnapshot: snapshot
       });
     }
 
-    serverQuotes.set(quoteId, {
-      quoteId,
-      currency: selectedCurrency,
-      amountMinor: validation.amountMinor,
-      rankCreditPaise,
-      createdAt: new Date(now).toISOString(),
-      expiresAt,
-      conversionDetails
-    });
+    serverQuotes.set(quoteId, snapshot);
 
     return res.json({
       quoteId,
       currency: selectedCurrency,
+      amountMinor: validation.amountMinor,
       chargeAmountMinor: validation.amountMinor,
       chargeAmountDisplay: selectedCurrency === 'INR' ? `₹${validation.amountMinor / 100}` : `$${(validation.amountMinor / 100).toFixed(2)}`,
       rankCreditPaise,
       rankCreditDisplayINR: `₹${Math.floor(rankCreditPaise / 100)}`,
       pricingVersion: CURRENT_PRICING_VERSION,
-      taxBasis: isTaxReady() ? 'GST not charged: supplier verified unregistered under applicable registration rules' : 'GST status being verified',
+      taxMode: 'tax_inclusive',
+      taxBasis: 'Pricing is tax-inclusive. Dodo Payments serves as Merchant of Record.',
       taxPaise: 0,
       feePaise: 0,
       totalMinor: validation.amountMinor,
       expiresAt,
+      purpose,
+      profileId: profileId || null,
+      authHash,
       conversionDetails
     });
   }));
@@ -873,6 +896,7 @@ async function startServer() {
     const feePaise = 0;
     const totalPaise = basePaise + taxPaise + feePaise;
     const quoteSnapshot = {
+      quoteId: fxQuoteId,
       basePaise,
       taxPaise,
       feePaise,
@@ -1015,38 +1039,57 @@ async function startServer() {
 
     const orderId = 'order_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
 
-    // Authoritative server-side order registration with concurrent race protection
+    // Authoritative server-side order registration and atomic quote consumption
+    const cleanQuoteId = reqQuoteId ? String(reqQuoteId).trim() : undefined;
+    const expectedAuthHash = cleanQuoteId ? crypto.createHash('sha256').update(
+      `${cleanQuoteId}:${chargeAmountMinor}:${chargeCurrency}:${profileId ? 'upgrade' : 'new'}:${profileId || 'new'}:${clientIp}`
+    ).digest('hex') : undefined;
+
     try {
-      await db.createOrder({
-        orderId,
-        name: name.trim(),
-        amount: parsedAmount,
-        currency: 'INR',
-        chargeCurrency,
-        chargeAmountMinor,
-        canonicalRankCreditPaise,
-        fxQuoteId,
-        profileId,
-        provider: intentProvider.name,
-        ownerToken: providedToken,
-        orderAccessToken: clientOrderAccessToken,
-        quoteSnapshot,
-        instagram: db.normalizeInstagram(instagram),
-        linkedin: db.normalizeLinkedIn(linkedin),
-        website: db.normalizeWebsite(website),
-        twitter: db.normalizeTwitter(twitter),
-        reason: reason?.trim(),
-        lazyReason: lazyReason?.trim(),
-        idempotencyKey,
-        paymentMode: paymentManager.getMode(),
-        customerEmail: validCustomerEmail,
-        customerPhone: phoneStr,
-        consentAccepted: true,
-        consentTimestamp: new Date().toISOString(),
-        consentVersion: consentVersion || CURRENT_CONSENT_VERSION
-      });
-      if (reqQuoteId && db.consumePaymentQuoteAtomicAsync) {
-        await db.consumePaymentQuoteAtomicAsync(String(reqQuoteId).trim(), orderId);
+      const atomicRes = await db.createOrderWithQuoteAtomicAsync(
+        {
+          orderId,
+          name: name.trim(),
+          amount: parsedAmount,
+          currency: 'INR',
+          chargeCurrency,
+          chargeAmountMinor,
+          canonicalRankCreditPaise,
+          fxQuoteId,
+          profileId,
+          provider: intentProvider.name,
+          ownerToken: providedToken,
+          orderAccessToken: clientOrderAccessToken,
+          quoteSnapshot,
+          instagram: db.normalizeInstagram(instagram),
+          linkedin: db.normalizeLinkedIn(linkedin),
+          website: db.normalizeWebsite(website),
+          twitter: db.normalizeTwitter(twitter),
+          reason: reason?.trim(),
+          lazyReason: lazyReason?.trim(),
+          idempotencyKey,
+          paymentMode: paymentManager.getMode(),
+          customerEmail: validCustomerEmail,
+          customerPhone: phoneStr,
+          consentAccepted: true,
+          consentTimestamp: new Date().toISOString(),
+          consentVersion: consentVersion || CURRENT_CONSENT_VERSION
+        },
+        cleanQuoteId ? {
+          quoteId: cleanQuoteId,
+          authHash: expectedAuthHash,
+          currency: chargeCurrency,
+          amountMinor: chargeAmountMinor
+        } : undefined
+      );
+
+      if (!atomicRes.success) {
+        const errCode = atomicRes.error || 'INVALID_QUOTE';
+        const statusCode = errCode === 'QUOTE_ALREADY_CONSUMED' ? 409 : (errCode === 'QUOTE_NOT_FOUND' ? 404 : 400);
+        return res.status(statusCode).json({
+          error: `Quote consumption failed: ${errCode}`,
+          code: errCode
+        });
       }
     } catch (createErr: any) {
       if (createErr?.code === '23505' || createErr?.message?.includes('duplicate key') || createErr?.message?.includes('idempotency')) {

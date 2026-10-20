@@ -245,9 +245,10 @@ export class RazorpayProvider implements PaymentProvider {
         const localOrder = await db.getOrderAsync(orderIdOrPaymentId);
         if (localOrder?.paymentRef?.startsWith('pay_')) {
           paymentId = localOrder.paymentRef;
-        } else if (localOrder?.providerOrderId?.startsWith('order_')) {
+        } else if (localOrder?.providerOrderId?.startsWith('order_') && /^[a-zA-Z0-9_]+$/.test(localOrder.providerOrderId)) {
+          const sanitizedOrderId = localOrder.providerOrderId;
           const rzpOrderPaymentsRes = await fetch(
-            `https://api.razorpay.com/v1/orders/${encodeURIComponent(localOrder.providerOrderId)}/payments`,
+            `https://api.razorpay.com/v1/orders/${encodeURIComponent(sanitizedOrderId)}/payments`,
             { headers: { Authorization: authHeader } }
           );
           if (rzpOrderPaymentsRes.ok) {
@@ -261,7 +262,7 @@ export class RazorpayProvider implements PaymentProvider {
       } catch {}
     }
 
-    if (!paymentId.startsWith('pay_')) {
+    if (!paymentId.startsWith('pay_') || !/^[a-zA-Z0-9_]+$/.test(paymentId)) {
       return {
         orderId: orderIdOrPaymentId,
         status: 'PENDING',
@@ -269,7 +270,8 @@ export class RazorpayProvider implements PaymentProvider {
       };
     }
 
-    const response = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
+    const sanitizedPaymentId = paymentId;
+    const response = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(sanitizedPaymentId)}`, {
       method: 'GET',
       headers: { Authorization: authHeader }
     });

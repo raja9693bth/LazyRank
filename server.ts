@@ -3,7 +3,6 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import sharp from 'sharp';
-import { createServer as createViteServer } from 'vite';
 import { db } from './server/db.ts';
 import { generateRoast, generateFallbackRoast } from './server/roast.ts';
 import { generateProfileOgSvg, injectProfileMetadata, injectRouteMetadata, ROUTE_SEO } from './server/seo.ts';
@@ -3014,7 +3013,8 @@ async function startServer() {
 
   // Vite middleware in dev or static files in production
   if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
+    const { createServer } = await import('vite');
+    const vite = await createServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });

@@ -62,7 +62,7 @@ export class PaymentManager {
     // Production + sandbox = forbidden!
     if (isProd && this.mode === 'sandbox') {
       throw new Error(
-        'FATAL CONFIGURATION ERROR: PAYMENT_MODE=sandbox is strictly forbidden in a production environment.'
+        'FATAL CONFIGURATION ERROR: PAYMENT_MODE=sandbox is strictly forbidden in a production environment. For safe public restoration with checkout disabled, set PAYMENT_MODE=disabled. For live production, set PAYMENT_MODE=live after merchant approval.'
       );
     }
 

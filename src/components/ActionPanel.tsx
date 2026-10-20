@@ -78,7 +78,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
       return 'Enter a valid whole rupee amount.';
     }
     const parsed = Number.parseInt(val.trim(), 10);
-    if (isNaN(parsed) || parsed < 99) {
+    if (Number.isNaN(parsed) || parsed < 99) {
       return 'Minimum sponsorship is ₹99. Enter ₹99 or more to continue.';
     }
     if (parsed > 1000000) {
@@ -88,7 +88,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   };
 
   const parsedAmount = Number.parseInt(amountStr.trim(), 10);
-  const numericAmount = !isNaN(parsedAmount) && /^\d+$/.test(amountStr.trim()) ? parsedAmount : 0;
+  const numericAmount = !Number.isNaN(parsedAmount) && /^\d+$/.test(amountStr.trim()) ? parsedAmount : 0;
   const isAmountValid = numericAmount >= 99 && !amountError;
 
   useEffect(() => {

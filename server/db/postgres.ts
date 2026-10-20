@@ -245,15 +245,20 @@ export function getIstTodayWindow(): {
 export class PostgresDatabase {
   private pool: pg.Pool | null = null;
   private isInitialized = false;
+  private onOutboxEnqueued?: () => void;
+
+  public setOnOutboxEnqueued(cb: () => void): void {
+    this.onOutboxEnqueued = cb;
+  }
 
   constructor(connectionString?: string) {
     const connStr = connectionString || process.env.DATABASE_URL;
     if (connStr) {
-      if (process.env.NODE_ENV === 'production' && connStr.includes('sslmode=disable')) {
+      const isLocal = connStr.includes('127.0.0.1') || connStr.includes('localhost');
+      if (process.env.NODE_ENV === 'production' && !isLocal && connStr.includes('sslmode=disable')) {
         throw new Error('FATAL: sslmode=disable is strictly forbidden in production environment.');
       }
-      const isLocal = (connStr.includes('127.0.0.1') || connStr.includes('localhost')) && process.env.NODE_ENV !== 'production';
-      const isSsl = process.env.NODE_ENV === 'production' || (!isLocal && !connStr.includes('sslmode=disable'));
+      const isSsl = !isLocal;
       this.pool = new Pool({
         connectionString: connStr,
         ssl: isSsl ? { rejectUnauthorized: true } : undefined,
@@ -1515,6 +1520,7 @@ export class PostgresDatabase {
       this.dispatchOperationalOutbox().catch(err => {
         console.error('[Outbox] Background dispatch error:', err);
       });
+      this.onOutboxEnqueued?.();
 
       return {
         success: true,
@@ -2765,6 +2771,10 @@ export class PostgresDatabase {
       ON CONFLICT (event_type, order_id) DO NOTHING`,
       [outboxId, eventType, orderId, JSON.stringify(payload)]
     );
+    this.dispatchOperationalOutbox().catch(err => {
+      console.error('[Outbox] Background dispatch error:', err);
+    });
+    this.onOutboxEnqueued?.();
   }
 
   /**

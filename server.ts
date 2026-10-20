@@ -261,9 +261,12 @@ async function startServer() {
     }
     const pgInitOk = await db.pg.init();
     if (!pgInitOk) {
-      throw new Error('FATAL CONFIGURATION ERROR: Failed to connect to PostgreSQL and initialize schema.');
+      console.warn(
+        '[PostgreSQL] WARNING: Initial database connection could not be established during startup. Starting HTTP listener in fail-closed state while self-healing readiness probes retry.'
+      );
+    } else {
+      console.log('[PostgreSQL] Initialized as authoritative production database.');
     }
-    console.log('[PostgreSQL] Initialized as authoritative production database.');
   }
 
   const app = express();
@@ -419,11 +422,19 @@ async function startServer() {
     const filter = (req.query.filter as 'verified' | 'all') || 'verified';
 
     if (db.isPostgresAuthoritative()) {
-      const data = await db.pg.getLeaderboard({ period, page, pageSize, offset, limit, filter });
-      return res.json({
-        ...data,
-        timestamp: new Date().toISOString()
-      });
+      try {
+        const data = await db.pg.getLeaderboard({ period, page, pageSize, offset, limit, filter });
+        return res.json({
+          ...data,
+          timestamp: new Date().toISOString()
+        });
+      } catch (err: any) {
+        console.error('[Leaderboard] Database query failed:', err?.message || err);
+        return res.status(503).json({
+          error: 'Database temporarily unavailable. Please retry shortly.',
+          timestamp: new Date().toISOString()
+        });
+      }
     }
 
     const data = db.getLeaderboard({ period, page, pageSize, offset, limit, filter });
@@ -3065,56 +3076,113 @@ async function startServer() {
     process.exit(1);
   });
 
-  // Founder operational alert outbox worker:
-  // Run on startup and every 15 seconds with safe unref and PostgreSQL row-claim locks
+  // --------------------------------------------------------------------------
+  // Adaptive Idle-Efficient Workers (Phase C Resilience)
+  // Eliminates unconditional database polling to preserve serverless PostgreSQL compute allowance.
+  // When idle, workers sleep for 15 minutes instead of waking the database every 15s/60s.
+  // Immediate wakeups are triggered on events (payment settlements, outbox enqueues, order creations).
+  // --------------------------------------------------------------------------
+  const IDLE_WORKER_DELAY_MS = 15 * 60 * 1000; // 15 minutes when idle
+  const ACTIVE_OUTBOX_DELAY_MS = 15 * 1000;    // 15 seconds when active backlog exists
+  const ACTIVE_RECON_DELAY_MS = 60 * 1000;     // 60 seconds when active backlog exists
+
+  let isShuttingDown = false;
+  let outboxTimeout: NodeJS.Timeout | null = null;
+  let isOutboxRunning = false;
+  let hasPendingOutboxWork = false;
+
+  const runOutboxPass = async () => {
+    if (isOutboxRunning || isShuttingDown) return;
+    if (!db.isPostgresAuthoritative()) return;
+    isOutboxRunning = true;
+    try {
+      const result = await db.pg.dispatchOperationalOutbox();
+      // If work was processed or failures occurred, schedule active retry; otherwise sleep idle
+      hasPendingOutboxWork = result.processed > 0 || result.failed > 0;
+    } catch (err) {
+      console.error('[Outbox Worker] Dispatch pass error:', err);
+      hasPendingOutboxWork = false;
+    } finally {
+      isOutboxRunning = false;
+      const nextDelay = hasPendingOutboxWork ? ACTIVE_OUTBOX_DELAY_MS : IDLE_WORKER_DELAY_MS;
+      if (!isShuttingDown) {
+        outboxTimeout = setTimeout(runOutboxPass, nextDelay);
+        outboxTimeout.unref();
+      }
+    }
+  };
+
+  const triggerOutboxDispatch = (): void => {
+    hasPendingOutboxWork = true;
+    if (outboxTimeout) {
+      clearTimeout(outboxTimeout);
+      outboxTimeout = null;
+    }
+    if (!isOutboxRunning && !isShuttingDown) {
+      setImmediate(runOutboxPass);
+    }
+  };
+
+  // Wire outbox event trigger from database layer
+  db.pg.setOnOutboxEnqueued(triggerOutboxDispatch);
+
+  let reconciliationTimeout: NodeJS.Timeout | null = null;
+  let isReconciliationRunning = false;
+  let hasPendingReconWork = false;
+
+  const runReconciliationPass = async () => {
+    if (isReconciliationRunning || isShuttingDown) return;
+    if (!db.isPostgresAuthoritative()) return;
+    isReconciliationRunning = true;
+    try {
+      const result = await db.pg.reconcilePendingTransactions(paymentManager);
+      hasPendingReconWork = result.reconciledOrders > 0 || result.reconciledRefunds > 0;
+    } catch (err) {
+      console.error('[Reconciliation Worker] Scheduled pass failed:', err);
+      hasPendingReconWork = false;
+    } finally {
+      isReconciliationRunning = false;
+      const nextDelay = hasPendingReconWork ? ACTIVE_RECON_DELAY_MS : IDLE_WORKER_DELAY_MS;
+      if (!isShuttingDown) {
+        reconciliationTimeout = setTimeout(runReconciliationPass, nextDelay);
+        reconciliationTimeout.unref();
+      }
+    }
+  };
+
+  const triggerReconciliation = (delayMs: number = 0): void => {
+    hasPendingReconWork = true;
+    if (reconciliationTimeout) {
+      clearTimeout(reconciliationTimeout);
+      reconciliationTimeout = null;
+    }
+    if (!isReconciliationRunning && !isShuttingDown) {
+      if (delayMs <= 0) {
+        setImmediate(runReconciliationPass);
+      } else {
+        reconciliationTimeout = setTimeout(runReconciliationPass, delayMs);
+        reconciliationTimeout.unref();
+      }
+    }
+  };
+
+  // Run initial passes on startup to clear any unhandled backlog from previous runs
   if (db.isPostgresAuthoritative()) {
-    db.pg.dispatchOperationalOutbox().catch(err => {
+    runOutboxPass().catch(err => {
       console.error('[Outbox Worker] Startup dispatch error:', err);
+    });
+    runReconciliationPass().catch(err => {
+      console.error('[Reconciliation Worker] Startup pass error:', err);
     });
   }
 
-  let isOutboxRunning = false;
-  const outboxTimer = setInterval(async () => {
-    if (isOutboxRunning) return;
-    if (db.isPostgresAuthoritative()) {
-      isOutboxRunning = true;
-      try {
-        await db.pg.dispatchOperationalOutbox();
-      } catch (err) {
-        console.error('[Outbox Worker] Scheduled dispatch failed:', err);
-      } finally {
-        isOutboxRunning = false;
-      }
-    }
-  }, 15000);
-  outboxTimer.unref();
-
-  // Bounded scheduled reconciliation worker for older CREATED/PENDING payments and PENDING refunds
-  // Uses PostgreSQL advisory lock to prevent duplicate multi-replica operations
-  let isReconciliationRunning = false;
-  const reconciliationTimer = setInterval(async () => {
-    if (isReconciliationRunning) return;
-    if (db.isPostgresAuthoritative()) {
-      isReconciliationRunning = true;
-      try {
-        await db.pg.reconcilePendingTransactions(paymentManager);
-      } catch (err) {
-        console.error('[Reconciliation Worker] Scheduled pass failed:', err);
-      } finally {
-        isReconciliationRunning = false;
-      }
-    }
-  }, 60000);
-  reconciliationTimer.unref();
-
-  let isShuttingDown = false;
   const gracefulShutdown = (signal: string) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
     console.log(`[Lifecycle] Received ${signal}. Starting graceful shutdown...`);
 
-    clearInterval(outboxTimer);
-    clearInterval(reconciliationTimer);
+    if (outboxTimeout) clearTimeout(outboxTimeout);
+    if (reconciliationTimeout) clearTimeout(reconciliationTimeout);
 
     const forceExitTimeout = setTimeout(() => {
       console.warn('[Lifecycle] Forced shutdown deadline reached (10s). Terminating process.');

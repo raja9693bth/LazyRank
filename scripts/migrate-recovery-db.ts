@@ -6,7 +6,10 @@ const { Pool } = pg;
 
 export function toDirectNeonConnection(connectionString: string): string {
   // Convert Neon PgBouncer pooled connection (-pooler) to Direct connection for session-level advisory locks
-  return connectionString.replace(/-pooler(\.[a-z0-9-]+\.aws\.neon\.tech)/i, '$1');
+  if (connectionString.includes('-pooler.')) {
+    return connectionString.replace('-pooler.', '.');
+  }
+  return connectionString;
 }
 
 export function validateTargetIdentity(connectionString: string): void {
@@ -169,11 +172,17 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
 
       const sql = fs.readFileSync(filePath, 'utf8');
 
-      // Strip top-level transaction boundary commands (BEGIN; / COMMIT;) from migration SQL if present,
-      // so the runner maintains atomic transaction control together with schema_migrations recording.
+      // Strip top-level transaction boundary commands (BEGIN; / COMMIT;) without regex to eliminate ReDoS risk
       const cleanSql = sql
-        .replace(/^\s*BEGIN\s*;\s*$/gim, '-- [runner] omitted BEGIN;')
-        .replace(/^\s*COMMIT\s*;\s*$/gim, '-- [runner] omitted COMMIT;');
+        .split('\n')
+        .map(line => {
+          const trimmed = line.trim();
+          if (trimmed === 'BEGIN;' || trimmed === 'COMMIT;') {
+            return `-- [runner] omitted ${trimmed}`;
+          }
+          return line;
+        })
+        .join('\n');
 
       // Execute migration inside an atomic transaction
       await client.query('BEGIN');

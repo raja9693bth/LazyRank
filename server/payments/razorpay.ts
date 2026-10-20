@@ -236,6 +236,14 @@ export class RazorpayProvider implements PaymentProvider {
     }
 
     const authHeader = 'Basic ' + Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64');
+    if (!orderIdOrPaymentId || !/^[a-zA-Z0-9_]+$/.test(orderIdOrPaymentId)) {
+      return {
+        orderId: orderIdOrPaymentId || '',
+        status: 'PENDING',
+        currency: 'INR'
+      };
+    }
+
     let paymentId = orderIdOrPaymentId;
 
     // If identifier is not a payment ID (e.g. razorpay order_ or local order_), look up payments
@@ -245,24 +253,33 @@ export class RazorpayProvider implements PaymentProvider {
         const localOrder = await db.getOrderAsync(orderIdOrPaymentId);
         if (localOrder?.paymentRef?.startsWith('pay_')) {
           paymentId = localOrder.paymentRef;
-        } else if (localOrder?.providerOrderId?.startsWith('order_') && /^[a-zA-Z0-9_]+$/.test(localOrder.providerOrderId)) {
-          const sanitizedOrderId = localOrder.providerOrderId;
-          const rzpOrderPaymentsRes = await fetch(
-            `https://api.razorpay.com/v1/orders/${encodeURIComponent(sanitizedOrderId)}/payments`,
-            { headers: { Authorization: authHeader } }
-          );
-          if (rzpOrderPaymentsRes.ok) {
-            const pList = await rzpOrderPaymentsRes.json();
-            if (Array.isArray(pList?.items) && pList.items.length > 0) {
-              const latestCaptured = pList.items.find((p: any) => p.status === 'captured') || pList.items[0];
-              paymentId = latestCaptured.id;
+        } else {
+          const rawProvId = localOrder?.providerOrderId;
+          if (typeof rawProvId === 'string') {
+            const match = rawProvId.match(/^order_[a-zA-Z0-9_]+$/);
+            if (match) {
+              const sanitizedOrderId = match[0];
+              const targetUrl = new URL(`/v1/orders/${encodeURIComponent(sanitizedOrderId)}/payments`, 'https://api.razorpay.com');
+              const rzpOrderPaymentsRes = await fetch(targetUrl.href, {
+                headers: { Authorization: authHeader }
+              });
+              if (rzpOrderPaymentsRes.ok) {
+                const pList = await rzpOrderPaymentsRes.json();
+                if (Array.isArray(pList?.items) && pList.items.length > 0) {
+                  const latestCaptured = pList.items.find((p: any) => p.status === 'captured') || pList.items[0];
+                  if (typeof latestCaptured?.id === 'string' && /^pay_[a-zA-Z0-9_]+$/.test(latestCaptured.id)) {
+                    paymentId = latestCaptured.id;
+                  }
+                }
+              }
             }
           }
         }
       } catch {}
     }
 
-    if (!paymentId.startsWith('pay_') || !/^[a-zA-Z0-9_]+$/.test(paymentId)) {
+    const paymentMatch = paymentId.match(/^pay_[a-zA-Z0-9_]+$/);
+    if (!paymentMatch) {
       return {
         orderId: orderIdOrPaymentId,
         status: 'PENDING',
@@ -270,8 +287,9 @@ export class RazorpayProvider implements PaymentProvider {
       };
     }
 
-    const sanitizedPaymentId = paymentId;
-    const response = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(sanitizedPaymentId)}`, {
+    const sanitizedPaymentId = paymentMatch[0];
+    const paymentUrl = new URL(`/v1/payments/${encodeURIComponent(sanitizedPaymentId)}`, 'https://api.razorpay.com');
+    const response = await fetch(paymentUrl.href, {
       method: 'GET',
       headers: { Authorization: authHeader }
     });

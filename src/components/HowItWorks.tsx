@@ -7,7 +7,7 @@ export const HowItWorks: React.FC = () => {
       icon: CreditCard,
       step: '01',
       title: 'Pay What You Want',
-      desc: 'Enter your name and any amount from ₹1 upwards. Secure checkout when payment processing is active.'
+      desc: 'Enter your name and any amount from ₹99 upwards. Secure checkout when payment processing is active.'
     },
     {
       icon: TrendingUp,

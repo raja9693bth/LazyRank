@@ -20,6 +20,16 @@ import { paymentManager } from './server/payments/index.ts';
 import { prerenderRoute } from './server/prerender.tsx';
 import { validateContact, ContactInput, hashToken, verifyOwnerToken, constantTimeMatch } from './server/db/postgres.ts';
 import { toSafePaise } from './server/payments/provider.ts';
+import {
+  MIN_INR_PAISE,
+  MIN_USD_CENTS,
+  INR_STEP_PAISE,
+  CURRENT_PRICING_VERSION,
+  calculateRankTarget,
+  validatePaymentAmount,
+  calculateRankCreditFromUSD,
+  getPricingCapabilities
+} from './server/payments/pricingPolicy.ts';
 
 function sanitizeLog(val: unknown): string {
   if (val === null || val === undefined) return '';
@@ -297,9 +307,9 @@ async function startServer() {
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https: blob:",
       isProd
-        ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com"
-        : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
-      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com",
+        ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com"
+        : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com",
+      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com",
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'"
@@ -348,11 +358,11 @@ async function startServer() {
     process.env.VERCEL_GIT_COMMIT_SHA ||
     process.env.GIT_COMMIT_SHA ||
     process.env.COMMIT_SHA ||
-    'c947a52'
+    'unknown'
   ).slice(0, 40);
 
   // Health check with safe public build SHA
-  app.get('/api/health', (req: Request, res: Response) => {
+  app.get('/api/health', (_req: Request, res: Response) => {
     res.json({
       status: 'ok',
       product: 'LAZY',
@@ -361,6 +371,38 @@ async function startServer() {
       commitSha: buildSha
     });
   });
+
+  // DB readiness check: performs real connectivity check and schema verification, returns 503 on failure
+  app.get('/api/ready', asyncHandler(async (_req: Request, res: Response) => {
+    if (db.isPostgresAuthoritative()) {
+      const readiness = await db.pg.checkReadiness();
+      if (!readiness.ready) {
+        return res.status(503).json({
+          status: 'error',
+          ready: false,
+          storage: 'postgresql',
+          commitSha: buildSha,
+          error: readiness.error || 'Database unavailable',
+          timestamp: new Date().toISOString()
+        });
+      }
+      return res.status(200).json({
+        status: 'ok',
+        ready: true,
+        storage: 'postgresql',
+        commitSha: buildSha,
+        latencyMs: readiness.latencyMs,
+        timestamp: new Date().toISOString()
+      });
+    }
+    return res.status(200).json({
+      status: 'ok',
+      ready: true,
+      storage: 'json',
+      commitSha: buildSha,
+      timestamp: new Date().toISOString()
+    });
+  }));
 
   // Leaderboard endpoint (Canonical source of paid ranks with server pagination & period filtering)
   app.get('/api/leaderboard', asyncHandler(async (req: Request, res: Response) => {
@@ -400,19 +442,24 @@ async function startServer() {
   });
 
   // Get current #1 and minimum required amount to beat #1
-  app.get('/api/rank/top', async (req: Request, res: Response) => {
+  app.get('/api/rank/top', asyncHandler(async (req: Request, res: Response) => {
     let topAmount = 0;
-    if (db.isPostgresAuthoritative()) {
-      topAmount = await db.pg.getTopAmount();
-    } else {
-      topAmount = db.getTopAmount();
+    try {
+      if (db.isPostgresAuthoritative()) {
+        topAmount = await db.pg.getTopAmount();
+      } else {
+        topAmount = db.getTopAmount();
+      }
+    } catch (err: any) {
+      console.error('[Top Rank API] Database query error:', err);
+      return res.status(503).json({ error: 'Database service temporarily unavailable.' });
     }
-    const minAmountToBeatTop = topAmount + 1;
+    const target = calculateRankTarget(topAmount, 0, 'INR');
     res.json({
       topAmount,
-      minAmountToBeatTop
+      minAmountToBeatTop: target.suggestedChargeINR
     });
-  });
+  }));
 
   // Genuine live status and session heartbeat (API contract: supports x-session-id header and sessionId query)
   app.get('/api/stats/live', (req: Request, res: Response) => {
@@ -461,25 +508,135 @@ async function startServer() {
     : 'GST status being verified — checkout unavailable';
 
   // Payment Gateway Configuration / Status
-  app.get('/api/payment/config', (req: Request, res: Response) => {
+  app.get('/api/payment/config', (_req: Request, res: Response) => {
     const taxReady = isTaxReady();
     const taxDisclosure = getTaxDisclosure();
+    const publicConfig = paymentManager.getPublicConfig();
+    const isCheckoutReady = paymentManager.isEnabled() && taxReady;
+    const usdEnabled = publicConfig.capabilities.USD.enabled;
+
     res.json({
       paymentMode: paymentManager.getMode(),
-      enabled: paymentManager.isEnabled() && taxReady,
+      enabled: isCheckoutReady,
+      checkoutEnabled: isCheckoutReady,
       taxReady,
       taxDisclosure,
       provider: paymentManager.getProvider().name,
+      enabledProviders: paymentManager.enabledProviders,
       isSandbox: paymentManager.getMode() === 'sandbox',
       legalBusinessName: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
       brandName: SERVER_LEGAL_CONFIG.BRAND_NAME,
       serviceDescription: SERVER_LEGAL_CONFIG.SERVICE_DESCRIPTION,
       currency: 'INR',
-      onboardingNotice: (paymentManager.isEnabled() && taxReady)
+      supportedCurrencies: ['INR', ...(usdEnabled ? ['USD'] : [])],
+      pricingCapabilities: publicConfig.capabilities,
+      pricingVersion: CURRENT_PRICING_VERSION,
+      requiresQuote: true,
+      razorpayKeyId: publicConfig.razorpayKeyId,
+      onboardingNotice: isCheckoutReady
         ? null
         : 'Payments will be verified server-side when gateway processing is enabled.'
     });
   });
+
+  interface StoredQuote {
+    quoteId: string;
+    currency: 'INR' | 'USD';
+    amountMinor: number;
+    rankCreditPaise: number;
+    createdAt: string;
+    expiresAt: string;
+    conversionDetails?: any;
+  }
+
+  const serverQuotes = new Map<string, StoredQuote>();
+
+  // In-memory quote cleanup
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, q] of serverQuotes.entries()) {
+      if (new Date(q.expiresAt).getTime() < now) {
+        serverQuotes.delete(id);
+      }
+    }
+  }, 5 * 60 * 1000).unref();
+
+  // Authoritative server quote endpoint (5-minute TTL, versioned conversions)
+  app.post('/api/payment/quote', asyncHandler(async (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 40, 60000)) {
+      return res.status(429).json({ error: 'Too many quote requests. Please slow down.' });
+    }
+
+    const { amount, currency = 'INR', profileId } = req.body;
+    const selectedCurrency = (typeof currency === 'string' && currency.toUpperCase() === 'USD') ? 'USD' : 'INR';
+
+    if (selectedCurrency === 'USD' && !paymentManager.isUsdEnabled()) {
+      return res.status(400).json({
+        error: 'USD checkout is currently disabled pending live international merchant approval and live FX quote verification.',
+        code: 'CURRENCY_NOT_AVAILABLE',
+        currency: 'USD'
+      });
+    }
+
+    const validation = validatePaymentAmount(amount, selectedCurrency);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: validation.error,
+        code: validation.code,
+        currency: selectedCurrency,
+        field: 'amount',
+        minMinor: selectedCurrency === 'INR' ? MIN_INR_PAISE : MIN_USD_CENTS
+      });
+    }
+
+    let rankCreditPaise = validation.amountMinor;
+    let conversionDetails: any = undefined;
+
+    if (selectedCurrency === 'USD') {
+      const ratePaisePerCent = Number.parseInt(process.env.FX_USD_INR_RATE_PAISE_PER_CENT || '90', 10);
+      const fxQuote = calculateRankCreditFromUSD(validation.amountMinor, ratePaisePerCent);
+      rankCreditPaise = fxQuote.rankCreditPaise;
+      conversionDetails = {
+        numerator: fxQuote.numerator,
+        denominator: fxQuote.denominator,
+        rateDirection: 'INR_PAISE_PER_USD_CENT',
+        quotedRatePaisePerCent: ratePaisePerCent,
+        canonicalRankCreditPaise: rankCreditPaise,
+        source: 'server_authoritative_pricing_policy'
+      };
+    }
+
+    const quoteId = `qte_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const now = Date.now();
+    const expiresAt = new Date(now + 5 * 60 * 1000).toISOString();
+
+    serverQuotes.set(quoteId, {
+      quoteId,
+      currency: selectedCurrency,
+      amountMinor: validation.amountMinor,
+      rankCreditPaise,
+      createdAt: new Date(now).toISOString(),
+      expiresAt,
+      conversionDetails
+    });
+
+    return res.json({
+      quoteId,
+      currency: selectedCurrency,
+      chargeAmountMinor: validation.amountMinor,
+      chargeAmountDisplay: selectedCurrency === 'INR' ? `₹${validation.amountMinor / 100}` : `$${(validation.amountMinor / 100).toFixed(2)}`,
+      rankCreditPaise,
+      rankCreditDisplayINR: `₹${Math.floor(rankCreditPaise / 100)}`,
+      pricingVersion: CURRENT_PRICING_VERSION,
+      taxBasis: isTaxReady() ? 'GST not charged: supplier verified unregistered under applicable registration rules' : 'GST status being verified',
+      taxPaise: 0,
+      feePaise: 0,
+      totalMinor: validation.amountMinor,
+      expiresAt,
+      conversionDetails
+    });
+  }));
 
   // Create payment order / initiate claim
   app.post('/api/payment/create-order', asyncHandler(async (req: Request, res: Response) => {
@@ -504,21 +661,48 @@ async function startServer() {
     }
 
     const {
-      name, amount, instagram, linkedin, website, twitter, reason, lazyReason,
+      name, amount, currency: reqCurrency, instagram, linkedin, website, twitter, reason, lazyReason,
       profileId, customerEmail, customerPhone, consentAccepted,
-      consentVersion: reqConsentVersion,
+      consentVersion: reqConsentVersion, quoteId: reqQuoteId,
       ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
     } = req.body;
-
 
     const providedToken = (req.headers['x-profile-token'] as string) || bodyOwnerToken || pendingOwnerToken;
     const clientOrderAccessToken = (req.headers['x-order-access-token'] as string) || orderAccessToken;
 
-    const num = Number(amount);
-    const parsedAmount = Number.parseInt(amount, 10);
-    if (Number.isNaN(parsedAmount) || !Number.isInteger(num) || parsedAmount < 1 || parsedAmount > 1000000) {
-      return res.status(400).json({ error: 'Payment amount must be a whole integer between ₹1 and ₹10,00,000.' });
+    const requestedCurrency = (typeof reqCurrency === 'string' && reqCurrency.toUpperCase() === 'USD') ? 'USD' : 'INR';
+    if (requestedCurrency === 'USD' && !paymentManager.isUsdEnabled()) {
+      return res.status(400).json({
+        error: 'USD checkout is currently disabled pending live international merchant approval and live FX quote verification.',
+        code: 'CURRENCY_NOT_AVAILABLE',
+        currency: 'USD'
+      });
     }
+
+    const validation = validatePaymentAmount(amount, requestedCurrency);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: validation.error,
+        code: validation.code,
+        currency: requestedCurrency,
+        field: 'amount',
+        minMinor: requestedCurrency === 'INR' ? MIN_INR_PAISE : MIN_USD_CENTS
+      });
+    }
+
+    const chargeCurrency = validation.currency;
+    const chargeAmountMinor = validation.amountMinor;
+    let canonicalRankCreditPaise = chargeAmountMinor; // For INR, paise = paise
+    const fxQuoteId = reqQuoteId ? String(reqQuoteId).trim() : undefined;
+
+    if (chargeCurrency === 'USD') {
+      const ratePaisePerCent = Number.parseInt(process.env.FX_USD_INR_RATE_PAISE_PER_CENT || '90', 10);
+      const fxQuote = calculateRankCreditFromUSD(chargeAmountMinor, ratePaisePerCent);
+      canonicalRankCreditPaise = fxQuote.rankCreditPaise;
+    }
+
+    // Canonical whole rupees for leaderboard/profile display
+    const parsedAmount = Math.floor(canonicalRankCreditPaise / 100);
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ error: 'Display name is required.' });
@@ -562,10 +746,18 @@ async function startServer() {
       });
     }
 
-    // Customer phone validation: required 10-digit Indian mobile number
+    // Customer phone validation: Indian mobile for INR; international E.164 for USD
     const phoneStr = (customerPhone && typeof customerPhone === 'string' ? customerPhone.trim() : '');
-    if (!phoneStr || !/^[6-9]\d{9}$/.test(phoneStr)) {
-      return res.status(400).json({ error: 'A valid 10-digit mobile number is required for checkout.' });
+    if (chargeCurrency === 'INR') {
+      const cleanPhone = phoneStr.replace(/^\+91/, '').replace(/\s+/g, '');
+      if (!cleanPhone || !/^[6-9]\d{9}$/.test(cleanPhone)) {
+        return res.status(400).json({ error: 'A valid 10-digit mobile number is required for checkout.' });
+      }
+    } else {
+      const cleanIntlPhone = phoneStr.replace(/[\s\-()]/g, '');
+      if (!cleanIntlPhone || !/^\+?[1-9]\d{6,14}$/.test(cleanIntlPhone)) {
+        return res.status(400).json({ error: 'A valid phone number (including country code) is required for checkout.' });
+      }
     }
 
     // Optional customer email validation: if provided, must be valid format; if omitted, leave undefined
@@ -587,10 +779,15 @@ async function startServer() {
     }
 
     const topAmount = db.isPostgresAuthoritative() ? await db.pg.getTopAmount() : db.getTopAmount();
+    const target = calculateRankTarget(topAmount, 0, 'INR');
     const isTop = parsedAmount > topAmount;
+    const minAmountToBeatTop = target.suggestedChargeINR;
 
-    // Server-authoritative quote breakdown in minor integer paise
-    const basePaise = parsedAmount * 100;
+    // Server-authoritative quote breakdown in minor integer units
+    let basePaise = parsedAmount * 100;
+    if (chargeCurrency !== 'INR') {
+      basePaise = canonicalRankCreditPaise;
+    }
     const taxPaise = 0;
     const feePaise = 0;
     const totalPaise = basePaise + taxPaise + feePaise;
@@ -599,12 +796,16 @@ async function startServer() {
       taxPaise,
       feePaise,
       totalPaise,
-      currency: 'INR',
+      currency: chargeCurrency,
+      chargeAmountMinor,
+      canonicalRankCreditPaise,
       serviceDescription: 'Digital sponsored profile placement on LazyProof',
       taxBasis: isTaxReady()
         ? 'GST not charged: supplier verified unregistered under applicable registration rules'
         : 'GST status being verified — checkout unavailable',
       quoteVersion: CURRENT_CONSENT_VERSION,
+      pricingVersion: CURRENT_PRICING_VERSION,
+      fxQuoteId,
       timestamp: new Date().toISOString()
     };
 
@@ -614,6 +815,9 @@ async function startServer() {
     const clientProvidedIdempotency = (req.headers['x-idempotency-key'] as string | undefined)?.trim() ||
       (req.body?.idempotencyKey as string | undefined)?.trim();
     const idempotencyKey = clientProvidedIdempotency || `idem_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+
+    // Select provider based on intent currency (Sticky for this attempt)
+    const intentProvider = paymentManager.getProviderForIntent(chargeCurrency);
 
     // If order with this idempotencyKey already exists, verify consistency and return directly
     const existingOrder = await db.getOrderByIdempotencyKey(idempotencyKey);
@@ -663,12 +867,14 @@ async function startServer() {
       }
 
       // If internal order exists but paymentSessionId is absent (e.g. after provider timeout), safely recover/reconcile session
+      // Uses the existing order's pinned provider (Sticky Orders)
       if (!existingOrder.paymentSessionId) {
         try {
-          const providerOrder = await paymentManager.getProvider().createOrder({
+          const targetProvider = paymentManager.getProviderFor(existingOrder.provider);
+          const providerOrder = await targetProvider.createOrder({
             orderId: existingOrder.orderId,
-            amount: Number(existingOrder.amount),
-            currency: existingOrder.currency || 'INR',
+            amount: existingOrder.chargeCurrency === 'USD' ? (existingOrder.chargeAmountMinor || 500) / 100 : Number(existingOrder.amount),
+            currency: existingOrder.chargeCurrency || existingOrder.currency || 'INR',
             customerName: existingOrder.name,
             customerEmail: existingOrder.customerEmail,
             customerPhone: existingOrder.customerPhone || phoneStr,
@@ -705,13 +911,16 @@ async function startServer() {
         paymentSessionId: existingOrder.paymentSessionId,
         checkoutUrl: existingOrder.checkoutUrl,
         providerOrderId: existingOrder.providerOrderId,
+        provider: existingOrder.provider || intentProvider.name,
         idempotencyKey,
         name: existingOrder.name,
         amount: existingOrder.amount,
-        currency: existingOrder.currency || 'INR',
+        currency: existingOrder.chargeCurrency || existingOrder.currency || 'INR',
+        chargeAmountMinor: existingOrder.chargeAmountMinor || existingOrder.amount * 100,
+        canonicalRankCreditPaise: existingOrder.canonicalRankCreditPaise || existingOrder.amount * 100,
         isTop: isExistingTop,
         topAmount,
-        minAmountToBeatTop: topAmount + 1,
+        minAmountToBeatTop,
         profileId: existingOrder.profileId,
         paymentMode: existingOrder.paymentMode,
         quote: existingOrder.quoteSnapshot || quoteSnapshot,
@@ -733,7 +942,12 @@ async function startServer() {
         name: name.trim(),
         amount: parsedAmount,
         currency: 'INR',
+        chargeCurrency,
+        chargeAmountMinor,
+        canonicalRankCreditPaise,
+        fxQuoteId,
         profileId,
+        provider: intentProvider.name,
         ownerToken: providedToken,
         orderAccessToken: clientOrderAccessToken,
         quoteSnapshot,
@@ -802,10 +1016,11 @@ async function startServer() {
 
           if (!concurrentOrder.paymentSessionId) {
             try {
-              const providerOrder = await paymentManager.getProvider().createOrder({
+              const targetProvider = paymentManager.getProviderFor(concurrentOrder.provider);
+              const providerOrder = await targetProvider.createOrder({
                 orderId: concurrentOrder.orderId,
-                amount: Number(concurrentOrder.amount),
-                currency: concurrentOrder.currency || 'INR',
+                amount: concurrentOrder.chargeCurrency === 'USD' ? (concurrentOrder.chargeAmountMinor || 500) / 100 : Number(concurrentOrder.amount),
+                currency: concurrentOrder.chargeCurrency || concurrentOrder.currency || 'INR',
                 customerName: concurrentOrder.name,
                 customerEmail: concurrentOrder.customerEmail,
                 customerPhone: concurrentOrder.customerPhone || phoneStr,
@@ -840,13 +1055,16 @@ async function startServer() {
             paymentSessionId: concurrentOrder.paymentSessionId,
             checkoutUrl: concurrentOrder.checkoutUrl,
             providerOrderId: concurrentOrder.providerOrderId,
+            provider: concurrentOrder.provider || intentProvider.name,
             idempotencyKey,
             name: concurrentOrder.name,
             amount: concurrentOrder.amount,
-            currency: concurrentOrder.currency || 'INR',
+            currency: concurrentOrder.chargeCurrency || concurrentOrder.currency || 'INR',
+            chargeAmountMinor: concurrentOrder.chargeAmountMinor || concurrentOrder.amount * 100,
+            canonicalRankCreditPaise: concurrentOrder.canonicalRankCreditPaise || concurrentOrder.amount * 100,
             isTop: isExistingTop,
             topAmount,
-            minAmountToBeatTop: topAmount + 1,
+            minAmountToBeatTop,
             profileId: concurrentOrder.profileId,
             paymentMode: concurrentOrder.paymentMode,
             quote: concurrentOrder.quoteSnapshot || quoteSnapshot,
@@ -863,10 +1081,10 @@ async function startServer() {
     }
 
     try {
-      const providerOrder = await paymentManager.getProvider().createOrder({
+      const providerOrder = await intentProvider.createOrder({
         orderId,
-        amount: parsedAmount,
-        currency: 'INR',
+        amount: chargeCurrency === 'USD' ? chargeAmountMinor / 100 : parsedAmount,
+        currency: chargeCurrency,
         customerName: name.trim(),
         customerEmail: validCustomerEmail,
         customerPhone: phoneStr,
@@ -888,13 +1106,16 @@ async function startServer() {
         paymentSessionId: providerOrder.paymentSessionId,
         checkoutUrl: providerOrder.checkoutUrl,
         providerOrderId: providerOrder.providerOrderId,
+        provider: intentProvider.name,
         idempotencyKey,
         name: name.trim(),
         amount: parsedAmount,
-        currency: 'INR',
+        currency: chargeCurrency,
+        chargeAmountMinor,
+        canonicalRankCreditPaise,
         isTop,
         topAmount,
-        minAmountToBeatTop: topAmount + 1,
+        minAmountToBeatTop,
         profileId,
         paymentMode: paymentManager.getMode(),
         quote: quoteSnapshot,
@@ -908,8 +1129,10 @@ async function startServer() {
     } catch (err: any) {
       console.error('[PaymentManager] Provider createOrder error:', err);
       res.status(502).json({
-        error: err?.message || 'Payment gateway order creation failed.',
-        orderId
+        error: err?.message || 'Payment gateway order session generation failed.',
+        orderId,
+        idempotencyKey,
+        recoverable: true
       });
     }
   }));
@@ -1040,21 +1263,35 @@ async function startServer() {
     // Allow initial settlement ONLY from CREATED/PENDING with exact INR paise checks
     if (paymentManager.isEnabled() && (order.status === 'CREATED' || order.status === 'PENDING')) {
       try {
-        const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
+        const orderProvider = paymentManager.getProviderFor(order.provider);
+        const providerStatus = await orderProvider.getPaymentStatus(orderId);
         if (providerStatus.status === 'PAID') {
-          const providerPaise = toSafePaise(providerStatus.amount);
-          const orderPaise = toSafePaise(order.amount);
-          if (!providerStatus.providerPaymentId || providerStatus.currency !== 'INR' || order.currency !== 'INR' ||
-              providerPaise === null || orderPaise === null || providerPaise !== orderPaise) {
-            return res.status(409).json({ error: 'Provider payment verification mismatch against registered order.' });
+          const isUsd = (order.chargeCurrency || order.currency) === 'USD';
+          let verifiedAmountINR = Number(order.amount);
+
+          if (isUsd) {
+            const providerCents = Math.round(Number(providerStatus.amount) * 100);
+            const orderCents = order.chargeAmountMinor || Math.round(Number(order.amount) * 100);
+            if (!providerStatus.providerPaymentId || providerStatus.currency !== 'USD' || providerCents !== orderCents) {
+              return res.status(409).json({ error: 'Provider payment verification mismatch against registered order.' });
+            }
+            verifiedAmountINR = order.amount;
+          } else {
+            const providerPaise = toSafePaise(providerStatus.amount);
+            const orderPaise = order.chargeAmountMinor || toSafePaise(order.amount);
+            if (!providerStatus.providerPaymentId || providerStatus.currency !== 'INR' ||
+                providerPaise === null || orderPaise === null || providerPaise !== orderPaise) {
+              return res.status(409).json({ error: 'Provider payment verification mismatch against registered order.' });
+            }
+            verifiedAmountINR = providerPaise / 100;
           }
 
           if (db.isPostgresAuthoritative()) {
             const settlement = await db.pg.settlePaymentAtomic({
               orderId,
               providerPaymentId: providerStatus.providerPaymentId.trim(),
-              provider: 'cashfree',
-              amount: providerPaise / 100,
+              provider: order.provider || orderProvider.name,
+              amount: verifiedAmountINR,
               currency: 'INR',
               status: 'PAID',
               paymentMethod: providerStatus.paymentMethod || 'UPI',
@@ -1070,7 +1307,7 @@ async function startServer() {
           } else {
             const result = db.verifyAndClaimRank({
               name: order.name,
-              amount: providerPaise / 100,
+              amount: verifiedAmountINR,
               paymentRef: providerStatus.providerPaymentId,
               orderId,
               instagram: order.instagram,
@@ -1146,8 +1383,8 @@ async function startServer() {
     });
   }));
 
-  // Authoritative Provider Webhook (Cashfree PG v2023-08-01 / v2026-01-01 + fallback)
-  app.post('/api/payment/webhook', asyncHandler(async (req: Request, res: Response) => {
+  // Authoritative Provider Webhooks (Dedicated and backwards-compatible routes)
+  const handleWebhook = async (req: Request, res: Response, expectedProvider?: string) => {
     if (!paymentManager.isEnabled()) {
       return res.status(503).json({ error: 'Payment processing is currently disabled.' });
     }
@@ -1166,130 +1403,190 @@ async function startServer() {
     }
     const rawBodyStr = rawBodyBuf.toString('utf8');
 
-    // Authoritative Cashfree Webhook Enforcement
+    // Authoritative Webhook Signature Enforcement
     // Missing timestamp or signature must fail closed in both sandbox and production.
-    // Generic webhook settlement is disabled in production/live mode.
-    const webhookTimestamp = req.headers['x-webhook-timestamp'];
-    const webhookSignature = req.headers['x-webhook-signature'];
-    if (!webhookTimestamp || !webhookSignature) {
-      checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
-      return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+    const isRazorpayWebhook = expectedProvider === 'razorpay' || Boolean(req.headers['x-razorpay-signature']);
+    const isDodoWebhook = expectedProvider === 'dodo' || Boolean(req.headers['webhook-signature'] || req.headers['webhook-id']);
+    let webhookProvider = paymentManager.getProvider();
+    let headerWebhookId: string | undefined;
+
+    if (isRazorpayWebhook) {
+      webhookProvider = paymentManager.getProviderFor('razorpay');
+      const rzpSignature = req.headers['x-razorpay-signature'];
+      if (!rzpSignature) {
+        checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
+        return res.status(401).json({ error: 'Missing authoritative Razorpay webhook signature header.' });
+      }
+      const rzpEventId = req.headers['x-razorpay-event-id'];
+      headerWebhookId = typeof rzpEventId === 'string' ? rzpEventId : undefined;
+    } else if (isDodoWebhook) {
+      webhookProvider = paymentManager.getProviderFor('dodo');
+      const dodoId = req.headers['webhook-id'];
+      const dodoTimestamp = req.headers['webhook-timestamp'];
+      const dodoSignature = req.headers['webhook-signature'];
+      if (!dodoId || !dodoTimestamp || !dodoSignature) {
+        checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
+        return res.status(401).json({ error: 'Missing authoritative Dodo webhook signature headers.' });
+      }
+      headerWebhookId = typeof dodoId === 'string' ? dodoId : undefined;
+    } else {
+      if ((paymentManager.getMode() === 'live' || process.env.NODE_ENV === 'production') && !req.headers['x-webhook-timestamp']) {
+        return res.status(400).json({ error: 'Generic webhook settlement is disabled in production/live mode.' });
+      }
+      webhookProvider = paymentManager.getProviderFor('cashfree');
+      const webhookTimestamp = req.headers['x-webhook-timestamp'];
+      const webhookSignature = req.headers['x-webhook-signature'];
+      if (!webhookTimestamp || !webhookSignature) {
+        checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
+        return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+      }
+      const cfId = req.headers['x-webhook-id'];
+      headerWebhookId = typeof cfId === 'string' ? cfId : undefined;
     }
 
-    const verification = await paymentManager.getProvider().verifyWebhook(rawBodyStr, req.headers as any);
+    const verification = await webhookProvider.verifyWebhook(rawBodyStr, req.headers as any);
     if (!verification.isValid) {
       checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
-      return res.status(401).json({ error: verification.error || 'Invalid Cashfree webhook signature.' });
+      return res.status(401).json({
+        error: verification.error || `Invalid ${webhookProvider.name} webhook signature.`
+      });
     }
 
-      // Generate event ID from validated x-webhook-id or rawBody hash (excluding timestamp so retries share event ID)
-      const headerWebhookId = req.headers['x-webhook-id'];
-      let eventId: string;
-      if (typeof headerWebhookId === 'string' && headerWebhookId.trim().length > 0 && headerWebhookId.trim().length <= 128) {
-        eventId = headerWebhookId.trim();
-      } else {
-        eventId = `wh_${crypto.createHash('sha256').update(rawBodyBuf).digest('hex').slice(0, 32)}`;
+    // Generate namespaced event ID
+    let eventId: string;
+    if (typeof headerWebhookId === 'string' && headerWebhookId.trim().length > 0 && headerWebhookId.trim().length <= 128) {
+      eventId = `${webhookProvider.name}_${headerWebhookId.trim()}`;
+    } else {
+      eventId = `wh_${webhookProvider.name}_${crypto.createHash('sha256').update(rawBodyBuf).digest('hex').slice(0, 32)}`;
+    }
+
+    // Fast-path deduplication: if this exact webhook event was already recorded, acknowledge immediately
+    if (await db.isWebhookEventProcessed(eventId)) {
+      return res.json({ received: true, processed: true, duplicate: true, message: 'Webhook event already processed.' });
+    }
+
+    if ((verification.status === 'REFUNDED' || verification.refund) && verification.orderId) {
+      const orderId = verification.orderId;
+      const refundDetails = verification.refund;
+      const merchantRefundId = refundDetails?.refundId;
+      let providerRefundId = refundDetails?.providerRefundId;
+      const refundAmount = refundDetails?.amount ?? verification.amount ?? 0;
+      const refundStatus = refundDetails?.status || (verification.status === 'REFUNDED' ? 'SUCCESS' : 'FAILED');
+
+      if (!merchantRefundId) {
+        return res.status(400).json({ error: 'Cannot reconcile refund without merchant refund ID.' });
       }
 
-      if ((verification.status === 'REFUNDED' || verification.refund) && verification.orderId) {
-        const orderId = verification.orderId;
-        const refundDetails = verification.refund;
-        let merchantRefundId = refundDetails?.refundId;
-        let providerRefundId = refundDetails?.providerRefundId;
-        const refundAmount = refundDetails?.amount ?? verification.amount ?? 0;
-        const refundStatus = refundDetails?.status || (verification.status === 'REFUNDED' ? 'SUCCESS' : 'FAILED');
-
-        if (!merchantRefundId) {
-          return res.status(400).json({ error: 'Cannot reconcile refund without merchant refund ID.' });
-        }
-
+      const isUsdRefund = (refundDetails?.currency || verification.currency) === 'USD';
+      if (!isUsdRefund) {
         const refundCurrency = refundDetails?.currency || verification.currency || '';
         if (refundCurrency !== 'INR') {
           return res.status(400).json({ error: 'Refund currency mismatch against INR.' });
         }
-
-        if (refundStatus === 'SUCCESS') {
-          // Authoritative server-to-server verification before reversing
-          if (paymentManager.isEnabled() && paymentManager.getProvider()?.isConfigured()) {
-            try {
-              const authStatus = await paymentManager.getProvider().getRefundStatus(orderId, merchantRefundId);
-              if (
-                authStatus.status !== 'SUCCESS' ||
-                authStatus.orderId !== orderId ||
-                authStatus.merchantRefundId !== merchantRefundId ||
-                authStatus.currency !== 'INR' ||
-                toSafePaise(authStatus.amount) !== toSafePaise(refundAmount)
-              ) {
-                console.warn(`[Webhook Refund] Authoritative verification mismatch for order ${sanitizeLog(orderId)} / refund ${sanitizeLog(merchantRefundId)}. Reservation preserved as PENDING.`);
-                await db.recordWebhookEvent(eventId, verification.event || 'REFUND_STATUS_MISMATCH', orderId, providerRefundId, verification.rawPayload);
-                return res.status(409).json({ error: 'Authoritative refund verification mismatch. Reservation preserved as PENDING.' });
-              }
-              providerRefundId = authStatus.providerRefundId || providerRefundId;
-            } catch (authErr: any) {
-              console.warn('[Webhook Refund] Server-to-server verification failed for order %s: %s', sanitizeLog(orderId), sanitizeLog(authErr?.message || authErr));
-              return res.status(503).json({ error: 'Server-to-server refund verification unavailable. Retry later.' });
-            }
-          }
-
-          const reversed = await db.reverseRefund(
-            orderId,
-            refundAmount,
-            'Cashfree webhook refund confirmation',
-            merchantRefundId,
-            providerRefundId,
-            'INR'
-          );
-          if (!reversed) {
-            return res.status(503).json({ error: 'Refund reversal failed to reconcile in database.' });
-          }
-          await db.recordWebhookEvent(eventId, verification.event || 'REFUND_SUCCESS_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
-          return res.json({ received: true, processed: true, status: 'REFUNDED' });
-        } else if (refundStatus === 'FAILED') {
-          // Terminal failure: safely release reservation
-          if (db.isPostgresAuthoritative()) {
-            await db.pg.failRefundReservation(merchantRefundId, orderId);
-          }
-          await db.recordWebhookEvent(eventId, verification.event || 'REFUND_FAILED_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
-          return res.json({ received: true, processed: true, status: 'FAILED' });
-        } else {
-          // PENDING / ONHOLD / PENDING_APPROVAL: preserve reservation
-          await db.recordWebhookEvent(eventId, verification.event || 'REFUND_PENDING_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
-          return res.json({ received: true, processed: true, status: 'PENDING' });
-        }
       }
 
-      if (verification.status === 'SUCCESS' && verification.orderId && verification.providerPaymentId) {
-        const orderId = verification.orderId;
-        const order = await db.getOrderAsync(orderId);
-        if (!order) {
-          return res.status(404).json({ error: 'Referenced order not found.' });
+      if (refundStatus === 'SUCCESS') {
+        const refundOrder = await db.getOrderAsync(orderId);
+        if (refundOrder?.provider && refundOrder.provider !== webhookProvider.name) {
+          return res.status(409).json({ error: 'Webhook provider does not match registered order provider.' });
         }
-        if (order.status === 'completed' || order.status === 'PAID') {
-          const existingPaymentRef = order.paymentRef || (order as any).providerPaymentId;
-          if (existingPaymentRef && verification.providerPaymentId !== existingPaymentRef) {
-            return res.status(409).json({ error: 'Payment ID mismatch on already-paid order.' });
+        const refundProvider = paymentManager.getProviderFor(refundOrder?.provider || webhookProvider.name);
+        if (paymentManager.isEnabled() && refundProvider?.isConfigured()) {
+          try {
+            const authStatus = await refundProvider.getRefundStatus(orderId, merchantRefundId);
+            const expectedCurrency = isUsdRefund ? 'USD' : 'INR';
+            if (
+              authStatus.status !== 'SUCCESS' ||
+              authStatus.orderId !== orderId ||
+              authStatus.merchantRefundId !== merchantRefundId ||
+              authStatus.currency !== expectedCurrency ||
+              toSafePaise(authStatus.amount) !== toSafePaise(refundAmount)
+            ) {
+              console.warn(`[Webhook Refund] Authoritative verification mismatch for order ${sanitizeLog(orderId)} / refund ${sanitizeLog(merchantRefundId)}. Reservation preserved as PENDING.`);
+              await db.recordWebhookEvent(eventId, verification.event || 'REFUND_STATUS_MISMATCH', orderId, providerRefundId, verification.rawPayload);
+              return res.status(409).json({ error: 'Authoritative refund verification mismatch. Reservation preserved as PENDING.' });
+            }
+            providerRefundId = authStatus.providerRefundId || providerRefundId;
+          } catch (authErr: any) {
+            console.warn('[Webhook Refund] Server-to-server verification failed for order %s: %s', sanitizeLog(orderId), sanitizeLog(authErr?.message || authErr));
+            return res.status(503).json({ error: 'Server-to-server refund verification unavailable. Retry later.' });
           }
-          await db.recordWebhookEvent(eventId, verification.event || 'PAYMENT_SUCCESS_WEBHOOK', orderId, verification.providerPaymentId, verification.rawPayload);
-          return res.json({ received: true, processed: true, message: 'Order already completed.' });
         }
 
-        // Gateway reconciliation: call /orders/{id}/payments to verify directly with provider
-        let providerPaymentId = verification.providerPaymentId;
-        let paymentMethod = verification.paymentMethod || 'UPI';
-        let verifiedAmountINR = order.amount;
+        const reversed = await db.reverseRefund(
+          orderId,
+          refundAmount,
+          `${refundOrder?.provider || webhookProvider.name} webhook refund confirmation`,
+          merchantRefundId,
+          providerRefundId,
+          isUsdRefund ? 'USD' : 'INR'
+        );
+        if (!reversed) {
+          return res.status(503).json({ error: 'Refund reversal failed to reconcile in database.' });
+        }
+        await db.recordWebhookEvent(eventId, verification.event || 'REFUND_SUCCESS_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
+        return res.json({ received: true, processed: true, status: 'REFUNDED' });
+      } else if (refundStatus === 'FAILED') {
+        if (db.isPostgresAuthoritative()) {
+          await db.pg.failRefundReservation(merchantRefundId, orderId);
+        }
+        await db.recordWebhookEvent(eventId, verification.event || 'REFUND_FAILED_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
+        return res.json({ received: true, processed: true, status: 'FAILED' });
+      } else {
+        await db.recordWebhookEvent(eventId, verification.event || 'REFUND_PENDING_WEBHOOK', orderId, providerRefundId, verification.rawPayload);
+        return res.json({ received: true, processed: true, status: 'PENDING' });
+      }
+    }
 
-        if (paymentManager.isEnabled()) {
-          const providerStatus = await paymentManager.getProvider().getPaymentStatus(orderId);
-          if (providerStatus.status !== 'PAID' || !providerStatus.providerPaymentId) {
-            return res.status(503).json({ error: 'Gateway payment record not in PAID state.' });
+    if (verification.status === 'SUCCESS' && verification.orderId && verification.providerPaymentId) {
+      const orderId = verification.orderId;
+      const order = await db.getOrderAsync(orderId);
+      if (!order) {
+        return res.status(404).json({ error: 'Referenced order not found.' });
+      }
+      if (order.provider && order.provider !== webhookProvider.name) {
+        return res.status(409).json({ error: 'Incoming webhook provider does not match registered order provider.' });
+      }
+      if (order.status === 'completed' || order.status === 'PAID') {
+        const existingPaymentRef = order.paymentRef || (order as any).providerPaymentId;
+        if (existingPaymentRef && verification.providerPaymentId !== existingPaymentRef) {
+          return res.status(409).json({ error: 'Payment ID mismatch on already-paid order.' });
+        }
+        await db.recordWebhookEvent(eventId, verification.event || 'PAYMENT_SUCCESS_WEBHOOK', orderId, verification.providerPaymentId, verification.rawPayload);
+        return res.json({ received: true, processed: true, message: 'Order already completed.' });
+      }
+
+      let providerPaymentId = verification.providerPaymentId;
+      let paymentMethod = verification.paymentMethod || 'UPI';
+      let verifiedAmountINR = order.amount;
+
+      const orderProvider = paymentManager.getProviderFor(order.provider || webhookProvider.name);
+
+      if (paymentManager.isEnabled()) {
+        const providerStatus = await orderProvider.getPaymentStatus(orderId);
+        if (providerStatus.status !== 'PAID' || !providerStatus.providerPaymentId) {
+          return res.status(503).json({ error: 'Gateway payment record not in PAID state.' });
+        }
+
+        const isUsd = (order.chargeCurrency || order.currency) === 'USD';
+        if (isUsd) {
+          if (providerStatus.currency !== 'USD' || (verification.currency && verification.currency !== 'USD')) {
+            return res.status(400).json({ error: 'Payment currency mismatch against USD.' });
           }
+          const providerCents = Math.round(Number(providerStatus.amount) * 100);
+          const orderCents = order.chargeAmountMinor || Math.round(Number(order.amount) * 100);
+          if (providerCents !== orderCents) {
+            return res.status(400).json({ error: 'Payment amount mismatch against order record.' });
+          }
+          verifiedAmountINR = order.amount; // canonical rank INR
+        } else {
           if (providerStatus.currency !== 'INR' || order.currency !== 'INR' || (verification.currency && verification.currency !== 'INR')) {
             return res.status(400).json({ error: 'Payment currency mismatch against INR.' });
           }
 
           const providerPaise = toSafePaise(providerStatus.amount);
           const webhookPaise = verification.amount !== undefined ? toSafePaise(verification.amount) : null;
-          const orderPaise = toSafePaise(order.amount);
+          const orderPaise = order.chargeAmountMinor || toSafePaise(order.amount);
 
           if (providerPaise === null || orderPaise === null || providerPaise !== orderPaise) {
             return res.status(400).json({ error: 'Payment amount mismatch against order record.' });
@@ -1298,74 +1595,81 @@ async function startServer() {
             return res.status(400).json({ error: 'Webhook payload amount mismatch against order record.' });
           }
 
-          providerPaymentId = providerStatus.providerPaymentId;
-          paymentMethod = providerStatus.paymentMethod || paymentMethod;
           verifiedAmountINR = providerPaise / 100;
         }
 
-        if (db.isPostgresAuthoritative()) {
-          const settlementResult = await db.pg.settlePaymentAtomic({
-            orderId,
-            providerPaymentId: providerPaymentId.trim(),
-            provider: 'cashfree',
-            amount: verifiedAmountINR,
-            currency: 'INR',
-            status: 'PAID',
-            paymentMethod,
-            signatureVerified: true,
-            rawPayload: verification.rawPayload
-          });
+        providerPaymentId = providerStatus.providerPaymentId;
+        paymentMethod = providerStatus.paymentMethod || paymentMethod;
+      }
 
-          if (!settlementResult.success || !settlementResult.profile) {
-            return res.status(503).json({ error: settlementResult.message || 'Payment settlement failed.' });
-          }
-
-          try {
-            await db.recordWebhookEvent(eventId, verification.event || 'PAYMENT_SUCCESS_WEBHOOK', orderId, providerPaymentId, verification.rawPayload);
-          } catch (eventErr) {
-            console.error('[Webhook] Failed to record event after settlement:', eventErr);
-            return res.status(503).json({ error: 'Settlement completed but failed to record webhook event.' });
-          }
-
-          return res.json({
-            received: true,
-            processed: true,
-            profileId: settlementResult.profile.id,
-            rank: settlementResult.profile.rank
-          });
-        }
-
-        const result = db.verifyAndClaimRank({
-          name: order.name,
-          amount: verifiedAmountINR,
-          paymentRef: providerPaymentId,
+      if (db.isPostgresAuthoritative()) {
+        const settlementResult = await db.pg.settlePaymentAtomic({
           orderId,
-          instagram: order.instagram,
-          linkedin: order.linkedin,
-          website: order.website,
-          reason: order.reason,
-          lazyReason: order.lazyReason,
-          profileId: order.profileId,
-          ownerToken: order.ownerToken
+          providerPaymentId: providerPaymentId.trim(),
+          provider: order.provider || webhookProvider.name,
+          amount: verifiedAmountINR,
+          currency: 'INR',
+          status: 'PAID',
+          paymentMethod,
+          signatureVerified: true,
+          rawPayload: verification.rawPayload
         });
 
-        if (!result.success || !result.profile) {
-          return res.status(503).json({ error: result.message || 'Payment claim failed.' });
+        if (!settlementResult.success || !settlementResult.profile) {
+          return res.status(503).json({ error: settlementResult.message || 'Payment settlement failed.' });
         }
 
-        await db.recordWebhookEvent(eventId, verification.event || 'PAYMENT_SUCCESS_WEBHOOK', orderId, providerPaymentId, verification.rawPayload);
+        try {
+          await db.recordWebhookEvent(eventId, verification.event || 'PAYMENT_SUCCESS_WEBHOOK', orderId, providerPaymentId, verification.rawPayload);
+        } catch (eventErr) {
+          console.error('[Webhook] Failed to record event after settlement:', eventErr);
+          return res.status(503).json({ error: 'Settlement completed but failed to record webhook event.' });
+        }
 
         return res.json({
           received: true,
           processed: true,
-          profileId: result.profile.id,
-          rank: result.profile.rank
+          profileId: settlementResult.profile.id,
+          rank: settlementResult.profile.rank
         });
       }
 
+      const result = db.verifyAndClaimRank({
+        name: order.name,
+        amount: verifiedAmountINR,
+        paymentRef: providerPaymentId,
+        orderId,
+        instagram: order.instagram,
+        linkedin: order.linkedin,
+        website: order.website,
+        reason: order.reason,
+        lazyReason: order.lazyReason,
+        profileId: order.profileId,
+        ownerToken: order.ownerToken
+      });
+
+      if (!result.success || !result.profile) {
+        return res.status(503).json({ error: result.message || 'Payment claim failed.' });
+      }
+
+      await db.recordWebhookEvent(eventId, verification.event || 'PAYMENT_SUCCESS_WEBHOOK', orderId, providerPaymentId, verification.rawPayload);
+
+      return res.json({
+        received: true,
+        processed: true,
+        profileId: result.profile.id,
+        rank: result.profile.rank
+      });
+    }
+
     await db.recordWebhookEvent(eventId, verification.event || 'IGNORED_WEBHOOK', verification.orderId, verification.providerPaymentId, verification.rawPayload);
     return res.json({ received: true, processed: false, reason: 'Event acknowledged, no rank update required.' });
-  }));
+  };
+
+  app.post('/api/payment/webhook', asyncHandler(async (req: Request, res: Response) => handleWebhook(req, res)));
+  app.post('/api/payment/webhook/dodo', asyncHandler(async (req: Request, res: Response) => handleWebhook(req, res, 'dodo')));
+  app.post('/api/payment/webhook/razorpay', asyncHandler(async (req: Request, res: Response) => handleWebhook(req, res, 'razorpay')));
+  app.post('/api/payment/webhook/cashfree', asyncHandler(async (req: Request, res: Response) => handleWebhook(req, res, 'cashfree')));
 
   // Admin-authorized refund endpoint
   app.post('/api/payment/refund', asyncHandler(async (req: Request, res: Response) => {
@@ -1462,7 +1766,8 @@ async function startServer() {
 
     if (paymentManager.isEnabled()) {
       try {
-        const providerRes = await paymentManager.getProvider().createRefund({
+        const refundProvider = paymentManager.getProviderFor(order.provider);
+        const providerRes = await refundProvider.createRefund({
           orderId,
           refundId: merchantRefundId,
           amount: amountINR,
@@ -1493,7 +1798,9 @@ async function startServer() {
         }
 
         if (providerRes.status === 'SUCCESS') {
-          let providerRefundId = providerRes.raw?.cf_refund_id ? String(providerRes.raw.cf_refund_id) : merchantRefundId;
+          let providerRefundId = (providerRes.raw?.refund_id || providerRes.raw?.cf_refund_id)
+            ? String(providerRes.raw.refund_id || providerRes.raw.cf_refund_id)
+            : merchantRefundId;
           const providerCurrency = providerRes.raw?.refund_currency || providerRes.raw?.currency;
           if (providerCurrency !== undefined && providerCurrency !== 'INR') {
             return res.status(400).json({
@@ -1505,7 +1812,7 @@ async function startServer() {
 
           // Authoritative server-to-server check before reversing
           try {
-            const authStatus = await paymentManager.getProvider().getRefundStatus(orderId, merchantRefundId);
+            const authStatus = await refundProvider.getRefundStatus(orderId, merchantRefundId);
             if (
               authStatus.status === 'SUCCESS' &&
               authStatus.orderId === orderId &&
@@ -1691,22 +1998,32 @@ async function startServer() {
   app.post('/api/notify-me', handleNotificationSubscribe);
 
   // Get single profile
-  app.get('/api/profile/:id', async (req: Request, res: Response) => {
+  app.get('/api/profile/:id', asyncHandler(async (req: Request, res: Response) => {
     let profile: any = null;
-    if (db.isPostgresAuthoritative()) {
-      profile = await db.pg.getProfile(req.params.id);
-    } else {
-      profile = db.getProfile(req.params.id);
+    try {
+      if (db.isPostgresAuthoritative()) {
+        profile = await db.pg.getProfile(req.params.id);
+      } else {
+        profile = db.getProfile(req.params.id);
+      }
+    } catch (err: any) {
+      console.error('[Profile API] Database query error:', err);
+      return res.status(503).json({ error: 'Database service temporarily unavailable.' });
     }
     if (!profile) {
       // Owner-authenticated historical profile lookup (for zero-net / refunded profiles)
       const providedToken = (req.headers['x-profile-token'] as string | undefined)?.trim();
       if (providedToken) {
         let rawProfile: any = null;
-        if (db.isPostgresAuthoritative()) {
-          rawProfile = await db.pg.getRawProfile(req.params.id);
-        } else {
-          rawProfile = db.getRawProfile(req.params.id);
+        try {
+          if (db.isPostgresAuthoritative()) {
+            rawProfile = await db.pg.getRawProfile(req.params.id);
+          } else {
+            rawProfile = db.getRawProfile(req.params.id);
+          }
+        } catch (rawErr: any) {
+          console.error('[Profile API] Database query error for raw profile:', rawErr);
+          return res.status(503).json({ error: 'Database service temporarily unavailable.' });
         }
         if (rawProfile && verifyOwnerToken(rawProfile.ownerTokenHash || rawProfile.ownerToken, providedToken)) {
           // Strictly sanitize and neutralize: never expose owner tokens/hashes, never show rank 999999 as active, never show verified
@@ -1719,7 +2036,7 @@ async function startServer() {
       return res.status(404).json({ error: 'Profile not found.' });
     }
     res.json({ profile });
-  });
+  }));
 
   // Update profile's selected Lazy Reason
   app.post('/api/profile/lazy-reason', asyncHandler(async (req: Request, res: Response) => {
@@ -2189,7 +2506,7 @@ async function startServer() {
   const ogPngCache = new Map<string, { buffer: Buffer; timestamp: number }>();
 
   // Dynamic Open Graph Card generator (PNG and SVG) for social platforms & search engines
-  app.get('/api/og/card/:id', async (req: Request, res: Response) => {
+  app.get('/api/og/card/:id', asyncHandler(async (req: Request, res: Response) => {
     let profileId = req.params.id || '';
     let format = 'png'; // Default to PNG for crawler compatibility (Twitter, WhatsApp, Facebook, LinkedIn)
 
@@ -2203,7 +2520,13 @@ async function startServer() {
       format = 'svg';
     }
 
-    const profile = db.isPostgresAuthoritative() ? await db.pg.getProfile(profileId) : db.getProfile(profileId);
+    let profile: any = null;
+    try {
+      profile = db.isPostgresAuthoritative() ? await db.pg.getProfile(profileId) : db.getProfile(profileId);
+    } catch (ogDbErr: any) {
+      console.error('[OG Card API] Database query error:', ogDbErr);
+      return res.status(503).send('Database unavailable');
+    }
     if (!profile) {
       return res.status(404).send('Profile not found');
     }
@@ -2244,10 +2567,10 @@ async function startServer() {
       res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
       return res.send(svg);
     }
-  });
+  }));
 
   // Dynamic Public-Profile XML Sitemap
-  app.get('/sitemap-profiles.xml', async (_req: Request, res: Response) => {
+  app.get('/sitemap-profiles.xml', asyncHandler(async (_req: Request, res: Response) => {
     try {
       let profiles: Array<{ id: string; updated_at?: string; created_at?: string }> = [];
       if (db.isPostgresAuthoritative()) {
@@ -2310,7 +2633,7 @@ async function startServer() {
       console.error('Error generating sitemap-profiles.xml:', sitemapErr);
       res.status(500).type('text/plain').send('Error generating sitemap');
     }
-  });
+  }));
 
   // 404 Catch-all for unhandled API endpoints
   app.all('/api/*', (_req: Request, res: Response) => {
@@ -2461,8 +2784,13 @@ async function startServer() {
     res.status(500).json({ error: 'Internal server error.' });
   });
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`LAZY v2.0 server running on http://0.0.0.0:${PORT}`);
+  });
+
+  server.on('error', (err: any) => {
+    console.error('[Server Listen Error]', err);
+    process.exit(1);
   });
 
   // Founder operational alert outbox worker:
@@ -2473,12 +2801,17 @@ async function startServer() {
     });
   }
 
+  let isOutboxRunning = false;
   const outboxTimer = setInterval(async () => {
+    if (isOutboxRunning) return;
     if (db.isPostgresAuthoritative()) {
+      isOutboxRunning = true;
       try {
         await db.pg.dispatchOperationalOutbox();
       } catch (err) {
         console.error('[Outbox Worker] Scheduled dispatch failed:', err);
+      } finally {
+        isOutboxRunning = false;
       }
     }
   }, 15000);
@@ -2486,16 +2819,57 @@ async function startServer() {
 
   // Bounded scheduled reconciliation worker for older CREATED/PENDING payments and PENDING refunds
   // Uses PostgreSQL advisory lock to prevent duplicate multi-replica operations
+  let isReconciliationRunning = false;
   const reconciliationTimer = setInterval(async () => {
+    if (isReconciliationRunning) return;
     if (db.isPostgresAuthoritative() && paymentManager.isEnabled()) {
+      isReconciliationRunning = true;
       try {
-        await db.pg.reconcilePendingTransactions(paymentManager.getProvider());
+        await db.pg.reconcilePendingTransactions(paymentManager);
       } catch (err) {
         console.error('[Reconciliation Worker] Scheduled pass failed:', err);
+      } finally {
+        isReconciliationRunning = false;
       }
     }
   }, 60000);
   reconciliationTimer.unref();
+
+  let isShuttingDown = false;
+  const gracefulShutdown = (signal: string) => {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
+    console.log(`[Lifecycle] Received ${signal}. Starting graceful shutdown...`);
+
+    clearInterval(outboxTimer);
+    clearInterval(reconciliationTimer);
+
+    const forceExitTimeout = setTimeout(() => {
+      console.warn('[Lifecycle] Forced shutdown deadline reached (10s). Terminating process.');
+      process.exit(1);
+    }, 10000);
+    forceExitTimeout.unref();
+
+    server.close(async (err) => {
+      if (err) {
+        console.error('[Lifecycle] Error closing HTTP server:', err);
+      }
+      try {
+        if (db.isPostgresAuthoritative()) {
+          await db.pg.close();
+          console.log('[Lifecycle] PostgreSQL pool closed cleanly.');
+        }
+      } catch (dbCloseErr) {
+        console.error('[Lifecycle] Error closing PostgreSQL pool:', dbCloseErr);
+      }
+      clearTimeout(forceExitTimeout);
+      console.log('[Lifecycle] Graceful shutdown completed.');
+      process.exit(0);
+    });
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 }
 
 startServer().catch((err) => {

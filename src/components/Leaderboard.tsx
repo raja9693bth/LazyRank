@@ -47,7 +47,7 @@ export const Leaderboard: React.FC<LeaderboardProps> = ({
   onLoadMore,
   isLoadingMore = false,
   currencyMode = 'INR',
-  minAmountToBeatTop = 1,
+  minAmountToBeatTop = 99,
   period = 'all',
   onPeriodChange,
   canClaim = true

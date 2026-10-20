@@ -242,7 +242,7 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
     localStorage,
     fetchFn = fetch,
     topAmount = 0,
-    minAmountToBeatTop = 1
+    minAmountToBeatTop = 99
   } = options;
 
   // 1. CRYPTO AVAILABILITY CHECK: Fail closed if browser crypto is unavailable

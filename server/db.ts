@@ -605,7 +605,7 @@ export class LazyDatabase {
     }
 
     const topAmount = allVerifiedProfiles.length > 0 ? allVerifiedProfiles[0].amount : 0;
-    const minAmountToBeatTop = topAmount + 1;
+    const minAmountToBeatTop = Math.max(99, topAmount + 1);
 
     return { topAmount, minAmountToBeatTop };
   }
@@ -619,7 +619,7 @@ export class LazyDatabase {
   }
 
   public getMinAmountToBeatTop(): number {
-    return this.getTopAmount() + 1;
+    return Math.max(99, this.getTopAmount() + 1);
   }
 
   /**
@@ -629,7 +629,7 @@ export class LazyDatabase {
    */
   public static getPeriodCutoff(period: 'today' | 'week' | 'month' | 'all'): number {
     if (period === 'all') return 0;
-    
+
     // Indian Standard Time (IST) is UTC+05:30 (19,800,000 ms)
     const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
     const nowUtc = Date.now();
@@ -716,7 +716,7 @@ export class LazyDatabase {
       return a.id.localeCompare(b.id);
     });
     const allTimeTopAmount = allTimeVerified.length > 0 ? allTimeVerified[0].amount : 0;
-    const minAmountToBeatTop = allTimeTopAmount + 1;
+    const minAmountToBeatTop = Math.max(99, allTimeTopAmount + 1);
 
     if (period === 'today') {
       const { startTodayMs, endTodayMs, startTodayUtc, endTodayUtc } = getIstTodayWindow();
@@ -910,6 +910,10 @@ export class LazyDatabase {
     name: string;
     amount: number;
     currency?: string;
+    chargeCurrency?: string;
+    chargeAmountMinor?: number | bigint;
+    canonicalRankCreditPaise?: number | bigint;
+    fxQuoteId?: string;
     profileId?: string;
     ownerToken?: string;
     orderAccessToken?: string;
@@ -924,6 +928,7 @@ export class LazyDatabase {
     customerEmail?: string;
     customerPhone?: string;
     paymentMode?: string;
+    provider?: string;
     consentAccepted?: boolean;
     consentTimestamp?: string;
     consentVersion?: string;
@@ -933,7 +938,7 @@ export class LazyDatabase {
         ...order,
         currency: order.currency || 'INR',
         paymentMode: order.paymentMode || process.env.PAYMENT_MODE || 'disabled',
-        provider: 'cashfree'
+        provider: order.provider || 'cashfree'
       });
       return await this.pg.getOrder(order.orderId);
     }
@@ -1461,12 +1466,67 @@ export class LazyDatabase {
     return { success: false, message: 'Chargebacks require authoritative PostgreSQL.', statusCode: 501 };
   }
 
+  public async isWebhookEventProcessed(eventId: string): Promise<boolean> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.isWebhookEventProcessed(eventId);
+    }
+    return false;
+  }
+
   public async recordWebhookEvent(eventId: string, eventType: string, orderId?: string | null, providerPaymentId?: string | null, payload?: any): Promise<boolean> {
     if (this.isPostgresAuthoritative()) {
       return this.pg.recordWebhookEvent(eventId, eventType, orderId, providerPaymentId, payload);
     }
     return true;
   }
+
+  private memoryPaymentProducts: Map<string, string> = new Map();
+
+  public async getPaymentProductAsync(
+    provider: string,
+    currency: string,
+    amountMinor: number | bigint,
+    environment: string = 'live_mode',
+    accountId: string = 'primary',
+    pricingVersion: string = 'v1'
+  ): Promise<string | null> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.getPaymentProduct(provider, currency, amountMinor, environment, accountId, pricingVersion);
+    }
+    const key = `${provider}:${environment}:${accountId}:${currency}:${amountMinor}:${pricingVersion}`;
+    return this.memoryPaymentProducts.get(key) || this.memoryPaymentProducts.get(`${provider}:${currency}:${amountMinor}`) || null;
+  }
+
+  public async savePaymentProductAsync(
+    provider: string,
+    currency: string,
+    amountMinor: number | bigint,
+    productId: string,
+    environment: string = 'live_mode',
+    accountId: string = 'primary',
+    pricingVersion: string = 'v1'
+  ): Promise<string> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.savePaymentProduct(provider, currency, amountMinor, productId, environment, accountId, pricingVersion);
+    }
+    const key = `${provider}:${environment}:${accountId}:${currency}:${amountMinor}:${pricingVersion}`;
+    this.memoryPaymentProducts.set(key, productId);
+    this.memoryPaymentProducts.set(`${provider}:${currency}:${amountMinor}`, productId);
+    return productId;
+  }
+
+  public async bindRefundProviderId(orderId: string, merchantRefundId: string, providerRefundId: string): Promise<boolean> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.bindRefundProviderId(orderId, merchantRefundId, providerRefundId);
+    }
+    if (this.state.orders && this.state.orders[orderId]) {
+      (this.state.orders[orderId] as any).providerRefundId = providerRefundId;
+      this.saveData();
+      return true;
+    }
+    return false;
+  }
+
 
   public createParticipant(params: {
     name: string;
@@ -2102,7 +2162,7 @@ export class LazyDatabase {
   public getDilemma(voterKey?: string): LazyDilemma {
     const dilemma = this.ensureDefaultDilemma();
     const totalVotes = dilemma.options.reduce((sum, opt) => sum + opt.votes, 0);
-    
+
     // Recalculate percentages dynamically
     const options = dilemma.options.map(opt => ({
       ...opt,

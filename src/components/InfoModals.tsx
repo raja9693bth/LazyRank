@@ -787,7 +787,7 @@ export const LiveStatsModal: React.FC<LiveStatsModalProps> = ({ isOpen, onClose,
             </div>
             <div className="text-right">
               <div className="text-xs font-mono-numbers font-black text-amber-400">
-                ₹{(stats?.minAmountToBeatTop || 1).toLocaleString('en-IN')}
+                ₹{(stats?.minAmountToBeatTop || 99).toLocaleString('en-IN')}
               </div>
               <div className="text-[10px] text-zinc-400">required</div>
             </div>

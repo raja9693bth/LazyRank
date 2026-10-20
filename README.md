@@ -16,7 +16,7 @@
 - **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, Lucide Icons
 - **Backend:** Node.js, Express, TypeScript (transpiled with esbuild), Native PostgreSQL Client (`pg`)
 - **Database:** PostgreSQL (Neon Serverless in production; isolated local disposable PostgreSQL for integration testing)
-- **Payment Gateway:** Cashfree Payment Gateway (fail-closed API v2026-01-01)
+- **Payment Gateway:** Multi-provider architecture — Dodo Payments (primary for new INR sponsorships), Razorpay (prepared & gated standby), Cashfree (authoritative historical reconciliation)
 - **Deployment:** Railway container deployment with automated migrations and security headers
 
 ---
@@ -122,6 +122,9 @@ The base schema is defined in `server/db/schema.sql`. Additive migrations are lo
 - `005_operational_workflows.sql`: Operational outbox table, outbox indexes, and failure tracking.
 - `006_outbox_delivery.sql`: Durable per-channel delivery tracking (`outbox_channel_deliveries`) and configuration status guards (`SKIPPED_NO_CHANNELS`, `WAITING_CONFIG`).
 - `007_reconciliation_retries.sql`: Additive reconciliation retry tracking (`reconciliation_attempts`, `next_reconcile_at`, `reconciliation_error`) and partial indexes to `payment_orders` and `refund_reversals` for fair, bounded recovery without 24h starvation.
+- `008_dodo_payments.sql`: Dodo Payments checkout session & payment reference persistence fields.
+- `009_dodo_products.sql`: Durable product mapping table (`payment_products`) for fixed-price INR strategy.
+- `010_payment_hardening.sql`: Multi-currency support, namespaced product mapping, canonical rank credit, and sticky provider routing hardening.
 
 ---
 

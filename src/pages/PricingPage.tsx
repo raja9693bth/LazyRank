@@ -55,16 +55,16 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
           <div className="p-4 rounded-xl bg-zinc-50 border border-zinc-200 space-y-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500">Base Entry Minimum</span>
-            <div className="text-2xl font-black text-zinc-900 font-mono-numbers">₹1.00 INR</div>
+            <div className="text-2xl font-black text-zinc-900 font-mono-numbers">₹99.00 INR</div>
             <p className="text-xs text-zinc-600 leading-relaxed">
-              The minimum amount to claim an initial spot on the leaderboard is ₹1 INR. Any verified payment of ₹1 or more establishes your profile on the verified public board.
+              The minimum transaction amount to claim an initial spot or contribute an additional cumulative upgrade on the leaderboard is ₹99.00 INR (or $5.00 USD when enabled). Any verified payment of ₹99 or more establishes or upgrades your profile on the verified public board.
             </p>
           </div>
           <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200 space-y-1.5">
             <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Minimum to Take #1 Spot</span>
             <div className="text-2xl font-black text-amber-950 font-mono-numbers">Dynamic (Current #1 + ₹1)</div>
             <p className="text-xs text-zinc-600 leading-relaxed">
-              The price to claim rank #1 changes dynamically in real time based on active leaderboard competition. It is always exactly ₹1 higher than the current cumulative verified amount of the top profile. If no #1 is claimed, the cost is ₹1.00 INR.
+              The price to claim rank #1 changes dynamically in real time based on active leaderboard competition. It is calculated as ₹1 higher than the current cumulative verified amount of the top profile, subject to the ₹99 transaction minimum. If no #1 is claimed (or the top is under ₹99), the suggested cost is ₹99.00 INR.
             </p>
           </div>
         </div>
@@ -82,7 +82,7 @@ export const PricingPage: React.FC<PricingPageProps> = ({ onNavigate }) => {
         <ul className="list-disc list-inside space-y-2 text-xs sm:text-sm text-zinc-700 pl-1">
           <li><strong>No Guaranteed Rank Duration:</strong> Your payment guarantees immediate digital placement corresponding to your verified cumulative amount, but does not guarantee a permanent rank or tenure at any specific position.</li>
           <li><strong>Displacement by Subsequent Sponsors:</strong> If another user contributes a higher verified cumulative amount than yours, your profile is automatically pushed down to the next appropriate rank.</li>
-          <li><strong>Cumulative Profile Upgrades:</strong> If your rank is displaced, you can sponsor an additional amount at any time using your saved owner token. Your new payment is added cumulatively to your existing total to regain your target rank.</li>
+          <li><strong>Cumulative Profile Upgrades:</strong> If your rank is displaced, you can sponsor an additional amount at any time using your saved owner token. Each additional payment must also meet the ₹99 minimum (or $5.00 USD) and is added cumulatively to your existing total to regain your target rank.</li>
         </ul>
       </section>
 

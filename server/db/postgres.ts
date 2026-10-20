@@ -16,6 +16,12 @@ import { toSafePaise } from '../payments/provider.js';
 
 const { Pool } = pg;
 
+export function sanitizeLog(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+  return str.replace(/[\r\n\t]/g, '_').slice(0, 500);
+}
+
 export interface SettlePaymentParams {
   orderId: string;
   providerPaymentId: string;
@@ -42,6 +48,14 @@ export interface CreateOrderParams {
   name: string;
   amount: number;
   currency?: string;
+  chargeCurrency?: string;
+  chargeAmountMinor?: number | bigint;
+  canonicalRankCreditPaise?: number | bigint;
+  fxQuoteId?: string;
+  fxRateNumerator?: number | bigint;
+  fxRateDenominator?: number | bigint;
+  providerAccountId?: string;
+  providerEnvironment?: string;
   profileId?: string;
   ownerToken?: string;
   orderAccessToken?: string;
@@ -205,6 +219,10 @@ export class PostgresDatabase {
         idleTimeoutMillis: 30000,
         connectionTimeoutMillis: 5000,
       });
+      // Attach pool error listener immediately after construction to handle idle client failures
+      this.pool.on('error', (err: any) => {
+        console.error('[PostgreSQL Pool Error] Unexpected idle client error:', sanitizeLog(err?.message || err));
+      });
     }
   }
 
@@ -325,6 +343,48 @@ export class PostgresDatabase {
           console.log('[PostgreSQL] Migration 007_reconciliation_retries applied successfully.');
         }
 
+        // 9. Check and apply migration 008_dodo_payments if not already recorded
+        const mig008Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '008_dodo_payments'"
+        );
+        if (mig008Res.rows.length === 0) {
+          const mig008Path = path.join(process.cwd(), 'server', 'db', 'migrations', '008_dodo_payments.sql');
+          if (!fs.existsSync(mig008Path)) {
+            throw new Error('Required migration 008_dodo_payments.sql is missing.');
+          }
+          const mig008Sql = fs.readFileSync(mig008Path, 'utf-8');
+          await client.query(mig008Sql);
+          console.log('[PostgreSQL] Migration 008_dodo_payments applied successfully.');
+        }
+
+        // 10. Check and apply migration 009_dodo_products if not already recorded
+        const mig009Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '009_dodo_products'"
+        );
+        if (mig009Res.rows.length === 0) {
+          const mig009Path = path.join(process.cwd(), 'server', 'db', 'migrations', '009_dodo_products.sql');
+          if (!fs.existsSync(mig009Path)) {
+            throw new Error('Required migration 009_dodo_products.sql is missing.');
+          }
+          const mig009Sql = fs.readFileSync(mig009Path, 'utf-8');
+          await client.query(mig009Sql);
+          console.log('[PostgreSQL] Migration 009_dodo_products applied successfully.');
+        }
+
+        // 11. Check and apply migration 010_payment_hardening if not already recorded
+        const mig010Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '010_payment_hardening'"
+        );
+        if (mig010Res.rows.length === 0) {
+          const mig010Path = path.join(process.cwd(), 'server', 'db', 'migrations', '010_payment_hardening.sql');
+          if (!fs.existsSync(mig010Path)) {
+            throw new Error('Required migration 010_payment_hardening.sql is missing.');
+          }
+          const mig010Sql = fs.readFileSync(mig010Path, 'utf-8');
+          await client.query(mig010Sql);
+          console.log('[PostgreSQL] Migration 010_payment_hardening applied successfully.');
+        }
+
         this.isInitialized = true;
         console.log('[PostgreSQL] Database schema verified and up to date.');
         return true;
@@ -334,6 +394,54 @@ export class PostgresDatabase {
     } catch (err) {
       console.error('[PostgreSQL] Database initialization error:', err);
       return false;
+    }
+  }
+
+  /**
+   * Health and readiness check verifying real database query connectivity and schema readiness
+   */
+  public async checkReadiness(): Promise<{ ok: boolean; ready: boolean; error?: string; latencyMs?: number; details?: any }> {
+    if (!this.pool) {
+      return { ok: false, ready: false, error: 'PostgreSQL pool is not configured' };
+    }
+    if (!this.isInitialized) {
+      return { ok: false, ready: false, error: 'PostgreSQL schema has not been initialized' };
+    }
+    const start = Date.now();
+    try {
+      const client = await this.pool.connect();
+      try {
+        const res = await client.query('SELECT 1 as alive, NOW() as server_time');
+        const latencyMs = Date.now() - start;
+        return {
+          ok: true,
+          ready: true,
+          latencyMs,
+          details: {
+            alive: res.rows[0]?.alive === 1,
+            serverTime: res.rows[0]?.server_time
+          }
+        };
+      } finally {
+        client.release();
+      }
+    } catch (err: any) {
+      return { ok: false, ready: false, error: err?.message || 'Database query failed' };
+    }
+  }
+
+  /**
+   * Graceful shutdown: closes pool and releases client connections
+   */
+  public async close(): Promise<void> {
+    if (this.pool) {
+      try {
+        await this.pool.end();
+      } catch (err: any) {
+        console.warn('[PostgreSQL] Error closing pool:', sanitizeLog(err?.message || err));
+      }
+      this.pool = null;
+      this.isInitialized = false;
     }
   }
 
@@ -355,8 +463,11 @@ export class PostgresDatabase {
         payment_mode, provider, idempotency_key, customer_email, customer_phone,
         instagram, linkedin, website, twitter, reason, lazy_reason,
         consent_accepted, consent_timestamp, consent_version,
+        charge_currency, charge_amount_minor, canonical_rank_credit_paise,
+        fx_quote_id, fx_rate_numerator, fx_rate_denominator,
+        provider_account_id, provider_environment,
         created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, NOW(), NOW())
       ON CONFLICT (order_id) DO UPDATE SET
         name = EXCLUDED.name,
         amount = EXCLUDED.amount,
@@ -374,8 +485,18 @@ export class PostgresDatabase {
         consent_accepted = COALESCE(EXCLUDED.consent_accepted, payment_orders.consent_accepted),
         consent_timestamp = COALESCE(EXCLUDED.consent_timestamp, payment_orders.consent_timestamp),
         consent_version = COALESCE(EXCLUDED.consent_version, payment_orders.consent_version),
+        charge_currency = COALESCE(EXCLUDED.charge_currency, payment_orders.charge_currency),
+        charge_amount_minor = COALESCE(EXCLUDED.charge_amount_minor, payment_orders.charge_amount_minor),
+        canonical_rank_credit_paise = COALESCE(EXCLUDED.canonical_rank_credit_paise, payment_orders.canonical_rank_credit_paise),
+        fx_quote_id = COALESCE(EXCLUDED.fx_quote_id, payment_orders.fx_quote_id),
+        provider_account_id = COALESCE(EXCLUDED.provider_account_id, payment_orders.provider_account_id),
+        provider_environment = COALESCE(EXCLUDED.provider_environment, payment_orders.provider_environment),
         updated_at = NOW()
     `;
+    const chargeCurrency = order.chargeCurrency || order.currency || 'INR';
+    const chargeAmountMinor = order.chargeAmountMinor !== undefined ? Number(order.chargeAmountMinor) : Math.round(order.amount * 100);
+    const canonicalRankCreditPaise = order.canonicalRankCreditPaise !== undefined ? Number(order.canonicalRankCreditPaise) : Math.round(order.amount * 100);
+
     await this.pool.query(query, [
       order.orderId,
       order.profileId || null,
@@ -399,7 +520,15 @@ export class PostgresDatabase {
       order.lazyReason || null,
       Boolean(order.consentAccepted),
       order.consentTimestamp ? new Date(order.consentTimestamp) : null,
-      order.consentVersion || null
+      order.consentVersion || null,
+      chargeCurrency,
+      chargeAmountMinor,
+      canonicalRankCreditPaise,
+      order.fxQuoteId || null,
+      order.fxRateNumerator ? Number(order.fxRateNumerator) : null,
+      order.fxRateDenominator ? Number(order.fxRateDenominator) : null,
+      order.providerAccountId || null,
+      order.providerEnvironment || null
     ]);
   }
 
@@ -413,11 +542,18 @@ export class PostgresDatabase {
       name: r.name,
       amount: Number(r.amount),
       currency: r.currency,
+      chargeCurrency: r.charge_currency || r.currency || 'INR',
+      chargeAmountMinor: r.charge_amount_minor !== null ? Number(r.charge_amount_minor) : Math.round(Number(r.amount) * 100),
+      canonicalRankCreditPaise: r.canonical_rank_credit_paise !== null ? Number(r.canonical_rank_credit_paise) : Math.round(Number(r.amount) * 100),
+      fxQuoteId: r.fx_quote_id || undefined,
+      providerAccountId: r.provider_account_id || undefined,
+      providerEnvironment: r.provider_environment || undefined,
       status: r.status === 'completed' ? 'PAID' : r.status,
       paymentMode: r.payment_mode,
       provider: r.provider,
       providerOrderId: r.provider_order_id || undefined,
       paymentSessionId: r.payment_session_id || undefined,
+      checkoutUrl: r.checkout_url || undefined,
       idempotencyKey: r.idempotency_key || undefined,
       paymentRef: r.cf_payment_id || undefined,
       customerEmail: r.customer_email || undefined,
@@ -465,9 +601,10 @@ export class PostgresDatabase {
       `UPDATE payment_orders SET
         payment_session_id = COALESCE($1, payment_session_id),
         provider_order_id = COALESCE($2, provider_order_id),
+        checkout_url = COALESCE($3, checkout_url),
         updated_at = NOW()
-       WHERE order_id = $3`,
-      [paymentSessionId || null, providerOrderId || null, orderId]
+       WHERE order_id = $4`,
+      [paymentSessionId || null, providerOrderId || null, checkoutUrl || null, orderId]
     );
   }
 
@@ -482,6 +619,114 @@ export class PostgresDatabase {
     );
     return res.rows.length > 0;
   }
+
+  /**
+   * Check if a webhook event ID has already been recorded / processed
+   */
+  public async isWebhookEventProcessed(eventId: string): Promise<boolean> {
+    if (!this.pool) return false;
+    const res = await this.pool.query(
+      'SELECT 1 FROM payment_webhook_events WHERE event_id = $1 LIMIT 1',
+      [eventId]
+    );
+    return res.rows.length > 0;
+  }
+
+  /**
+   * Bind provider_refund_id onto a pending refund reservation immediately
+   */
+  public async bindRefundProviderId(orderId: string, merchantRefundId: string, providerRefundId: string): Promise<boolean> {
+    if (!this.pool || !providerRefundId) return false;
+    try {
+      const res = await this.pool.query(
+        `UPDATE refund_reversals
+         SET provider_refund_id = $1, updated_at = NOW()
+         WHERE order_id = $2 AND (merchant_refund_id = $3 OR id = $3)
+           AND (provider_refund_id IS NULL OR provider_refund_id = $1)`,
+        [providerRefundId, orderId, merchantRefundId]
+      );
+      return (res.rowCount ?? 0) > 0;
+    } catch (err: any) {
+      console.warn('[PostgreSQL] Failed to bind provider_refund_id:', sanitizeLog(err?.message || err));
+      return false;
+    }
+  }
+
+  /**
+   * Retrieve a durable fixed-price product mapping (namespaced with backward compatibility)
+   */
+  public async getPaymentProduct(
+    provider: string,
+    currency: string,
+    amountMinor: number | bigint,
+    environment: string = 'live_mode',
+    accountId: string = 'primary',
+    pricingVersion: string = 'v1'
+  ): Promise<string | null> {
+    if (!this.pool) return null;
+    try {
+      const res = await this.pool.query(
+        `SELECT product_id FROM payment_products
+         WHERE provider = $1 AND environment = $2 AND account_id = $3
+           AND currency = $4 AND amount_minor = $5 AND pricing_version = $6
+         LIMIT 1`,
+        [provider, environment, accountId, currency, amountMinor, pricingVersion]
+      );
+      if (res.rows.length > 0) return res.rows[0].product_id;
+    } catch {}
+
+    // Fallback query for backwards compatibility with legacy schema / records
+    const resLegacy = await this.pool.query(
+      'SELECT product_id FROM payment_products WHERE provider = $1 AND currency = $2 AND amount_paise = $3 LIMIT 1',
+      [provider, currency, amountMinor]
+    );
+    if (resLegacy.rows.length === 0) return null;
+    return resLegacy.rows[0].product_id;
+  }
+
+  /**
+   * Save a durable fixed-price product mapping with ON CONFLICT DO UPDATE to ensure safe multi-instance concurrency
+   */
+  public async savePaymentProduct(
+    provider: string,
+    currency: string,
+    amountMinor: number | bigint,
+    productId: string,
+    environment: string = 'live_mode',
+    accountId: string = 'primary',
+    pricingVersion: string = 'v1'
+  ): Promise<string> {
+    if (!this.pool) return productId;
+    const id = `prod_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    try {
+      const res = await this.pool.query(
+        `INSERT INTO payment_products (id, provider, environment, account_id, pricing_version, currency, amount_paise, amount_minor, product_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ON CONFLICT (provider, currency, amount_paise)
+         DO UPDATE SET
+           product_id = EXCLUDED.product_id,
+           environment = EXCLUDED.environment,
+           account_id = EXCLUDED.account_id,
+           pricing_version = EXCLUDED.pricing_version,
+           amount_minor = EXCLUDED.amount_minor
+         RETURNING product_id`,
+        [id, provider, environment, accountId, pricingVersion, currency, amountMinor, amountMinor, productId]
+      );
+      return res.rows[0]?.product_id || productId;
+    } catch {
+      // Fallback in case table has not yet run migration 010 in certain tests
+      const resFallback = await this.pool.query(
+        `INSERT INTO payment_products (id, provider, currency, amount_paise, product_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, NOW())
+         ON CONFLICT (provider, currency, amount_paise)
+         DO UPDATE SET product_id = payment_products.product_id
+         RETURNING product_id`,
+        [id, provider, currency, amountMinor, productId]
+      );
+      return resFallback.rows[0]?.product_id || productId;
+    }
+  }
+
 
   /**
    * Atomic Settlement Transaction
@@ -1077,10 +1322,13 @@ export class PostgresDatabase {
       }
       const profileId = order.profile_id;
 
-      // Validate currency parameter (fail closed if not INR)
-      if (params.currency !== 'INR') {
+      const orderCurrency = (order.charge_currency || order.currency || 'INR').toUpperCase();
+      const paramCurrency = (params.currency || 'INR').toUpperCase();
+
+      // Validate currency parameter against order charge currency
+      if (paramCurrency !== orderCurrency) {
         await client.query('ROLLBACK');
-        return { success: false, message: 'Currency mismatch: expected INR.' };
+        return { success: false, message: `Currency mismatch: order was charged in ${orderCurrency}, but refund specified ${paramCurrency}.` };
       }
 
       // Locate precisely the PENDING reservation by (order_id, merchant_refund_id)
@@ -1097,16 +1345,10 @@ export class PostgresDatabase {
       const reservation = reservationRes.rows[0];
       const resPaise = toSafePaise(Number(reservation.amount));
 
-      // Validate exact integer paise match
+      // Validate exact integer minor unit match
       if (resPaise === null || resPaise !== refundPaise) {
         await client.query('ROLLBACK');
-        return { success: false, message: `Refund amount mismatch: reservation has ${resPaise} paise, but received ${refundPaise} paise.` };
-      }
-
-      // Check currency
-      if (reservation.currency !== 'INR') {
-        await client.query('ROLLBACK');
-        return { success: false, message: 'Currency mismatch: expected INR.' };
+        return { success: false, message: `Refund amount mismatch: reservation has ${resPaise} minor units, but received ${refundPaise}.` };
       }
 
       // If already SUCCESS with the same provider ID, acknowledge idempotently without another ledger debit
@@ -1144,8 +1386,8 @@ export class PostgresDatabase {
         "SELECT COALESCE(SUM(amount), 0) as total FROM refund_reversals WHERE order_id = $1 AND status = 'SUCCESS'",
         [params.orderId]
       );
-      const settledPaise = Math.round(Number(totalRefundedRes.rows[0].total) * 100);
-      const finalOrderStatus = settledPaise >= orderPaise ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
+      const settledMinor = Math.round(Number(totalRefundedRes.rows[0].total) * 100);
+      const finalOrderStatus = settledMinor >= orderPaise ? 'REFUNDED' : 'PARTIALLY_REFUNDED';
 
       // Update order status
       await client.query(
@@ -1154,12 +1396,26 @@ export class PostgresDatabase {
       );
 
       if (profileId) {
+        // Compute canonical rank credit reversal amount in INR
+        let rankReversalINR = params.amount;
+        if (orderCurrency === 'USD') {
+          const originalRankCreditPaise = Number(order.canonical_rank_credit_paise || Math.round(Number(order.amount) * 100));
+          if (settledMinor >= orderPaise) {
+            // Full refund: reverse entire original canonical rank credit
+            rankReversalINR = originalRankCreditPaise / 100;
+          } else {
+            // Proportional partial refund reversal
+            const partialPaise = Math.floor((originalRankCreditPaise * refundPaise) / orderPaise);
+            rankReversalINR = partialPaise / 100;
+          }
+        }
+
         // Insert negative debit into rank_ledger
         const ledgerId = 'led_' + crypto.randomUUID().replace(/-/g, '').slice(0, 12);
         await client.query(
           `INSERT INTO rank_ledger (id, profile_id, order_id, type, amount, currency, status, note, created_at)
            VALUES ($1, $2, $3, 'DEBIT_REFUND', $4, 'INR', 'SETTLED', $5, NOW())`,
-          [ledgerId, profileId, params.orderId, -params.amount, params.reason]
+          [ledgerId, profileId, params.orderId, -rankReversalINR, params.reason]
         );
 
         // Recalculate profile verified total from ledger
@@ -1434,7 +1690,7 @@ export class PostgresDatabase {
         totalPages: 1,
         period,
         topAmount: 0,
-        minAmountToBeatTop: 1,
+        minAmountToBeatTop: 99,
         filter: 'verified'
       };
     }
@@ -1448,7 +1704,7 @@ export class PostgresDatabase {
       "SELECT amount FROM profiles WHERE moderation_status = 'active' AND is_verified = TRUE AND amount > 0 ORDER BY amount DESC, first_verified_at ASC NULLS LAST, id ASC LIMIT 1"
     );
     const topAmount = topRes.rows.length > 0 ? Number(topRes.rows[0].amount) : 0;
-    const minAmountToBeatTop = topAmount + 1;
+    const minAmountToBeatTop = Math.max(99, topAmount + 1);
 
     if (period === 'today') {
       const { startTodayUtc, endTodayUtc } = getIstTodayWindow();
@@ -2217,7 +2473,7 @@ export class PostgresDatabase {
       totalClaims: parseInt(s?.total_claims || '0', 10),
       claimsToday: parseInt(s?.claims_today || '0', 10),
       topAmount: profiles[0]?.amount || 0,
-      minAmountToBeatTop: (profiles[0]?.amount || 0) + 1
+      minAmountToBeatTop: Math.max(99, (profiles[0]?.amount || 0) + 1)
     };
 
     const orders = ordersRes.rows.map(o => ({
@@ -2510,13 +2766,23 @@ export class PostgresDatabase {
 
   /**
    * Reconcile pending payments and refunds using PostgreSQL advisory lock
-   * Prevents multi-replica duplicate work.
+   * Prevents multi-replica duplicate work. Provider-aware across Dodo and historical Cashfree orders.
    */
-  public async reconcilePendingTransactions(provider: any): Promise<{ reconciledOrders: number; reconciledRefunds: number }> {
+  public async reconcilePendingTransactions(providerOrResolver: any): Promise<{ reconciledOrders: number; reconciledRefunds: number }> {
     if (!this.pool) return { reconciledOrders: 0, reconciledRefunds: 0 };
     const client = await this.pool.connect();
     let reconciledOrders = 0;
     let reconciledRefunds = 0;
+
+    const resolveProvider = (providerName?: string) => {
+      if (providerOrResolver && typeof providerOrResolver.getProviderFor === 'function') {
+        return providerOrResolver.getProviderFor(providerName);
+      }
+      if (typeof providerOrResolver === 'function') {
+        return providerOrResolver(providerName);
+      }
+      return providerOrResolver;
+    };
 
     try {
       const lockRes = await client.query('SELECT pg_try_advisory_lock(554433221) AS locked');
@@ -2527,7 +2793,7 @@ export class PostgresDatabase {
       try {
         // Query up to 20 PENDING / CREATED orders without 24-hour starvation
         const pendingOrdersRes = await client.query(
-          `SELECT order_id, amount, currency, status, reconciliation_attempts, created_at FROM payment_orders
+          `SELECT order_id, amount, currency, status, reconciliation_attempts, created_at, provider FROM payment_orders
            WHERE status IN ('PENDING', 'CREATED')
              AND created_at <= NOW() - INTERVAL '5 minutes'
              AND (next_reconcile_at IS NULL OR next_reconcile_at <= NOW())
@@ -2541,7 +2807,8 @@ export class PostgresDatabase {
           const backoffMinutes = Math.min(360, Math.pow(2, Math.min(nextAttempts, 6)) * 5);
 
           try {
-            const providerStatus = await provider.getPaymentStatus(order.order_id);
+            const targetProvider = resolveProvider(order.provider);
+            const providerStatus = await targetProvider.getPaymentStatus(order.order_id);
             // Require provider status PAID, nonempty providerPaymentId, provider currency exactly INR, stored order currency INR
             if (
               providerStatus.status === 'PAID' &&
@@ -2556,7 +2823,7 @@ export class PostgresDatabase {
                 const res = await this.settlePaymentAtomic({
                   orderId: order.order_id,
                   providerPaymentId: providerStatus.providerPaymentId.trim(),
-                  provider: provider.name || 'cashfree',
+                  provider: order.provider || targetProvider?.name || 'dodo',
                   amount: Number(order.amount),
                   currency: 'INR',
                   status: 'PAID',
@@ -2610,13 +2877,15 @@ export class PostgresDatabase {
           }
         }
 
-        // Query up to 20 PENDING refunds without 24-hour starvation
+        // Query up to 20 PENDING refunds without 24-hour starvation (with provider attribution)
         const pendingRefundsRes = await client.query(
-          `SELECT order_id, merchant_refund_id, id, amount, currency, reason, reconciliation_attempts, created_at FROM refund_reversals
-           WHERE status = 'PENDING'
-             AND created_at <= NOW() - INTERVAL '5 minutes'
-             AND (next_reconcile_at IS NULL OR next_reconcile_at <= NOW())
-           ORDER BY COALESCE(next_reconcile_at, created_at) ASC, created_at ASC
+          `SELECT r.order_id, r.merchant_refund_id, r.id, r.amount, r.currency, r.reason, r.reconciliation_attempts, r.created_at, o.provider
+           FROM refund_reversals r
+           LEFT JOIN payment_orders o ON r.order_id = o.order_id
+           WHERE r.status = 'PENDING'
+             AND r.created_at <= NOW() - INTERVAL '5 minutes'
+             AND (r.next_reconcile_at IS NULL OR r.next_reconcile_at <= NOW())
+           ORDER BY COALESCE(r.next_reconcile_at, r.created_at) ASC, r.created_at ASC
            LIMIT 20`
         );
 
@@ -2627,7 +2896,9 @@ export class PostgresDatabase {
           const backoffMinutes = Math.min(360, Math.pow(2, Math.min(nextAttempts, 6)) * 5);
 
           try {
-            const refundStatus = await provider.getRefundStatus(ref.order_id, merchantRefId);
+            const targetRefundProvider = resolveProvider(ref.provider);
+            const refundStatus = await targetRefundProvider.getRefundStatus(ref.order_id, merchantRefId);
+
 
             // Validate returned order ID and merchant refund ID against locked reservation
             if (refundStatus.orderId !== ref.order_id || refundStatus.merchantRefundId !== merchantRefId) {

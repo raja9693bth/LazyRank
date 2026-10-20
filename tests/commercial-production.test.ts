@@ -321,11 +321,15 @@ async function runCommercialTests() {
   const TEST_PORT = 3198;
   process.env.PORT = String(TEST_PORT);
   process.env.ADMIN_KEY = 'test-forensic-admin-key-2026';
+  process.env.PAYMENT_PROVIDER = 'cashfree';
   process.env.PAYMENT_MODE = 'disabled';
   process.env.DEMO_MODE = 'false';
   process.env.APP_URL = 'https://lazyproof.online';
   process.env.ALLOW_MOCK_REFUNDS = 'true';
   process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test';
+
+  const { paymentManager: activePm } = await import('../server/payments/index.ts');
+  activePm.reload();
 
   try {
     await import('../server.ts');

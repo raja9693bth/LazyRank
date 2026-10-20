@@ -259,7 +259,7 @@ export class PostgresDatabase {
         ssl: isSsl ? { rejectUnauthorized: true } : undefined,
         max: 10,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 20000,
       });
       // Attach pool error listener immediately after construction to handle idle client failures
       this.pool.on('error', (err: any) => {
@@ -274,11 +274,15 @@ export class PostgresDatabase {
 
   public async init(): Promise<boolean> {
     if (!this.pool) return false;
-    try {
-      const client = await this.pool.connect();
+    const maxAttempts = 3;
+    const retryDelayMs = 2000;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        // Serialize concurrent migrations across instances with PostgreSQL advisory lock
-        await client.query('SELECT pg_advisory_lock(84729104);');
+        const client = await this.pool.connect();
+        try {
+          // Serialize concurrent migrations across instances with PostgreSQL advisory lock
+          await client.query('SELECT pg_advisory_lock(84729104);');
 
         // 1. Ensure schema_migrations table exists
         await client.query(`
@@ -451,11 +455,18 @@ export class PostgresDatabase {
         await client.query('SELECT pg_advisory_unlock(84729104);').catch(() => {});
         client.release();
       }
-    } catch (err) {
-      console.error('[PostgreSQL] Database initialization error:', err);
-      return false;
+    } catch (err: any) {
+      console.error(`[PostgreSQL] Database initialization attempt ${attempt}/${maxAttempts} failed:`, sanitizeLog(err?.message || err));
+      if (attempt < maxAttempts) {
+        console.log(`[PostgreSQL] Retrying database initialization in ${retryDelayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+      } else {
+        return false;
+      }
     }
   }
+  return false;
+}
 
   /**
    * Health and readiness check verifying real database query connectivity and schema readiness
@@ -465,7 +476,11 @@ export class PostgresDatabase {
       return { ok: false, ready: false, error: 'PostgreSQL pool is not configured' };
     }
     if (!this.isInitialized) {
-      return { ok: false, ready: false, error: 'PostgreSQL schema has not been initialized' };
+      console.log('[PostgreSQL] Readiness check detected uninitialized database; attempting self-healing init()...');
+      const recovered = await this.init();
+      if (!recovered || !this.isInitialized) {
+        return { ok: false, ready: false, error: 'PostgreSQL schema has not been initialized' };
+      }
     }
     const start = Date.now();
     try {

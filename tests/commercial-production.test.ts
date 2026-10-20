@@ -225,23 +225,20 @@ async function runCommercialTests() {
   // SUITE 4: PAYMENT MODES & PRODUCTION SAFETY
   // ----------------------------------------------------
   console.log('\n--- 4. Payment Modes & Production Safety Guardrails ---');
-  // 4.1 Production + Sandbox is strictly forbidden
+  // 4.1 Production + Sandbox fails closed to disabled and checkout disabled
   const origEnv = process.env.NODE_ENV;
   const origMode = process.env.PAYMENT_MODE;
-  let sandboxProdForbidden = false;
   try {
     process.env.NODE_ENV = 'production';
     process.env.PAYMENT_MODE = 'sandbox';
-    new PaymentManager();
-  } catch (err: any) {
-    if (err?.message?.includes('PAYMENT_MODE=sandbox is strictly forbidden in a production environment')) {
-      sandboxProdForbidden = true;
-    }
+    const pm = new PaymentManager();
+    assert(pm.getMode() === 'disabled', 'PaymentManager safely forces mode to disabled when PAYMENT_MODE=sandbox in production');
+    assert(pm.mayCreateNewOrder() === false, 'PaymentManager forbids new orders when PAYMENT_MODE=sandbox in production');
+    assert(pm.isCheckoutEnabled() === false, 'PaymentManager disables checkout when PAYMENT_MODE=sandbox in production');
   } finally {
     process.env.NODE_ENV = origEnv;
     process.env.PAYMENT_MODE = origMode;
   }
-  assert(sandboxProdForbidden, 'PaymentManager throws fatal error if PAYMENT_MODE=sandbox in production');
 
   // 4.2 Live mode without credentials safely falls back to disabled
   let liveWithoutCredsSafelyDisabled = false;

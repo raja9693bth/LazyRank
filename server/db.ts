@@ -363,11 +363,14 @@ export class LazyDatabase {
 
   private loadData(): DatabaseState {
     const isProd = process.env.NODE_ENV === 'production';
-    const isDemo = process.env.DEMO_MODE === 'true';
+    let isDemo = process.env.DEMO_MODE === 'true';
 
-    // Section 8: Production with DEMO_MODE=true must fail fast with a fatal error
+    // Section 8: Production with DEMO_MODE=true fails closed: log warning and force isDemo=false
     if (isProd && isDemo) {
-      throw new Error('FATAL CONFIGURATION ERROR: DEMO_MODE cannot be enabled in production environment.');
+      console.warn(
+        '[LazyDatabase] CRITICAL SECURITY WARNING: DEMO_MODE=true cannot be enabled in production environment. Safely forcing DEMO_MODE=false so demo seed data is purged.'
+      );
+      isDemo = false;
     }
 
     // Section 2A: DATABASE_URL must be mandatory when NODE_ENV=production
@@ -1168,7 +1171,10 @@ export class LazyDatabase {
       };
     }
     if (paymentMode === 'sandbox' && isProduction) {
-      throw new Error('FATAL CONFIGURATION ERROR: PAYMENT_MODE=sandbox cannot be used in production environment.');
+      return {
+        success: false,
+        message: 'Sandbox settlement is forbidden in production.'
+      };
     }
 
     // Validate amount

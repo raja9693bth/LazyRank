@@ -469,24 +469,47 @@ async function runTests() {
     'verifyAndClaimRank returns explicit disabled message'
   );
 
-  console.log('\n--- 19. Demo Isolation & Production Fail-Fast ---');
-  // Verify production + DEMO_MODE=true throws fatal error
+  // Test sandbox settlement rejection in production without throwing uncaught error
+  const origEnvForSettlement = process.env.NODE_ENV;
+  const origModeForSettlement = process.env.PAYMENT_MODE;
+  try {
+    process.env.NODE_ENV = 'production';
+    process.env.PAYMENT_MODE = 'sandbox';
+    const sandboxSettlement = db.verifyAndClaimRank({
+      name: 'Sandbox Attacker',
+      amount: 100,
+      paymentRef: 'sandbox_attack_ref_888'
+    });
+    assert(sandboxSettlement.success === false, 'db.verifyAndClaimRank rejects sandbox settlement in production');
+    assert(
+      sandboxSettlement.message === 'Sandbox settlement is forbidden in production.',
+      'verifyAndClaimRank returns sandbox forbidden message'
+    );
+  } finally {
+    process.env.NODE_ENV = origEnvForSettlement;
+    process.env.PAYMENT_MODE = origModeForSettlement;
+  }
+
+  console.log('\n--- 19. Demo Isolation & Production Fail-Closed ---');
+  // Verify production + DEMO_MODE=true safely forces DEMO_MODE=false and purges demo seed data without crashing
   const prevEnv = process.env.NODE_ENV;
   const prevDemo = process.env.DEMO_MODE;
-  let productionFailFastPassed = false;
+  const prevDbUrl = process.env.DATABASE_URL;
   try {
     process.env.NODE_ENV = 'production';
     process.env.DEMO_MODE = 'true';
-    new LazyDatabase();
-  } catch (err: any) {
-    if (err?.message?.includes('DEMO_MODE cannot be enabled in production')) {
-      productionFailFastPassed = true;
-    }
+    process.env.DATABASE_URL = 'postgresql://dummy@localhost:5433/dummy';
+    const dbInstance = new LazyDatabase();
+    assert(dbInstance !== null, 'LazyDatabase boots successfully without crashing on DEMO_MODE=true in production');
+    // Verify that demo seed profiles are purged
+    const profiles = dbInstance.getLeaderboard({ filter: 'all' }).profiles;
+    const hasSeed = profiles.some(p => p.ownerToken?.startsWith('seed_') || p.id === 'p-aarav-1');
+    assert(!hasSeed, 'Demo seed profiles are purged in production even if DEMO_MODE=true');
   } finally {
     process.env.NODE_ENV = prevEnv;
     process.env.DEMO_MODE = prevDemo;
+    process.env.DATABASE_URL = prevDbUrl;
   }
-  assert(productionFailFastPassed, 'Database throws fatal error when NODE_ENV=production and DEMO_MODE=true');
 
   console.log('\n--- 20. Single-Node Concurrency & Persistence Safe Execution ---');
   // Fire 15 concurrent updates

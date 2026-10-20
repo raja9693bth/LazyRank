@@ -59,11 +59,13 @@ export class PaymentManager {
 
     const isProd = process.env.NODE_ENV === 'production';
 
-    // Production + sandbox = forbidden!
+    // Production + sandbox = forbidden! Fail-closed to disabled without crashing Express
     if (isProd && this.mode === 'sandbox') {
-      throw new Error(
-        'FATAL CONFIGURATION ERROR: PAYMENT_MODE=sandbox is strictly forbidden in a production environment. For safe public restoration with checkout disabled, set PAYMENT_MODE=disabled. For live production, set PAYMENT_MODE=live after merchant approval.'
+      console.warn(
+        '[PaymentManager] CRITICAL SECURITY WARNING: PAYMENT_MODE=sandbox is forbidden in production. Safely forcing PAYMENT_MODE=disabled and disabling checkout.'
       );
+      this.mode = 'disabled';
+      this.checkoutEnabled = false;
     }
 
     // Check environment conflict: live mode with test_mode Dodo environment
@@ -150,7 +152,11 @@ export class PaymentManager {
 
     // Checkout master switch: controls NEW orders only
     const checkoutEnabled = (process.env.CHECKOUT_ENABLED || 'true').toLowerCase().trim();
-    this.checkoutEnabled = checkoutEnabled !== 'false';
+    if (isProd && rawMode === 'sandbox') {
+      this.checkoutEnabled = false;
+    } else {
+      this.checkoutEnabled = checkoutEnabled !== 'false';
+    }
   }
 
   private checkoutEnabled: boolean = true;

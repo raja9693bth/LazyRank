@@ -235,10 +235,11 @@ CREATE TABLE IF NOT EXISTS dilemma_votes (
 -- 12. Payment Webhook Events Table (Idempotent Webhook Deduplication)
 CREATE TABLE IF NOT EXISTS payment_webhook_events (
   id VARCHAR(64) PRIMARY KEY,
-  event_id VARCHAR(128) NOT NULL UNIQUE,
+  event_id VARCHAR(256) NOT NULL UNIQUE,
   event_type VARCHAR(64) NOT NULL,
   order_id VARCHAR(64),
   provider_payment_id VARCHAR(100),
+  status VARCHAR(32) NOT NULL DEFAULT 'PROCESSED',
   payload JSONB,
   processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -322,7 +323,7 @@ CREATE TABLE IF NOT EXISTS payment_products (
   amount_minor BIGINT,
   product_id VARCHAR(128) NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_payment_products_provider_amt UNIQUE (provider, currency, amount_paise)
+  CONSTRAINT uq_payment_products_scoped UNIQUE (provider, environment, account_id, currency, amount_minor, pricing_version)
 );
 
 CREATE INDEX IF NOT EXISTS idx_payment_products_lookup
@@ -330,4 +331,29 @@ CREATE INDEX IF NOT EXISTS idx_payment_products_lookup
 
 CREATE INDEX IF NOT EXISTS idx_payment_products_namespaced
   ON payment_products (provider, environment, account_id, currency, amount_minor, pricing_version);
+
+-- 19. Payment Quotes Table (Durable quote snapshots with atomic consumption)
+CREATE TABLE IF NOT EXISTS payment_quotes (
+  id VARCHAR(64) PRIMARY KEY,
+  quote_id VARCHAR(64) UNIQUE NOT NULL,
+  provider VARCHAR(32) NOT NULL,
+  environment VARCHAR(32) NOT NULL,
+  account_id VARCHAR(64) NOT NULL,
+  currency VARCHAR(8) NOT NULL,
+  amount_minor BIGINT NOT NULL,
+  rank_credit_paise BIGINT NOT NULL,
+  tax_mode VARCHAR(32) NOT NULL DEFAULT 'tax_inclusive',
+  pricing_version VARCHAR(32) NOT NULL,
+  purpose VARCHAR(32) NOT NULL,
+  profile_id VARCHAR(64),
+  claimant_name VARCHAR(128),
+  auth_hash VARCHAR(128) NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  consumed_by_order_id VARCHAR(64),
+  expires_at TIMESTAMPTZ NOT NULL,
+  quote_snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_quotes_lookup ON payment_quotes (quote_id, expires_at);
 

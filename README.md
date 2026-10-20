@@ -29,7 +29,7 @@
    - **Today:** Daily window reset strictly at 00:00:00 Indian Standard Time (IST, UTC+05:30).
 3. **Zero Raw Owner Token Storage:** Profile ownership credentials follow the strict format `lazy_` + 64 hexadecimal characters (`lazy_[0-9a-f]{64}`). Tokens are generated client-side and stored only in browser storage (`sessionStorage` during checkout, `localStorage.lazy_tokens` upon completion). The server stores only cryptographic one-way SHA-256 hashes (`owner_token_hash`).
 4. **Rank Settlement Ledger:** `rank_ledger` records every verified credit and debit reversal. Profile verified amounts and Today rankings are derived directly from settled ledger entries.
-5. **Fail-Closed Payments:** In `PAYMENT_MODE=disabled`, checkout remains unavailable. Live payments require valid Cashfree credentials and verified merchant tax configurations.
+5. **Fail-Closed Payments:** In `CHECKOUT_ENABLED=false` or `PAYMENT_MODE=disabled`, new checkout remains unavailable. Live payments require verified provider approval (Dodo Payments as primary, Razorpay as gated standby), valid live credentials, and tax readiness. Existing payment verification, webhooks, and refunds remain operational even when new checkouts are paused.
 
 ---
 
@@ -141,4 +141,4 @@ The canonical underwriting, legal, and operational policies are hosted live on t
 - **Contact & Support:** [/contact](https://lazyproof.online/contact)
 
 ### Merchant Underwriting & Commercial Notice
-Live payments operate in `PAYMENT_MODE=disabled` pending formal banking aggregator underwriting and merchant account activation. Any sample invoice requested by payment aggregators (e.g., Razorpay or Cashfree) must be prepared from genuine business and tax facts by the founder or registered accountant. Never generate or issue synthetic or fake GST invoices.
+Live payments operate with Dodo Payments as the primary new payment provider, with Razorpay as prepared and gated standby. Any sample invoice requested by payment aggregators (e.g., Dodo Payments or Razorpay) must be prepared from genuine business and tax facts by the founder or registered accountant. Never generate or issue synthetic or fake GST invoices.

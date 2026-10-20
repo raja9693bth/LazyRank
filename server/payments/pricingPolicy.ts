@@ -14,6 +14,10 @@
 export const MIN_INR_PAISE = 9900; // ₹99.00
 export const MIN_USD_CENTS = 500;  // $5.00
 export const INR_STEP_PAISE = 100; // ₹1.00
+export const MAX_INR_PAISE = 100000000; // ₹10,00,000 (100,000,000 paise)
+export const MAX_INR_RUPEES = 1000000; // ₹10,00,000
+export const MAX_USD_CENTS = 1200000; // $12,000 (1,200,000 cents)
+export const MAX_USD_DOLLARS = 12000; // $12,000
 
 export const DEFAULT_QUOTE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -25,6 +29,7 @@ export interface CurrencyPricingCapability {
   currency: SupportedChargeCurrency;
   enabled: boolean;
   minMinorUnit: number;
+  maxMinorUnit: number;
   stepMinorUnit: number;
   displaySymbol: string;
   helperText: string;
@@ -35,12 +40,21 @@ export interface PricingCapabilitiesResponse {
   pricingVersion: string;
   currentPricingVersion?: string;
   baseCurrency: 'INR';
+  requiresQuote: boolean;
   chargeCurrencies: CurrencyPricingCapability[];
   businessMinimums: {
     INR_PAISE: number;
     USD_CENTS: number;
   };
+  businessMaximums: {
+    INR_PAISE: number;
+    INR_RUPEES: number;
+    USD_CENTS: number;
+    USD_DOLLARS: number;
+  };
   rankStepPaise: number;
+  minINRAmount?: number;
+  minUSDAmount?: number;
   INR: CurrencyPricingCapability;
   USD: CurrencyPricingCapability;
 }
@@ -60,11 +74,13 @@ export interface AmountValidationResult {
 export interface RankTargetCalculation {
   topPaise: number;
   ownerPaise: number;
+  minChargeAmount: number; // Mandatory transaction floor (₹99)
+  optionalSuggestedTopAmount: number; // Optional suggestion to beat the leader
   suggestedChargePaise: number;
   suggestedChargeINR: number;
   projectedTotalPaise: number;
   projectedTotalINR: number;
-  minAmountToBeatTopINR: number;
+  minAmountToBeatTopINR: number; // Backwards-compatible alias for optionalSuggestedTopAmount
   isUpgrade: boolean;
 }
 
@@ -96,22 +112,29 @@ export function calculateRankTarget(
   const G = INR_STEP_PAISE; // 100 paise (₹1 step)
 
   const isUpgrade = safeOwnerPaise > 0;
+  const minChargeAmount = Math.round(M / 100);
 
-  let suggestedChargePaise: number;
-  if (!isUpgrade) {
-    // New profile: max(M, ceilINRStep(T + G))
-    suggestedChargePaise = Math.max(M, ceilINRStep(safeTopPaise + G));
+  let rawSuggestedPaise: number;
+  if (safeTopPaise === 0) {
+    rawSuggestedPaise = M;
+  } else if (!isUpgrade) {
+    rawSuggestedPaise = ceilINRStep(safeTopPaise + G);
   } else {
-    // Upgrade: max(M, ceilINRStep(T - O + G))
-    suggestedChargePaise = Math.max(M, ceilINRStep(safeTopPaise - safeOwnerPaise + G));
+    rawSuggestedPaise = ceilINRStep(safeTopPaise - safeOwnerPaise + G);
   }
 
-  const projectedTotalPaise = safeOwnerPaise + suggestedChargePaise;
+  // suggestedChargePaise is max(M, rawSuggestedPaise)
+  const suggestedChargePaise = Math.max(M, rawSuggestedPaise);
   const suggestedChargeINR = Math.round(suggestedChargePaise / 100);
+  const optionalSuggestedTopAmount = Math.max(minChargeAmount, Math.round(rawSuggestedPaise / 100));
+
+  const projectedTotalPaise = safeOwnerPaise + suggestedChargePaise;
 
   return {
     topPaise: safeTopPaise,
     ownerPaise: safeOwnerPaise,
+    minChargeAmount,
+    optionalSuggestedTopAmount,
     suggestedChargePaise,
     suggestedChargeINR,
     projectedTotalPaise,
@@ -147,9 +170,26 @@ export function validatePaymentAmount(
   }
 
   const strVal = String(amountInput ?? '').trim();
+
+  // Reject exponential notation (e.g. 1e6), hex (0x10), non-numeric characters, and invalid signs
+  if (!/^\d+(\.\d+)?$/.test(strVal)) {
+    const minMinor = cleanCurrency === 'INR' ? (effectiveFloorMinor ?? MIN_INR_PAISE) : (effectiveFloorMinor ?? MIN_USD_CENTS);
+    return {
+      isValid: false,
+      valid: false,
+      errorCode: 'INVALID_AMOUNT_FORMAT',
+      code: 'INVALID_AMOUNT_FORMAT',
+      errorMessage: 'Enter a valid decimal number without exponential or hexadecimal notation.',
+      error: 'Enter a valid decimal number without exponential or hexadecimal notation.',
+      currency: cleanCurrency,
+      amountMinor: 0,
+      minimumMinor: minMinor
+    };
+  }
+
   const numVal = Number(strVal);
 
-  if (!strVal || Number.isNaN(numVal) || !Number.isFinite(numVal) || numVal <= 0) {
+  if (!strVal || Number.isNaN(numVal) || !Number.isFinite(numVal) || numVal <= 0 || !Number.isSafeInteger(Math.round(numVal * 100))) {
     const minMinor = cleanCurrency === 'INR' ? (effectiveFloorMinor ?? MIN_INR_PAISE) : (effectiveFloorMinor ?? MIN_USD_CENTS);
     const msg = cleanCurrency === 'INR'
       ? 'Minimum sponsorship is ₹99. Enter ₹99 or more to continue.'
@@ -175,8 +215,8 @@ export function validatePaymentAmount(
         valid: false,
         errorCode: 'FRACTIONAL_AMOUNT_REJECTED',
         code: 'FRACTIONAL_AMOUNT_REJECTED',
-        errorMessage: 'INR sponsorship amounts must be whole rupees with no fractional paise.',
-        error: 'INR sponsorship amounts must be whole rupees with no fractional paise.',
+        errorMessage: 'INR sponsorship amounts must be whole integer INR amounts with no fractional paise.',
+        error: 'INR sponsorship amounts must be whole integer INR amounts with no fractional paise.',
         currency: 'INR',
         amountMinor: Math.round(numVal * 100),
         minimumMinor: effectiveFloorMinor ?? MIN_INR_PAISE
@@ -202,7 +242,7 @@ export function validatePaymentAmount(
       };
     }
 
-    if (amountPaise > 100000000) {
+    if (amountPaise > MAX_INR_PAISE) {
       return {
         isValid: false,
         valid: false,
@@ -261,14 +301,14 @@ export function validatePaymentAmount(
       };
     }
 
-    if (amountCents > 100000000) {
+    if (amountCents > MAX_USD_CENTS) {
       return {
         isValid: false,
         valid: false,
         errorCode: 'AMOUNT_ABOVE_MAXIMUM',
         code: 'AMOUNT_ABOVE_MAXIMUM',
-        errorMessage: 'Payment amount exceeds maximum limit of $1,000,000.',
-        error: 'Payment amount exceeds maximum limit of $1,000,000.',
+        errorMessage: 'Payment amount exceeds maximum limit of $12,000.',
+        error: 'Payment amount exceeds maximum limit of $12,000.',
         currency: 'USD',
         amountMinor: amountCents,
         minimumMinor: minCents
@@ -325,6 +365,7 @@ export function getPricingCapabilities(isUsdEnabled: boolean = false): PricingCa
     currency: 'INR',
     enabled: true,
     minMinorUnit: MIN_INR_PAISE,
+    maxMinorUnit: MAX_INR_PAISE,
     stepMinorUnit: INR_STEP_PAISE,
     displaySymbol: '₹',
     helperText: 'Minimum sponsorship: ₹99.',
@@ -335,6 +376,7 @@ export function getPricingCapabilities(isUsdEnabled: boolean = false): PricingCa
     currency: 'USD',
     enabled: isUsdEnabled,
     minMinorUnit: MIN_USD_CENTS,
+    maxMinorUnit: MAX_USD_CENTS,
     stepMinorUnit: 1, // 1 cent
     displaySymbol: '$',
     helperText: 'Minimum sponsorship: $5.00.',
@@ -345,11 +387,20 @@ export function getPricingCapabilities(isUsdEnabled: boolean = false): PricingCa
     pricingVersion: CURRENT_PRICING_VERSION,
     currentPricingVersion: CURRENT_PRICING_VERSION,
     baseCurrency: 'INR',
+    requiresQuote: true,
     businessMinimums: {
       INR_PAISE: MIN_INR_PAISE,
       USD_CENTS: MIN_USD_CENTS
     },
+    businessMaximums: {
+      INR_PAISE: MAX_INR_PAISE,
+      INR_RUPEES: MAX_INR_RUPEES,
+      USD_CENTS: MAX_USD_CENTS,
+      USD_DOLLARS: MAX_USD_DOLLARS
+    },
     rankStepPaise: INR_STEP_PAISE,
+    minINRAmount: 99,
+    minUSDAmount: 5.0,
     chargeCurrencies: [inrCap, usdCap],
     INR: inrCap,
     USD: usdCap

@@ -353,6 +353,28 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
   storePendingCheckout(checkoutRecord, sessionStorage);
 
   try {
+    // Obtain server-authoritative quote before order creation
+    let activeQuoteId: string | undefined;
+    try {
+      const quoteRes = await fetchFn('/api/payment/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: Math.round(input.amount),
+          currency: 'INR',
+          profileId: targetProfileId
+        })
+      });
+      if (quoteRes && quoteRes.ok) {
+        const quoteData = await quoteRes.json();
+        if (quoteData?.quoteId) {
+          activeQuoteId = quoteData.quoteId;
+        }
+      }
+    } catch {
+      // Mock/offline fallback
+    }
+
     const res = await fetchFn('/api/payment/create-order', {
       method: 'POST',
       headers: {
@@ -373,6 +395,7 @@ export async function submitClaimPayment(options: SubmitOrderOptions): Promise<S
         reason: input.reason,
         lazyReason: input.lazyReason,
         profileId: targetProfileId,
+        quoteId: activeQuoteId,
         ownerToken: isUpgrade ? storedToken : undefined,
         pendingOwnerToken: isUpgrade ? undefined : activeOwnerToken,
         orderAccessToken: activeOrderToken,

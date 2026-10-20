@@ -21,7 +21,8 @@ const suites: SuiteDef[] = [
   { name: 'Suite 13: Phase 8 Payment Reconciliation & Refunds', file: 'tests/phase8-payment-reconciliation-refunds.test.ts' },
   { name: 'Suite 14: Phase 9 Final Closure & Search Readiness', file: 'tests/phase9-final-closure.test.ts' },
   { name: 'Suite 15: Dodo Payments Integration', file: 'tests/dodo-payments.test.ts' },
-  { name: 'Suite 16: Phase 10 Recovery, Dual Pricing & Payment Integrity', file: 'tests/phase10-recovery-dual-pricing.test.ts' }
+  { name: 'Suite 16: Phase 10 Recovery, Dual Pricing & Payment Integrity', file: 'tests/phase10-recovery-dual-pricing.test.ts' },
+  { name: 'Suite 17: Phase 11 Final Directive Closure & Semantics', file: 'tests/phase11-directive-closure.test.ts' }
 ];
 
 console.log('\n========================================================');

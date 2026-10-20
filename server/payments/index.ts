@@ -148,19 +148,23 @@ export class PaymentManager {
       }
     }
 
-    // Checkout master kill-switch: if CHECKOUT_ENABLED=false, disable payments
+    // Checkout master switch: controls NEW orders only
     const checkoutEnabled = (process.env.CHECKOUT_ENABLED || 'true').toLowerCase().trim();
-    if (checkoutEnabled === 'false') {
-      this.mode = 'disabled';
-    }
+    this.checkoutEnabled = checkoutEnabled !== 'false';
   }
+
+  private checkoutEnabled: boolean = true;
 
   public getMode(): PaymentMode {
     return this.mode;
   }
 
   public isEnabled(): boolean {
-    return this.mode !== 'disabled';
+    return this.mode !== 'disabled' && this.checkoutEnabled;
+  }
+
+  public isCheckoutEnabled(): boolean {
+    return this.checkoutEnabled;
   }
 
   public isUsdEnabled(): boolean {
@@ -188,12 +192,93 @@ export class PaymentManager {
   }
 
   /**
+   * Checks if a NEW order may be initiated.
+   * Gated by checkoutEnabled, provider readiness, allowlist, and currency readiness.
+   */
+  public mayCreateNewOrder(providerName?: string, currency: string = 'INR'): boolean {
+    if (this.mode === 'disabled') return false;
+    if (!this.checkoutEnabled) return false;
+
+    const cur = currency.toUpperCase().trim();
+    if (cur === 'USD' && !this.usdEnabled) return false;
+
+    const prov = (providerName || this.providerName).toLowerCase().trim() as PaymentProviderType;
+    // Cashfree is retired from public new-order checkout in live / production
+    if (prov === 'cashfree' && (this.mode === 'live' || process.env.NODE_ENV === 'production')) {
+      return false;
+    }
+
+    // Enforce allowlist in live mode
+    if (this.mode === 'live' && !this.enabledProviders.includes(prov)) return false;
+
+    if (prov === 'cashfree') {
+      return this.mode === 'sandbox';
+    }
+    if (prov === 'razorpay') {
+      return this.mode === 'sandbox' || this.razorpayProvider.isLiveEnabled();
+    }
+    if (prov === 'dodo') {
+      return this.mode === 'sandbox' || this.dodoProvider.isConfigured();
+    }
+    return false;
+  }
+
+  /**
+   * Checks if an EXISTING order can be verified or polled.
+   * Does NOT depend on checkoutEnabled.
+   */
+  public mayVerifyExistingOrder(orderOrProviderName?: string | { provider?: string; [key: string]: any } | any): boolean {
+    const provName = typeof orderOrProviderName === 'string'
+      ? orderOrProviderName
+      : (orderOrProviderName && typeof orderOrProviderName === 'object' ? (orderOrProviderName as any).provider : undefined) || this.providerName;
+    const prov = (provName || this.providerName).toLowerCase().trim();
+    const isTest = process.env.NODE_ENV !== 'production' || this.mode === 'sandbox';
+    if (prov === 'dodo') return this.dodoProvider.isConfigured() || isTest;
+    if (prov === 'razorpay') return this.razorpayProvider.isConfigured() || isTest;
+    if (prov === 'cashfree') return this.cashfreeProvider.isConfigured() || isTest;
+    return true;
+  }
+
+  /**
+   * Checks if an incoming webhook can be processed for existing liabilities.
+   * Does NOT depend on checkoutEnabled.
+   */
+  public mayProcessWebhook(_providerName?: string): boolean {
+    return true;
+  }
+
+  /**
+   * Checks if existing payments/refunds can be reconciled.
+   * Does NOT depend on checkoutEnabled.
+   */
+  public mayReconcileExistingPayment(_orderOrProviderName?: string | { provider?: string; [key: string]: any } | any): boolean {
+    return true;
+  }
+
+  /**
+   * Checks if an authorized refund can be initiated on an existing order.
+   * Does NOT depend on checkoutEnabled.
+   */
+  public mayInitiateAuthorizedRefund(orderOrProviderName?: string | { provider?: string; [key: string]: any } | any): boolean {
+    const provName = typeof orderOrProviderName === 'string'
+      ? orderOrProviderName
+      : (orderOrProviderName && typeof orderOrProviderName === 'object' ? (orderOrProviderName as any).provider : undefined) || this.providerName;
+    const prov = (provName || this.providerName).toLowerCase().trim();
+    const isTest = process.env.NODE_ENV !== 'production' || this.mode === 'sandbox';
+    if (prov === 'dodo') return this.dodoProvider.isConfigured() || isTest;
+    if (prov === 'razorpay') return this.razorpayProvider.isConfigured() || isTest;
+    if (prov === 'cashfree') return this.cashfreeProvider.isConfigured() || isTest;
+    return false;
+  }
+
+  /**
    * Provider-aware lookup (Sticky Orders):
    * Strictly returns the designated provider instance for a specific order.
    * A provider switch never mutates or reroutes an existing order's reconciliation or refunds.
+   * Unknown providers fail explicitly and NEVER fall back to current primary!
    */
   public getProviderFor(providerName?: string): PaymentProvider {
-    const clean = (providerName || '').toLowerCase().trim();
+    const clean = (providerName || this.providerName || '').toLowerCase().trim();
     if (clean === 'dodo') {
       return this.dodoProvider;
     }
@@ -203,7 +288,7 @@ export class PaymentManager {
     if (clean === 'cashfree') {
       return this.cashfreeProvider;
     }
-    return this.provider;
+    throw new Error(`Unknown or unsupported payment provider "${providerName}". Cannot resolve provider for existing order.`);
   }
 
   /**
@@ -226,7 +311,7 @@ export class PaymentManager {
    */
   public getPublicConfig(): PublicPaymentConfig {
     return {
-      enabled: this.isEnabled(),
+      enabled: this.mayCreateNewOrder(this.providerName),
       mode: this.mode,
       provider: this.providerName,
       taxReady: true,

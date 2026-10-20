@@ -11,6 +11,7 @@ import {
   toSafePaise
 } from './provider.ts';
 import { MIN_INR_PAISE } from './pricingPolicy.ts';
+import { db } from '../db.ts';
 
 function sanitizeLog(val: unknown): string {
   if (val === null || val === undefined) return '';
@@ -149,50 +150,84 @@ export class RazorpayProvider implements PaymentProvider {
    * Verify client checkout signature:
    * HMAC-SHA256(order_id + "|" + payment_id, secret)
    */
-  public verifyCheckoutSignature(params: {
-    razorpayOrderId: string;
-    razorpayPaymentId: string;
-    razorpaySignature: string;
-  }): boolean {
-    if (!params.razorpayOrderId || !params.razorpayPaymentId || !params.razorpaySignature) {
+  public verifyCheckoutSignature(
+    paramsOrOrderId: string | {
+      razorpayOrderId: string;
+      razorpayPaymentId: string;
+      razorpaySignature: string;
+      secret?: string;
+    },
+    paymentIdParam?: string,
+    signatureParam?: string,
+    secretParam?: string
+  ): boolean {
+    let orderId: string;
+    let paymentId: string;
+    let signature: string;
+    let customSecret: string | undefined;
+
+    if (typeof paramsOrOrderId === 'object' && paramsOrOrderId !== null) {
+      orderId = paramsOrOrderId.razorpayOrderId;
+      paymentId = paramsOrOrderId.razorpayPaymentId;
+      signature = paramsOrOrderId.razorpaySignature;
+      customSecret = paramsOrOrderId.secret;
+    } else {
+      orderId = paramsOrOrderId as string;
+      paymentId = paymentIdParam || '';
+      signature = signatureParam || '';
+      customSecret = secretParam;
+    }
+
+    if (!orderId || !paymentId || !signature) {
       return false;
     }
 
-    const secret = this.keySecret || (this.isSandbox ? 'mock_secret' : '');
+    const secret = customSecret || this.keySecret || (this.isSandbox ? 'mock_secret' : '');
     if (!secret) return false;
 
-    const payload = `${params.razorpayOrderId}|${params.razorpayPaymentId}`;
+    const payload = `${orderId}|${paymentId}`;
     const expectedSignature = crypto
       .createHmac('sha256', secret)
       .update(payload)
       .digest('hex');
 
-    return timingSafeEqualStr(expectedSignature, params.razorpaySignature);
+    return timingSafeEqualStr(expectedSignature, signature);
   }
 
   /**
    * Check payment status directly with Razorpay API
    */
-  public async getPaymentStatus(paymentId: string): Promise<ProviderPaymentStatus> {
+  public async getPaymentStatus(orderIdOrPaymentId: string): Promise<ProviderPaymentStatus> {
     if (this.isSandbox && !this.isConfigured()) {
-      const mock = this.mockPayments.get(paymentId);
+      const mock = this.mockPayments.get(orderIdOrPaymentId);
       if (mock) {
         return {
           orderId: mock.orderId || '',
-          providerPaymentId: paymentId,
+          providerPaymentId: orderIdOrPaymentId,
           status: mock.status === 'captured' ? 'PAID' : 'PENDING',
           amount: mock.amount / 100,
           currency: mock.currency || 'INR',
           raw: mock
         };
       }
+      const mockOrder = this.mockOrders.get(orderIdOrPaymentId);
+      if (mockOrder) {
+        return {
+          orderId: mockOrder.receipt || orderIdOrPaymentId,
+          providerPaymentId: undefined,
+          status: mockOrder.status === 'paid' ? 'PAID' : 'PENDING',
+          amount: mockOrder.amount / 100,
+          currency: mockOrder.currency || 'INR',
+          raw: mockOrder
+        };
+      }
+      // Unknown mock payment ID must never fabricate a PAID status
       return {
-        orderId: '',
-        providerPaymentId: paymentId,
-        status: 'PAID',
-        amount: 1001,
-        currency: 'INR',
-        raw: { id: paymentId, status: 'captured' }
+        orderId: orderIdOrPaymentId,
+        providerPaymentId: undefined,
+        status: 'PENDING',
+        amount: undefined,
+        currency: 'INR'
       };
     }
 
@@ -201,6 +236,39 @@ export class RazorpayProvider implements PaymentProvider {
     }
 
     const authHeader = 'Basic ' + Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64');
+    let paymentId = orderIdOrPaymentId;
+
+    // If identifier is not a payment ID (e.g. razorpay order_ or local order_), look up payments
+    if (!orderIdOrPaymentId.startsWith('pay_')) {
+      // Check if order exists in local DB to resolve payment reference
+      try {
+        const localOrder = await db.getOrderAsync(orderIdOrPaymentId);
+        if (localOrder?.paymentRef?.startsWith('pay_')) {
+          paymentId = localOrder.paymentRef;
+        } else if (localOrder?.providerOrderId?.startsWith('order_')) {
+          const rzpOrderPaymentsRes = await fetch(
+            `https://api.razorpay.com/v1/orders/${encodeURIComponent(localOrder.providerOrderId)}/payments`,
+            { headers: { Authorization: authHeader } }
+          );
+          if (rzpOrderPaymentsRes.ok) {
+            const pList = await rzpOrderPaymentsRes.json();
+            if (Array.isArray(pList?.items) && pList.items.length > 0) {
+              const latestCaptured = pList.items.find((p: any) => p.status === 'captured') || pList.items[0];
+              paymentId = latestCaptured.id;
+            }
+          }
+        }
+      } catch {}
+    }
+
+    if (!paymentId.startsWith('pay_')) {
+      return {
+        orderId: orderIdOrPaymentId,
+        status: 'PENDING',
+        currency: 'INR'
+      };
+    }
+
     const response = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}`, {
       method: 'GET',
       headers: { Authorization: authHeader }
@@ -297,6 +365,7 @@ export class RazorpayProvider implements PaymentProvider {
       const mockRefundId = `rfnd_rzp_mock_${Date.now()}`;
       this.mockRefunds.set(params.refundId, {
         id: mockRefundId,
+        orderId: params.orderId,
         amount: amountPaise,
         status: 'processed'
       });
@@ -313,13 +382,78 @@ export class RazorpayProvider implements PaymentProvider {
       throw new Error('Razorpay credentials not configured for refunds.');
     }
 
-    // Razorpay refunds require the payment_id
-    // This is handled via the payments/{paymentId}/refunds endpoint
-    // We assume the caller or caller's lookup passes or stores paymentId
-    throw new Error('Direct Razorpay refund requires confirmed provider_payment_id.');
+    // Resolve provider payment ID from database order record
+    const order = await db.getOrderAsync(params.orderId);
+    const paymentId = order?.paymentRef || (order as any)?.providerPaymentId;
+    if (!paymentId) {
+      throw new Error(`Direct Razorpay refund requires confirmed provider_payment_id for order ${params.orderId}.`);
+    }
+
+    const authHeader = 'Basic ' + Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64');
+    try {
+      const response = await fetch(`https://api.razorpay.com/v1/payments/${encodeURIComponent(paymentId)}/refund`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: authHeader
+        },
+        body: JSON.stringify({
+          amount: amountPaise,
+          notes: {
+            merchant_refund_id: params.refundId,
+            order_id: params.orderId,
+            reason: params.reason
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        const errDesc = err?.error?.description || `Razorpay refund failed: ${response.status}`;
+        console.error('[Razorpay] createRefund failed:', sanitizeLog(err));
+        return {
+          success: false,
+          refundId: params.refundId,
+          status: 'FAILED',
+          error: errDesc
+        };
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        refundId: params.refundId,
+        providerRefundId: data.id,
+        status: data.status === 'processed' ? 'SUCCESS' : 'PENDING',
+        raw: data
+      };
+    } catch (netErr: any) {
+      console.error('[Razorpay] createRefund network error:', sanitizeLog(netErr?.message || netErr));
+      return {
+        success: false,
+        refundId: params.refundId,
+        status: 'UNKNOWN',
+        error: netErr?.message || 'Razorpay refund network failure.'
+      };
+    }
   }
 
   public async getRefundStatus(orderId: string, merchantRefundId: string): Promise<ProviderRefundStatus> {
+    if (this.isSandbox && !this.isConfigured()) {
+      const mock = this.mockRefunds.get(merchantRefundId);
+      if (mock) {
+        return {
+          orderId,
+          merchantRefundId,
+          providerRefundId: mock.id,
+          status: mock.status === 'processed' ? 'SUCCESS' : 'PENDING',
+          amount: mock.amount / 100,
+          currency: 'INR',
+          raw: mock
+        };
+      }
+    }
+
     return {
       orderId,
       merchantRefundId,

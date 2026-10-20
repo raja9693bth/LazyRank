@@ -4,6 +4,39 @@ import path from 'path';
 
 const { Pool } = pg;
 
+export function sanitizeDbUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    if (u.password) {
+      u.password = '***';
+    }
+    return u.toString();
+  } catch {
+    return '[REDACTED_URL]';
+  }
+}
+
+export function toDirectNeonConnection(connectionString: string): string {
+  // Convert Neon PgBouncer pooled connection (-pooler) to Direct connection for session-level advisory locks
+  return connectionString.replace(/-pooler(\.[a-z0-9-]+\.aws\.neon\.tech)/i, '$1');
+}
+
+export function validateTargetIdentity(connectionString: string): void {
+  const lower = connectionString.toLowerCase();
+  // Strictly prevent touching original production Neon database
+  if (lower.includes('blue-scene-95532114') || lower.includes('ep-weathered-morning-b3diympj')) {
+    throw new Error('FATAL SAFETY VIOLATION: Refusing to run migrations against original production database (blue-scene-95532114)!');
+  }
+
+  const isLocal = connectionString.includes('127.0.0.1') || connectionString.includes('localhost');
+  if (!isLocal) {
+    // For remote executions, ensure target is explicitly the authorized recovery database
+    if (!lower.includes('floral-shadow-37352516') && !lower.includes('late-wildflower') && !lower.includes('b36r48du')) {
+      throw new Error('FATAL SAFETY VIOLATION: Remote database must match authorized recovery database (floral-shadow-37352516)!');
+    }
+  }
+}
+
 interface PreflightSummary {
   postgresVersion: string;
   currentDatabase: string;
@@ -20,15 +53,12 @@ interface PreflightSummary {
 }
 
 export async function runRecoveryDatabasePreflight(connectionString: string): Promise<PreflightSummary> {
-  // Safety guard against production project blue-scene-95532114
-  const lower = connectionString.toLowerCase();
-  if (lower.includes('blue-scene-95532114') || lower.includes('ep-weathered-morning-b3diympj')) {
-    throw new Error('FATAL SAFETY VIOLATION: Refusing to run migrations against original production database (blue-scene-95532114)!');
-  }
+  validateTargetIdentity(connectionString);
 
-  const isLocal = connectionString.includes('127.0.0.1') || connectionString.includes('localhost');
+  const directUrl = toDirectNeonConnection(connectionString);
+  const isLocal = directUrl.includes('127.0.0.1') || directUrl.includes('localhost');
   const pool = new Pool({
-    connectionString,
+    connectionString: directUrl,
     ssl: isLocal ? undefined : { rejectUnauthorized: true },
     connectionTimeoutMillis: 20000,
   });
@@ -62,7 +92,7 @@ export async function runRecoveryDatabasePreflight(connectionString: string): Pr
     const ordersCount = await countRows('payment_orders');
     const ledgerCount = await countRows('rank_ledger');
     const quotesCount = await countRows('payment_quotes');
-    const refundsCount = await countRows('refund_reservations');
+    const refundsCount = await countRows('refund_reversals');
     const outboxCount = await countRows('operational_outbox');
 
     return {
@@ -90,15 +120,12 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
   alreadyApplied: string[];
   finalMigrations: string[];
 }> {
-  // Safety guard against production project blue-scene-95532114
-  const lower = connectionString.toLowerCase();
-  if (lower.includes('blue-scene-95532114') || lower.includes('ep-weathered-morning-b3diympj')) {
-    throw new Error('FATAL SAFETY VIOLATION: Refusing to run migrations against original production database (blue-scene-95532114)!');
-  }
+  validateTargetIdentity(connectionString);
 
-  const isLocal = connectionString.includes('127.0.0.1') || connectionString.includes('localhost');
+  const directUrl = toDirectNeonConnection(connectionString);
+  const isLocal = directUrl.includes('127.0.0.1') || directUrl.includes('localhost');
   const pool = new Pool({
-    connectionString,
+    connectionString: directUrl,
     ssl: isLocal ? undefined : { rejectUnauthorized: true },
     connectionTimeoutMillis: 20000,
   });
@@ -108,7 +135,7 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
   const alreadyApplied: string[] = [];
 
   try {
-    // Acquire PostgreSQL advisory lock to serialize execution
+    // Acquire PostgreSQL advisory lock to serialize execution (requires session / direct connection)
     await client.query('SELECT pg_advisory_lock(84729104);');
 
     // 1. Ensure schema_migrations exists
@@ -154,10 +181,16 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
 
       const sql = fs.readFileSync(filePath, 'utf8');
 
-      // Execute migration inside a transaction
+      // Strip top-level transaction boundary commands (BEGIN; / COMMIT;) from migration SQL if present,
+      // so the runner maintains atomic transaction control together with schema_migrations recording.
+      const cleanSql = sql
+        .replace(/^\s*BEGIN\s*;\s*$/gim, '-- [runner] omitted BEGIN;')
+        .replace(/^\s*COMMIT\s*;\s*$/gim, '-- [runner] omitted COMMIT;');
+
+      // Execute migration inside an atomic transaction
       await client.query('BEGIN');
       try {
-        await client.query(sql);
+        await client.query(cleanSql);
         // Ensure migration is recorded
         await client.query(
           `INSERT INTO schema_migrations (version, applied_at, description)
@@ -190,45 +223,47 @@ export async function runRecoveryMigrations(connectionString: string): Promise<{
   }
 }
 
-// Standalone execution when run directly
-if (process.argv[1]?.endsWith('migrate-recovery-db.ts')) {
+async function main(): Promise<void> {
   const targetUrl = process.env.RECOVERY_DATABASE_URL || process.env.DATABASE_URL;
   if (!targetUrl) {
     console.error('ERROR: Neither RECOVERY_DATABASE_URL nor DATABASE_URL is set in environment.');
     process.exit(1);
   }
 
-  (async () => {
-    try {
-      console.log('=== RUNNING DATABASE PREFLIGHT ===');
-      const preflight = await runRecoveryDatabasePreflight(targetUrl);
-      console.log('Preflight Summary:', {
-        database: preflight.currentDatabase,
-        tablesCount: preflight.tablesCount,
-        appliedMigrations: preflight.appliedMigrations,
-        profilesCount: preflight.profilesCount,
-        ordersCount: preflight.ordersCount
-      });
+  console.log('=== RUNNING DATABASE PREFLIGHT ===');
+  console.log('Target database:', sanitizeDbUrl(targetUrl));
+  const preflight = await runRecoveryDatabasePreflight(targetUrl);
+  console.log('Preflight Summary:', {
+    database: preflight.currentDatabase,
+    tablesCount: preflight.tablesCount,
+    appliedMigrations: preflight.appliedMigrations,
+    profilesCount: preflight.profilesCount,
+    ordersCount: preflight.ordersCount,
+    refundsCount: preflight.refundsCount
+  });
 
-      console.log('\n=== EXECUTING MIGRATIONS 002-011 ===');
-      const result = await runRecoveryMigrations(targetUrl);
-      console.log('Migration Result:', result);
+  console.log('\n=== EXECUTING MIGRATIONS 002-011 ===');
+  const result = await runRecoveryMigrations(targetUrl);
+  console.log('Migration Result:', result);
 
-      console.log('\n=== VERIFYING IDEMPOTENCY ===');
-      const idempotencyResult = await runRecoveryMigrations(targetUrl);
-      console.log('Idempotency Check:', {
-        newlyApplied: idempotencyResult.applied.length,
-        alreadyApplied: idempotencyResult.alreadyApplied.length
-      });
+  console.log('\n=== VERIFYING IDEMPOTENCY ===');
+  const idempotencyResult = await runRecoveryMigrations(targetUrl);
+  console.log('Idempotency Check:', {
+    newlyApplied: idempotencyResult.applied.length,
+    alreadyApplied: idempotencyResult.alreadyApplied.length
+  });
 
-      if (idempotencyResult.applied.length === 0 && idempotencyResult.finalMigrations.length >= 10) {
-        console.log('SUCCESS: All migrations verified and idempotent.');
-      } else {
-        console.error('WARNING: Idempotency check did not match expected count.');
-      }
-    } catch (e: any) {
-      console.error('Migration failed:', e.message);
-      process.exit(1);
-    }
-  })();
+  if (idempotencyResult.applied.length === 0 && idempotencyResult.finalMigrations.length >= 10) {
+    console.log('SUCCESS: All migrations verified and idempotent.');
+  } else {
+    console.error('WARNING: Idempotency check did not match expected count.');
+  }
+}
+
+// Standalone execution when run directly
+if (process.argv[1]?.endsWith('migrate-recovery-db.ts')) {
+  main().catch((e: any) => {
+    console.error('Migration failed:', e?.message || e);
+    process.exit(1);
+  });
 }

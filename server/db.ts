@@ -1527,7 +1527,25 @@ export class LazyDatabase {
     if (this.isPostgresAuthoritative()) {
       return this.pg.createPaymentQuote(params);
     }
-    const q = { ...params, id: `pq_${Date.now()}`, createdAt: new Date().toISOString() };
+    const amountMinor = params.amountMinor !== undefined
+      ? Number(params.amountMinor)
+      : (params as any).chargeAmountMinor !== undefined
+        ? Number((params as any).chargeAmountMinor)
+        : undefined;
+    const rankCreditPaise = params.rankCreditPaise !== undefined
+      ? Number(params.rankCreditPaise)
+      : (params as any).canonicalRankCreditPaise !== undefined
+        ? Number((params as any).canonicalRankCreditPaise)
+        : amountMinor;
+    const quoteSnapshot = params.quoteSnapshot || (params as any).snapshot || {};
+    const q = {
+      ...params,
+      amountMinor,
+      rankCreditPaise,
+      quoteSnapshot,
+      id: `pq_${Date.now()}`,
+      createdAt: new Date().toISOString()
+    };
     this.memoryQuotes.set(params.quoteId, q);
     return q;
   }
@@ -1537,6 +1555,40 @@ export class LazyDatabase {
       return this.pg.getPaymentQuote(quoteId);
     }
     return this.memoryQuotes.get(quoteId) || null;
+  }
+
+  public async createOrderWithQuoteAtomicAsync(
+    order: any,
+    quoteParams?: {
+      quoteId?: string;
+      authHash?: string;
+      currency?: string;
+      amountMinor?: number;
+    }
+  ): Promise<{ success: boolean; error?: string; order?: any; quote?: any }> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.createOrderWithQuoteAtomic(order, quoteParams);
+    }
+    let boundQuote: any | undefined;
+    if (quoteParams?.quoteId) {
+      const q = this.memoryQuotes.get(quoteParams.quoteId);
+      if (!q) return { success: false, error: 'QUOTE_NOT_FOUND' };
+      if (q.consumedAt) return { success: false, error: 'QUOTE_ALREADY_CONSUMED' };
+      if (new Date(q.expiresAt).getTime() <= Date.now()) return { success: false, error: 'QUOTE_EXPIRED' };
+      if (quoteParams.currency && q.currency !== quoteParams.currency) return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+      const qAmountMinor = Number(q.amountMinor !== undefined ? q.amountMinor : q.chargeAmountMinor);
+      if (quoteParams.amountMinor !== undefined && qAmountMinor !== quoteParams.amountMinor) return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+      const expectedPurpose = order.profileId ? 'upgrade' : 'new';
+      if (q.purpose && q.purpose !== expectedPurpose) return { success: false, error: 'QUOTE_PURPOSE_MISMATCH' };
+      if (order.profileId && q.profileId && q.profileId !== order.profileId) return { success: false, error: 'QUOTE_PROFILE_MISMATCH' };
+      if (quoteParams.authHash && q.authHash && q.authHash !== quoteParams.authHash) return { success: false, error: 'QUOTE_AUTH_MISMATCH' };
+      q.consumedAt = new Date().toISOString();
+      q.consumedByOrderId = order.orderId;
+      boundQuote = q;
+    }
+    await this.createOrder(order);
+    const created = await this.getOrderAsync(order.orderId);
+    return { success: true, order: created, quote: boundQuote };
   }
 
   public async consumePaymentQuoteAtomicAsync(

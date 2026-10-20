@@ -137,11 +137,6 @@ export class DodoPaymentsProvider implements PaymentProvider {
       if (cleanCurrency === 'INR' && amountMinor === MIN_INR_PAISE) {
         return this.configuredProductId;
       }
-      if (cleanCurrency !== 'INR') {
-        // Do not reuse INR product for USD!
-      } else {
-        // Fall through to resolve/create dynamic fixed-price product for this distinct amount
-      }
     }
 
     const cacheKey = `${cleanCurrency}:${amountMinor}`;
@@ -173,7 +168,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
 
     // 3. Coordinate within this process to avoid duplicate concurrent API calls
     const inFlight = this.inFlightCreations.get(cacheKey);
-    if (inFlight) {
+    if (inFlight !== undefined) {
       return await inFlight;
     }
 
@@ -687,18 +682,27 @@ export class DodoPaymentsProvider implements PaymentProvider {
         }
       };
 
-      if (isPartial) {
-        if (!lineItemId) {
-          throw new Error('Partial refund requires verified line item ID.');
-        }
-        refundBody.items = [
-          {
-            item_id: lineItemId,
-            amount: refundPaise,
-            tax_inclusive: true
-          }
-        ];
+    const orderCurrency = (order?.chargeCurrency || order?.currency || paymentDetails?.currency || 'INR').toUpperCase();
+
+    if (isPartial) {
+      // Directive Item 4: Dodo Payments item-level partial-refund amount is documented in USD cents.
+      // For INR purchases, converting INR paise to USD cents or sending paise as USD cents is unsafe.
+      // If exact INR partial refund semantics cannot be demonstrated without currency unit discrepancy,
+      // automated INR partial refund initiation is disabled and requires operator handling.
+      if (orderCurrency === 'INR') {
+        throw new Error(`AUTOMATED_INR_PARTIAL_REFUND_REQUIRES_OPERATOR_REVIEW: Dodo Payments item-level partial refund amount requires USD cents. Automated partial refunds for INR orders are disabled to prevent currency unit discrepancy. Operator review required for order ${params.orderId}.`);
       }
+      if (!lineItemId) {
+        throw new Error('Partial refund requires verified line item ID.');
+      }
+      refundBody.items = [
+        {
+          item_id: lineItemId,
+          amount: Math.round(params.amount * 100), // In USD cents for USD currency
+          tax_inclusive: true
+        }
+      ];
+    }
 
       const refund = await this.client.refunds.create(
         refundBody,

@@ -133,26 +133,48 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   const getExpectedRank = (val: number): number => {
     const projectedCumulative = (upgradingProfile ? upgradingProfile.amount : 0) + val;
     let rank = 1;
+
     for (const p of profiles) {
+      // 1. Exclude upgrading owner's own profile
       if (upgradingProfile && p.id === upgradingProfile.id) {
         continue;
       }
+
+      // 2. Higher cumulative amount: count competitor exactly once
       if (p.amount > projectedCumulative) {
         rank++;
-        // Equal amount tie break: earlier first_verified_at wins
-        const ownerClaimed = upgradingProfile ? (upgradingProfile.firstVerifiedAt || upgradingProfile.createdAt) : null;
+        continue;
+      }
+
+      // 3. Lower cumulative amount: do not count
+      if (p.amount < projectedCumulative) {
+        continue;
+      }
+
+      // 4. Equal cumulative amount (p.amount === projectedCumulative):
+      // Break ties deterministically: earlier first_verified_at ASC, then stable profile id ASC
+      if (upgradingProfile) {
+        const ownerClaimed = upgradingProfile.firstVerifiedAt || upgradingProfile.createdAt;
         const compClaimed = p.firstVerifiedAt || p.createdAt;
-        if (ownerClaimed) {
-          const ownerTime = new Date(ownerClaimed).getTime();
-          const compTime = compClaimed ? new Date(compClaimed).getTime() : Infinity;
-          if (compTime < ownerTime) {
+        const ownerTime = ownerClaimed ? new Date(ownerClaimed).getTime() : Infinity;
+        const compTime = compClaimed ? new Date(compClaimed).getTime() : Infinity;
+
+        if (compTime < ownerTime) {
+          rank++;
+        } else if (compTime === ownerTime) {
+          // Final tie: stable deterministic identifier
+          if (p.id < upgradingProfile.id) {
             rank++;
           }
-        } else {
-          rank++;
         }
+      } else {
+        // New claimant has not verified yet (settlement is in the future).
+        // Any already-verified competitor with equal cumulative amount verified earlier,
+        // so the competitor ranks ahead.
+        rank++;
       }
     }
+
     return rank;
   };
 
@@ -422,7 +444,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
             }`}>
               <span>Estimated Rank with ₹{numericAmount.toLocaleString('en-IN')}:</span>
               <span className="font-extrabold font-mono-numbers text-stone-900">
-                {willTakeTop ? '🔥 #1 Rank (New Leader!)' : `#${expectedRank}`}
+                {willTakeTop ? '🔥 #1 Rank (New Leader!)' : `#${expectedRank}${profiles.length >= 60 ? ' (Est.)' : ''}`}
               </span>
             </div>
           </div>

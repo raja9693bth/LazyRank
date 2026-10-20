@@ -24,7 +24,7 @@ function isValidCheckoutUrl(urlStr: string): boolean {
 
 let razorpayScriptPromise: Promise<void> | null = null;
 function loadRazorpayScript(): Promise<void> {
-  if (razorpayScriptPromise) return razorpayScriptPromise;
+  if (razorpayScriptPromise !== null) return razorpayScriptPromise;
   razorpayScriptPromise = new Promise((resolve, reject) => {
     if (typeof window === 'undefined') return resolve();
     if ((window as any).Razorpay) return resolve();
@@ -195,7 +195,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       }
     };
 
-    poll();
+    void poll();
   };
 
   const handleSuccess = async (profile: UserProfile, _ownerToken: string | undefined, orderId: string) => {

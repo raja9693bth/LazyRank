@@ -231,19 +231,38 @@ async function runPhase10Tests() {
   };
   (dodoRefundProvider as any).orderPayments.set('ord_dodo_refund_test', 'pay_dodo_item_001');
 
-  await dodoRefundProvider.createRefund({
+  // 6A. Verify INR partial refund safely rejects automated initiation to require operator handling
+  const inrRefundRes = await dodoRefundProvider.createRefund({
     orderId: 'ord_dodo_refund_test',
     refundId: 'ref_local_merch_001',
     amount: 500,
     reason: 'Customer requested partial refund'
   });
+  assert.strictEqual(inrRefundRes.success, false, 'INR partial refund returns failure');
+  assert.ok(inrRefundRes.error?.includes('AUTOMATED_INR_PARTIAL_REFUND_REQUIRES_OPERATOR_REVIEW'), 'INR partial refund safely halts automated initiation and requires operator review');
 
-  assert.ok(capturedRefundPayload !== null, 'createRefund called Dodo refunds.create');
-  assert.strictEqual(capturedRefundPayload.payment_id, 'pay_dodo_item_001');
+  // 6B. Verify USD partial refund sends verified USD cents
+  (dodoRefundProvider as any).client.payments.retrieve = async () => ({
+    payment_id: 'pay_dodo_item_usd_001',
+    total_amount: 100000,
+    currency: 'USD',
+    items: [{ item_id: 'item_dodo_line_001', amount: 100000 }]
+  });
+  (dodoRefundProvider as any).orderPayments.set('ord_dodo_refund_usd', 'pay_dodo_item_usd_001');
+
+  await dodoRefundProvider.createRefund({
+    orderId: 'ord_dodo_refund_usd',
+    refundId: 'ref_local_merch_usd_001',
+    amount: 500,
+    reason: 'Customer requested USD partial refund'
+  });
+
+  assert.ok(capturedRefundPayload !== null, 'createRefund called Dodo refunds.create for USD partial refund');
+  assert.strictEqual(capturedRefundPayload.payment_id, 'pay_dodo_item_usd_001');
   assert.ok(Array.isArray(capturedRefundPayload.items), 'Partial refund sends items array');
   assert.strictEqual(capturedRefundPayload.items[0].item_id, 'item_dodo_line_001');
-  assert.strictEqual(capturedRefundPayload.items[0].amount, 50000, 'Partial refund line item amount is exact 50,000 paise');
-  pass('Invariant 9: Dodo partial refund sends supported SDK line items with exact minor units');
+  assert.strictEqual(capturedRefundPayload.items[0].amount, 50000, 'USD partial refund line item amount is exact 50,000 USD cents');
+  pass('Invariant 9: Dodo partial refund enforces INR operator review and sends verified USD cents for USD');
 
   // ------------------------------------------------------------------------
   // 7. Invariant 11 & 24: Sticky Order Provider Routing

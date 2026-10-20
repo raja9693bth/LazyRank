@@ -4,18 +4,6 @@ import path from 'path';
 
 const { Pool } = pg;
 
-export function sanitizeDbUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    if (u.password) {
-      u.password = '***';
-    }
-    return u.toString();
-  } catch {
-    return '[REDACTED_URL]';
-  }
-}
-
 export function toDirectNeonConnection(connectionString: string): string {
   // Convert Neon PgBouncer pooled connection (-pooler) to Direct connection for session-level advisory locks
   return connectionString.replace(/-pooler(\.[a-z0-9-]+\.aws\.neon\.tech)/i, '$1');
@@ -231,7 +219,6 @@ async function main(): Promise<void> {
   }
 
   console.log('=== RUNNING DATABASE PREFLIGHT ===');
-  console.log('Target database:', sanitizeDbUrl(targetUrl));
   const preflight = await runRecoveryDatabasePreflight(targetUrl);
   console.log('Preflight Summary:', {
     database: preflight.currentDatabase,

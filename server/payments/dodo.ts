@@ -154,7 +154,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
 
     // 2. Check L2 durable database (cross-process, restart, and replica safe)
     try {
-      const durableProductId = await db.getPaymentProductAsync(
+      const res = await db.getPaymentProductAsync(
         'dodo',
         cleanCurrency,
         amountMinor,
@@ -162,6 +162,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
         'primary',
         'v1'
       );
+      const durableProductId = res && typeof res === 'object' ? ((res as any).productId || (res as any).providerProductId) : (res ? String(res) : null);
       if (durableProductId) {
         this.productCache.set(cacheKey, durableProductId);
         return durableProductId;
@@ -183,7 +184,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
     const creationPromise = (async () => {
       // Re-check durable storage in case another worker created it concurrently
       try {
-        const doubleCheck = await db.getPaymentProductAsync(
+        const checkRes = await db.getPaymentProductAsync(
           'dodo',
           cleanCurrency,
           amountMinor,
@@ -191,6 +192,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
           'primary',
           'v1'
         );
+        const doubleCheck = checkRes && typeof checkRes === 'object' ? ((checkRes as any).productId || (checkRes as any).providerProductId) : (checkRes ? String(checkRes) : null);
         if (doubleCheck) {
           this.productCache.set(cacheKey, doubleCheck);
           return doubleCheck;
@@ -216,7 +218,8 @@ export class DodoPaymentsProvider implements PaymentProvider {
             price: {
               type: 'one_time_price',
               currency: cleanCurrency as any,
-              price: amountMinor
+              price: amountMinor,
+              tax_inclusive: true
             }
           },
           {
@@ -250,7 +253,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
       } catch (err: any) {
         // Handle ambiguous API timeout or network retry by checking if product was recorded
         try {
-          const recovered = await db.getPaymentProductAsync(
+          const recRes = await db.getPaymentProductAsync(
             'dodo',
             cleanCurrency,
             amountMinor,
@@ -258,6 +261,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
             'primary',
             'v1'
           );
+          const recovered = recRes && typeof recRes === 'object' ? ((recRes as any).productId || (recRes as any).providerProductId) : (recRes ? String(recRes) : null);
           if (recovered) {
             this.productCache.set(cacheKey, recovered);
             return recovered;
@@ -300,8 +304,8 @@ export class DodoPaymentsProvider implements PaymentProvider {
     const currency = (params.currency || 'INR').toUpperCase().trim();
     const amountMinor = Math.round(params.amount * 100);
 
-    // Validate payment amount using authoritative business pricing policy
-    const validation = validatePaymentAmount(amountMinor, currency);
+    // Validate payment amount using authoritative business pricing policy (params.amount in major units)
+    const validation = validatePaymentAmount(params.amount, currency);
     if (!validation.isValid) {
       throw new Error(validation.errorMessage || 'Invalid payment amount.');
     }
@@ -461,6 +465,18 @@ export class DodoPaymentsProvider implements PaymentProvider {
     const totalAmountMinor = typeof payment?.total_amount === 'number' ? payment.total_amount : undefined;
     const providerPaymentId = payment?.payment_id || undefined;
     const paymentMethod = payment?.payment_method || payment?.payment_method_type || 'card';
+
+    // Verify order ID association if payment metadata exists
+    const metaOrderId = payment?.metadata?.order_id || payment?.metadata?.orderId;
+    if (metaOrderId && metaOrderId !== orderId) {
+      console.warn(`[Dodo] Order ID mismatch: expected ${sanitizeLog(orderId)}, payment metadata has ${sanitizeLog(metaOrderId)}`);
+      return {
+        orderId,
+        status: 'FAILED',
+        providerPaymentId,
+        raw: payment
+      };
+    }
 
     // Disallow settling as PAID if currency or amount or payment ID is missing
     if (rawStatus === 'succeeded') {
@@ -638,15 +654,26 @@ export class DodoPaymentsProvider implements PaymentProvider {
     let lineItemId: string | undefined;
     if (isPartial) {
       try {
-        const payment = paymentDetails || await this.client.payments.retrieve(paymentId);
-        if (payment && Array.isArray((payment as any).items) && (payment as any).items.length > 0) {
-          lineItemId = (payment as any).items[0].product_id || (payment as any).items[0].item_id;
+        if (typeof (this.client?.payments as any)?.retrieveLineItems === 'function') {
+          const lineItemsRes = await (this.client!.payments as any).retrieveLineItems(paymentId);
+          const items = Array.isArray(lineItemsRes) ? lineItemsRes : (lineItemsRes as any)?.items || [];
+          if (items.length > 0) {
+            lineItemId = items[0].product_id || items[0].item_id || items[0].id;
+          }
+        }
+        if (!lineItemId) {
+          const payment = paymentDetails || await this.client.payments.retrieve(paymentId);
+          if (payment && Array.isArray((payment as any).items) && (payment as any).items.length > 0) {
+            lineItemId = (payment as any).items[0].product_id || (payment as any).items[0].item_id || (payment as any).items[0].id;
+          }
         }
       } catch (pErr) {
         console.warn('[Dodo] Could not retrieve payment items for partial refund:', sanitizeLog(pErr));
       }
-      if (!lineItemId && orderAmount > 0) {
-        lineItemId = await this.resolveProductForAmount(orderAmount, order?.charge_currency || 'INR');
+
+      // Mandatory contract check: never guess product or create new product during refund!
+      if (!lineItemId) {
+        throw new Error(`Cannot initiate partial refund for order ${params.orderId}: original payment line items cannot be verified.`);
       }
     }
 
@@ -660,7 +687,10 @@ export class DodoPaymentsProvider implements PaymentProvider {
         }
       };
 
-      if (isPartial && lineItemId) {
+      if (isPartial) {
+        if (!lineItemId) {
+          throw new Error('Partial refund requires verified line item ID.');
+        }
         refundBody.items = [
           {
             item_id: lineItemId,
@@ -703,7 +733,7 @@ export class DodoPaymentsProvider implements PaymentProvider {
     } catch (err: any) {
       console.error('[Dodo] createRefund failed for %s: %s', sanitizeLog(params.orderId), sanitizeLog(err?.message || err));
       const msg = String(err?.message || err).toLowerCase();
-      const isDefinitiveFailure = msg.includes('400') || msg.includes('bad request') || msg.includes('unrefundable') || msg.includes('not refundable');
+      const isDefinitiveFailure = msg.includes('unrefundable') || msg.includes('not refundable') || msg.includes('already refunded');
 
       return {
         success: false,

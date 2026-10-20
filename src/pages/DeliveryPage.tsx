@@ -53,7 +53,7 @@ export const DeliveryPage: React.FC<DeliveryPageProps> = ({ onNavigate }) => {
           <div className="flex items-start gap-2.5 p-3 rounded-xl bg-zinc-50 border border-zinc-200">
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-[10px] font-bold text-white">2</span>
             <div>
-              <strong>Gateway Payment Processing:</strong> You are directed to a PCI-DSS compliant payment gateway (such as Cashfree) where you complete the transaction using UPI, net banking, debit/credit cards, or other supported payment methods.
+              <strong>Gateway Payment Processing:</strong> You are directed to a PCI-DSS compliant payment gateway (such as Dodo Payments or Razorpay) where you complete the transaction using UPI, net banking, debit/credit cards, or other supported payment methods.
             </div>
           </div>
           <div className="flex items-start gap-2.5 p-3 rounded-xl bg-zinc-50 border border-zinc-200">

@@ -331,6 +331,9 @@ interface DatabaseState {
       customerPhone?: string;
       customerEmail?: string;
       consentAccepted?: boolean;
+      provider?: string;
+      providerEnvironment?: string;
+      accountId?: string;
     };
   };
   analytics: AnalyticsSummary;
@@ -1486,15 +1489,17 @@ export class LazyDatabase {
     provider: string,
     currency: string,
     amountMinor: number | bigint,
-    environment: string = 'live_mode',
+    environment?: string,
     accountId: string = 'primary',
     pricingVersion: string = 'v1'
   ): Promise<string | null> {
+    const defaultEnv = (process.env.PAYMENT_MODE === 'live' || process.env.NODE_ENV === 'production') ? 'live_mode' : 'test_mode';
+    const env = environment || defaultEnv;
     if (this.isPostgresAuthoritative()) {
-      return this.pg.getPaymentProduct(provider, currency, amountMinor, environment, accountId, pricingVersion);
+      return this.pg.getPaymentProduct(provider, currency, amountMinor, env, accountId, pricingVersion);
     }
-    const key = `${provider}:${environment}:${accountId}:${currency}:${amountMinor}:${pricingVersion}`;
-    return this.memoryPaymentProducts.get(key) || this.memoryPaymentProducts.get(`${provider}:${currency}:${amountMinor}`) || null;
+    const key = `${provider}:${env}:${accountId}:${currency}:${amountMinor}:${pricingVersion}`;
+    return this.memoryPaymentProducts.get(key) || null;
   }
 
   public async savePaymentProductAsync(
@@ -1502,17 +1507,58 @@ export class LazyDatabase {
     currency: string,
     amountMinor: number | bigint,
     productId: string,
-    environment: string = 'live_mode',
+    environment?: string,
     accountId: string = 'primary',
     pricingVersion: string = 'v1'
   ): Promise<string> {
+    const defaultEnv = (process.env.PAYMENT_MODE === 'live' || process.env.NODE_ENV === 'production') ? 'live_mode' : 'test_mode';
+    const env = environment || defaultEnv;
     if (this.isPostgresAuthoritative()) {
-      return this.pg.savePaymentProduct(provider, currency, amountMinor, productId, environment, accountId, pricingVersion);
+      return this.pg.savePaymentProduct(provider, currency, amountMinor, productId, env, accountId, pricingVersion);
     }
-    const key = `${provider}:${environment}:${accountId}:${currency}:${amountMinor}:${pricingVersion}`;
+    const key = `${provider}:${env}:${accountId}:${currency}:${amountMinor}:${pricingVersion}`;
     this.memoryPaymentProducts.set(key, productId);
-    this.memoryPaymentProducts.set(`${provider}:${currency}:${amountMinor}`, productId);
     return productId;
+  }
+
+  private memoryQuotes: Map<string, any> = new Map();
+
+  public async createPaymentQuoteAsync(params: any): Promise<any> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.createPaymentQuote(params);
+    }
+    const q = { ...params, id: `pq_${Date.now()}`, createdAt: new Date().toISOString() };
+    this.memoryQuotes.set(params.quoteId, q);
+    return q;
+  }
+
+  public async getPaymentQuoteAsync(quoteId: string): Promise<any | null> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.getPaymentQuote(quoteId);
+    }
+    return this.memoryQuotes.get(quoteId) || null;
+  }
+
+  public async consumePaymentQuoteAtomicAsync(
+    quoteId: string,
+    orderId: string,
+    authHash?: string,
+    currency?: string,
+    amountMinor?: number
+  ): Promise<{ success: boolean; error?: string; quote?: any }> {
+    if (this.isPostgresAuthoritative()) {
+      return this.pg.consumePaymentQuoteAtomic(quoteId, orderId, authHash, currency, amountMinor);
+    }
+    const q = this.memoryQuotes.get(quoteId);
+    if (!q) return { success: false, error: 'QUOTE_NOT_FOUND' };
+    if (q.consumedAt) return { success: false, error: 'QUOTE_ALREADY_CONSUMED' };
+    if (new Date(q.expiresAt) <= new Date()) return { success: false, error: 'QUOTE_EXPIRED' };
+    if (currency && q.currency !== currency) return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+    if (amountMinor !== undefined && Number(q.amountMinor) !== amountMinor) return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+    if (q.authHash && authHash && q.authHash !== authHash) return { success: false, error: 'QUOTE_AUTH_MISMATCH' };
+    q.consumedAt = new Date().toISOString();
+    q.consumedByOrderId = orderId;
+    return { success: true, quote: q };
   }
 
   public async bindRefundProviderId(orderId: string, merchantRefundId: string, providerRefundId: string): Promise<boolean> {

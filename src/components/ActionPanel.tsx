@@ -53,7 +53,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
   taxReady = false
 }) => {
   const [amountStr, setAmountStr] = useState<string>(
-    initialAmount !== undefined ? String(initialAmount) : String(Math.max(99, minAmountToBeatTop))
+    initialAmount !== undefined ? String(initialAmount) : '99'
   );
   const [amountTouched, setAmountTouched] = useState<boolean>(false);
   const [amountError, setAmountError] = useState<string | null>(null);
@@ -81,7 +81,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
     if (isNaN(parsed) || parsed < 99) {
       return 'Minimum sponsorship is ₹99. Enter ₹99 or more to continue.';
     }
-    if (parsed > 10000000) {
+    if (parsed > 1000000) {
       return 'Amount exceeds maximum sponsorship limit.';
     }
     return null;
@@ -93,10 +93,10 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
 
   useEffect(() => {
     if (!amountTouched) {
-      const initial = initialAmount ?? minAmountToBeatTop;
+      const initial = initialAmount ?? 99;
       setAmountStr(String(Math.max(99, initial)));
     }
-  }, [initialAmount, minAmountToBeatTop, amountTouched]);
+  }, [initialAmount, amountTouched]);
 
   // Update name / category when prefilled from outside
   useEffect(() => {
@@ -129,22 +129,35 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
     }
   }, [upgradingProfile]);
 
-  // Compute expected rank based on verified amount
+  // Compute expected rank based on verified amount and existing profile balance
   const getExpectedRank = (val: number): number => {
-    if (val >= minAmountToBeatTop) return 1;
+    const projectedCumulative = (upgradingProfile ? upgradingProfile.amount : 0) + val;
     let rank = 1;
     for (const p of profiles) {
-      if (p.amount > val) {
+      if (upgradingProfile && p.id === upgradingProfile.id) {
+        continue;
+      }
+      if (p.amount > projectedCumulative) {
         rank++;
-      } else {
-        break;
+        // Equal amount tie break: earlier first_verified_at wins
+        const ownerClaimed = upgradingProfile ? (upgradingProfile.firstVerifiedAt || upgradingProfile.createdAt) : null;
+        const compClaimed = p.firstVerifiedAt || p.createdAt;
+        if (ownerClaimed) {
+          const ownerTime = new Date(ownerClaimed).getTime();
+          const compTime = compClaimed ? new Date(compClaimed).getTime() : Infinity;
+          if (compTime < ownerTime) {
+            rank++;
+          }
+        } else {
+          rank++;
+        }
       }
     }
     return rank;
   };
 
   const expectedRank = numericAmount > 0 ? getExpectedRank(numericAmount) : profiles.length + 1;
-  const willTakeTop = numericAmount >= minAmountToBeatTop;
+  const willTakeTop = expectedRank === 1;
 
   const handleAdjustAmount = (delta: number) => {
     setAmountTouched(true);
@@ -326,7 +339,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                 Payment Amount (INR) <span className="text-[#b44b1c]">*</span>
               </label>
               <span className="text-[11px] font-semibold text-stone-500 font-mono-numbers">
-                Min to beat #1: <strong className="text-stone-900">₹{minAmountToBeatTop.toLocaleString('en-IN')}</strong>
+                Optional to reach #1: <strong className="text-stone-900">₹{minAmountToBeatTop.toLocaleString('en-IN')}</strong>
               </span>
             </div>
 
@@ -383,7 +396,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
 
             {/* Quick Chips */}
             <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-              {Array.from(new Set([minAmountToBeatTop, minAmountToBeatTop + 50, minAmountToBeatTop + 100, 500, 1000].filter(c => c >= 99))).sort((a, b) => a - b).map((chip) => (
+              {Array.from(new Set([99, minAmountToBeatTop, minAmountToBeatTop + 50, 500, 1000].filter(c => c >= 99))).sort((a, b) => a - b).map((chip) => (
                 <button
                   key={chip}
                   type="button"
@@ -435,7 +448,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
                   className="w-full rounded-xl border border-[#ede5db] bg-[#faf8f4] pl-11 pr-3 py-2 text-xs sm:text-sm font-semibold text-stone-900 font-mono-numbers placeholder:text-stone-400 focus:bg-white focus:border-stone-800 focus:outline-none transition-colors"
                 />
               </div>
-              <p className="text-[10px] text-stone-400 mt-0.5">Requires a 10-digit Indian mobile number for Cashfree processing</p>
+              <p className="text-[10px] text-stone-400 mt-0.5">Required for payment verification and receipt delivery</p>
             </div>
 
             <div>

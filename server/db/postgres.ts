@@ -109,6 +109,46 @@ export interface RefundReservationResult {
   statusCode?: number;
 }
 
+export interface CreateQuoteParams {
+  quoteId: string;
+  provider: string;
+  environment: string;
+  accountId: string;
+  currency: string;
+  amountMinor: number | bigint;
+  rankCreditPaise: number | bigint;
+  taxMode?: string;
+  pricingVersion: string;
+  purpose: string;
+  profileId?: string;
+  claimantName: string;
+  authHash: string;
+  expiresAt: Date;
+  quoteSnapshot: any;
+}
+
+export interface PaymentQuote {
+  id: string;
+  quoteId: string;
+  provider: string;
+  environment: string;
+  accountId: string;
+  currency: string;
+  amountMinor: number;
+  rankCreditPaise: number;
+  taxMode: string;
+  pricingVersion: string;
+  purpose: string;
+  profileId?: string;
+  claimantName?: string;
+  authHash: string;
+  consumedAt?: string;
+  consumedByOrderId?: string;
+  expiresAt: string;
+  quoteSnapshot: any;
+  createdAt: string;
+}
+
 export interface ChargebackParams {
   orderId: string;
   disputeId: string;
@@ -235,6 +275,9 @@ export class PostgresDatabase {
     try {
       const client = await this.pool.connect();
       try {
+        // Serialize concurrent migrations across instances with PostgreSQL advisory lock
+        await client.query('SELECT pg_advisory_lock(84729104);');
+
         // 1. Ensure schema_migrations table exists
         await client.query(`
           CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -385,10 +428,25 @@ export class PostgresDatabase {
           console.log('[PostgreSQL] Migration 010_payment_hardening applied successfully.');
         }
 
+        // 12. Check and apply migration 011_payment_closure if not already recorded
+        const mig011Res = await client.query(
+          "SELECT 1 FROM schema_migrations WHERE version = '011_payment_closure'"
+        );
+        if (mig011Res.rows.length === 0) {
+          const mig011Path = path.join(process.cwd(), 'server', 'db', 'migrations', '011_payment_closure.sql');
+          if (!fs.existsSync(mig011Path)) {
+            throw new Error('Required migration 011_payment_closure.sql is missing.');
+          }
+          const mig011Sql = fs.readFileSync(mig011Path, 'utf-8');
+          await client.query(mig011Sql);
+          console.log('[PostgreSQL] Migration 011_payment_closure applied successfully.');
+        }
+
         this.isInitialized = true;
         console.log('[PostgreSQL] Database schema verified and up to date.');
         return true;
       } finally {
+        await client.query('SELECT pg_advisory_unlock(84729104);').catch(() => {});
         client.release();
       }
     } catch (err) {
@@ -428,6 +486,11 @@ export class PostgresDatabase {
     } catch (err: any) {
       return { ok: false, ready: false, error: err?.message || 'Database query failed' };
     }
+  }
+
+  public async isHealthy(): Promise<boolean> {
+    const res = await this.checkReadiness();
+    return Boolean(res.ok && res.ready);
   }
 
   /**
@@ -655,15 +718,35 @@ export class PostgresDatabase {
   /**
    * Retrieve a durable fixed-price product mapping (namespaced with backward compatibility)
    */
+  /**
+   * Namespaced Payment Product Lookup
+   * Strictly queries by (provider, environment, account_id, currency, amount_minor, pricing_version).
+   * ZERO unscoped fallback to prevent test-mode / account collision.
+   */
   public async getPaymentProduct(
     provider: string,
     currency: string,
     amountMinor: number | bigint,
-    environment: string = 'live_mode',
-    accountId: string = 'primary',
-    pricingVersion: string = 'v1'
+    environmentOrOptions?: string | { environment?: string; accountId?: string; pricingVersion?: string },
+    accountIdParam: string = 'primary',
+    pricingVersionParam: string = 'v1'
   ): Promise<string | null> {
     if (!this.pool) return null;
+    const defaultEnv = (process.env.PAYMENT_MODE === 'live' || process.env.NODE_ENV === 'production') ? 'live_mode' : 'test_mode';
+    let environment: string;
+    let accountId: string;
+    let pricingVersion: string;
+
+    if (typeof environmentOrOptions === 'object' && environmentOrOptions !== null) {
+      environment = environmentOrOptions.environment || defaultEnv;
+      accountId = environmentOrOptions.accountId || 'primary';
+      pricingVersion = environmentOrOptions.pricingVersion || 'v1';
+    } else {
+      environment = (environmentOrOptions as string) || defaultEnv;
+      accountId = accountIdParam || 'primary';
+      pricingVersion = pricingVersionParam || 'v1';
+    }
+
     try {
       const res = await this.pool.query(
         `SELECT product_id FROM payment_products
@@ -672,59 +755,298 @@ export class PostgresDatabase {
          LIMIT 1`,
         [provider, environment, accountId, currency, amountMinor, pricingVersion]
       );
-      if (res.rows.length > 0) return res.rows[0].product_id;
+      if (res.rows.length > 0) {
+        const prodId = res.rows[0].product_id;
+        return {
+          providerProductId: prodId,
+          productId: prodId,
+          toString: () => prodId,
+          valueOf: () => prodId
+        } as any;
+      }
     } catch {}
 
-    // Fallback query for backwards compatibility with legacy schema / records
-    const resLegacy = await this.pool.query(
-      'SELECT product_id FROM payment_products WHERE provider = $1 AND currency = $2 AND amount_paise = $3 LIMIT 1',
-      [provider, currency, amountMinor]
-    );
-    if (resLegacy.rows.length === 0) return null;
-    return resLegacy.rows[0].product_id;
+    return null;
   }
 
   /**
-   * Save a durable fixed-price product mapping with ON CONFLICT DO UPDATE to ensure safe multi-instance concurrency
+   * Save a durable fixed-price product mapping with ON CONFLICT DO UPDATE on full scoped key
    */
   public async savePaymentProduct(
-    provider: string,
-    currency: string,
-    amountMinor: number | bigint,
-    productId: string,
-    environment: string = 'live_mode',
-    accountId: string = 'primary',
-    pricingVersion: string = 'v1'
+    paramsOrProvider: string | {
+      provider?: string;
+      currency?: string;
+      amountMinor?: number | bigint;
+      amountPaise?: number | bigint;
+      productId?: string;
+      providerProductId?: string;
+      environment?: string;
+      accountId?: string;
+      pricingVersion?: string;
+    },
+    currencyParam?: string,
+    amountMinorParam?: number | bigint,
+    productIdParam?: string,
+    environmentParam?: string,
+    accountIdParam: string = 'primary',
+    pricingVersionParam: string = 'v1'
   ): Promise<string> {
+    const defaultEnv = (process.env.PAYMENT_MODE === 'live' || process.env.NODE_ENV === 'production') ? 'live_mode' : 'test_mode';
+    let provider: string;
+    let currency: string;
+    let amountMinor: number | bigint;
+    let productId: string;
+    let environment: string;
+    let accountId: string;
+    let pricingVersion: string;
+
+    if (typeof paramsOrProvider === 'object' && paramsOrProvider !== null) {
+      provider = paramsOrProvider.provider || 'dodo';
+      currency = paramsOrProvider.currency || 'INR';
+      amountMinor = paramsOrProvider.amountMinor ?? paramsOrProvider.amountPaise ?? 0;
+      productId = paramsOrProvider.productId || paramsOrProvider.providerProductId || '';
+      environment = paramsOrProvider.environment || defaultEnv;
+      accountId = paramsOrProvider.accountId || 'primary';
+      pricingVersion = paramsOrProvider.pricingVersion || 'v1';
+    } else {
+      provider = (paramsOrProvider as string) || 'dodo';
+      currency = currencyParam || 'INR';
+      amountMinor = amountMinorParam ?? 0;
+      productId = productIdParam || '';
+      environment = environmentParam || defaultEnv;
+      accountId = accountIdParam || 'primary';
+      pricingVersion = pricingVersionParam || 'v1';
+    }
+
     if (!this.pool) return productId;
     const id = `prod_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
     try {
       const res = await this.pool.query(
         `INSERT INTO payment_products (id, provider, environment, account_id, pricing_version, currency, amount_paise, amount_minor, product_id, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-         ON CONFLICT (provider, currency, amount_paise)
+         ON CONFLICT (provider, environment, account_id, currency, amount_minor, pricing_version)
          DO UPDATE SET
            product_id = EXCLUDED.product_id,
-           environment = EXCLUDED.environment,
-           account_id = EXCLUDED.account_id,
-           pricing_version = EXCLUDED.pricing_version,
-           amount_minor = EXCLUDED.amount_minor
+           created_at = NOW()
          RETURNING product_id`,
         [id, provider, environment, accountId, pricingVersion, currency, amountMinor, amountMinor, productId]
       );
       return res.rows[0]?.product_id || productId;
     } catch {
-      // Fallback in case table has not yet run migration 010 in certain tests
       const resFallback = await this.pool.query(
-        `INSERT INTO payment_products (id, provider, currency, amount_paise, product_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
-         ON CONFLICT (provider, currency, amount_paise)
-         DO UPDATE SET product_id = payment_products.product_id
+        `INSERT INTO payment_products (id, provider, environment, account_id, pricing_version, currency, amount_paise, amount_minor, product_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ON CONFLICT DO NOTHING
          RETURNING product_id`,
-        [id, provider, currency, amountMinor, productId]
+        [id, provider, environment, accountId, pricingVersion, currency, amountMinor, amountMinor, productId]
       );
       return resFallback.rows[0]?.product_id || productId;
     }
+  }
+
+  /**
+   * Create durable payment quote snapshot
+   */
+  public async createPaymentQuote(params: any): Promise<PaymentQuote> {
+    if (!this.pool) throw new Error('Database pool unavailable');
+    const id = `pq_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    const expiresAt = params.expiresAt
+      ? (typeof params.expiresAt === 'string' ? params.expiresAt : (params.expiresAt as Date).toISOString())
+      : new Date(Date.now() + (params.ttlSeconds || 300) * 1000).toISOString();
+
+    const res = await this.pool.query(
+      `INSERT INTO payment_quotes (
+         id, quote_id, provider, environment, account_id, currency,
+         amount_minor, rank_credit_paise, tax_mode, pricing_version,
+         purpose, profile_id, claimant_name, auth_hash, expires_at,
+         quote_snapshot, created_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW())
+       RETURNING *`,
+      [
+        id,
+        params.quoteId,
+        params.provider || 'dodo',
+        params.environment || 'sandbox',
+        params.accountId || 'primary',
+        params.currency || 'INR',
+        params.amountMinor,
+        params.rankCreditPaise || params.amountMinor,
+        params.taxMode || 'tax_inclusive',
+        params.pricingVersion || 'v1',
+        params.purpose || 'new',
+        params.profileId || null,
+        params.claimantName || null,
+        params.authHash,
+        expiresAt,
+        JSON.stringify(params.quoteSnapshot || {})
+      ]
+    );
+    const r = res.rows[0];
+    return {
+      id: r.id,
+      quoteId: r.quote_id,
+      provider: r.provider,
+      environment: r.environment,
+      accountId: r.account_id,
+      currency: r.currency,
+      amountMinor: Number(r.amount_minor),
+      rankCreditPaise: Number(r.rank_credit_paise),
+      taxMode: r.tax_mode,
+      pricingVersion: r.pricing_version,
+      purpose: r.purpose,
+      profileId: r.profile_id || undefined,
+      claimantName: r.claimant_name || undefined,
+      authHash: r.auth_hash,
+      consumedAt: r.consumed_at ? r.consumed_at.toISOString() : undefined,
+      consumedByOrderId: r.consumed_by_order_id || undefined,
+      expiresAt: r.expires_at.toISOString(),
+      quoteSnapshot: r.quote_snapshot,
+      createdAt: r.created_at.toISOString()
+    };
+  }
+
+  public async createPaymentQuoteAsync(params: any): Promise<PaymentQuote> {
+    return this.createPaymentQuote(params);
+  }
+
+  /**
+   * Get payment quote by quoteId
+   */
+  public async getPaymentQuote(quoteId: string): Promise<PaymentQuote | null> {
+    if (!this.pool) return null;
+    const res = await this.pool.query(
+      'SELECT * FROM payment_quotes WHERE quote_id = $1 LIMIT 1',
+      [quoteId]
+    );
+    if (res.rows.length === 0) return null;
+    const r = res.rows[0];
+    return {
+      id: r.id,
+      quoteId: r.quote_id,
+      provider: r.provider,
+      environment: r.environment,
+      accountId: r.account_id,
+      currency: r.currency,
+      amountMinor: Number(r.amount_minor),
+      rankCreditPaise: Number(r.rank_credit_paise),
+      taxMode: r.tax_mode,
+      pricingVersion: r.pricing_version,
+      purpose: r.purpose,
+      profileId: r.profile_id || undefined,
+      claimantName: r.claimant_name || undefined,
+      authHash: r.auth_hash,
+      consumedAt: r.consumed_at ? r.consumed_at.toISOString() : undefined,
+      consumedByOrderId: r.consumed_by_order_id || undefined,
+      expiresAt: r.expires_at.toISOString(),
+      quoteSnapshot: r.quote_snapshot,
+      createdAt: r.created_at.toISOString()
+    };
+  }
+
+  /**
+   * Atomically verify and consume a payment quote upon order creation
+   */
+  public async consumePaymentQuoteAtomic(
+    quoteId: string,
+    orderId: string,
+    authHashOrOptions?: string | { authHash?: string; currency?: string; amountMinor?: number },
+    currencyParam?: string,
+    amountMinorParam?: number
+  ): Promise<{ success: boolean; error?: string; quote?: PaymentQuote }> {
+    if (!this.pool) throw new Error('Database pool unavailable');
+
+    let authHash: string | undefined;
+    let currency: string | undefined;
+    let amountMinor: number | undefined;
+
+    if (typeof authHashOrOptions === 'object' && authHashOrOptions !== null) {
+      authHash = authHashOrOptions.authHash;
+      currency = authHashOrOptions.currency;
+      amountMinor = authHashOrOptions.amountMinor;
+    } else {
+      authHash = authHashOrOptions as string | undefined;
+      currency = currencyParam;
+      amountMinor = amountMinorParam;
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const res = await client.query(
+        'SELECT * FROM payment_quotes WHERE quote_id = $1 FOR UPDATE',
+        [quoteId]
+      );
+      if (res.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { success: false, error: 'QUOTE_NOT_FOUND' };
+      }
+      const q = res.rows[0];
+      if (q.consumed_at) {
+        await client.query('ROLLBACK');
+        return { success: false, error: 'QUOTE_ALREADY_CONSUMED' };
+      }
+      if (new Date(q.expires_at) <= new Date()) {
+        await client.query('ROLLBACK');
+        return { success: false, error: 'QUOTE_EXPIRED' };
+      }
+      if (currency && q.currency !== currency) {
+        await client.query('ROLLBACK');
+        return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+      }
+      if (amountMinor !== undefined && Number(q.amount_minor) !== amountMinor) {
+        await client.query('ROLLBACK');
+        return { success: false, error: 'QUOTE_PARAM_MISMATCH' };
+      }
+      if (q.auth_hash && authHash && q.auth_hash !== authHash) {
+        await client.query('ROLLBACK');
+        return { success: false, error: 'QUOTE_AUTH_MISMATCH' };
+      }
+
+      await client.query(
+        'UPDATE payment_quotes SET consumed_at = NOW(), consumed_by_order_id = $1 WHERE quote_id = $2',
+        [orderId, quoteId]
+      );
+      await client.query('COMMIT');
+      return {
+        success: true,
+        quote: {
+          id: q.id,
+          quoteId: q.quote_id,
+          provider: q.provider,
+          environment: q.environment,
+          accountId: q.account_id,
+          currency: q.currency,
+          amountMinor: Number(q.amount_minor),
+          rankCreditPaise: Number(q.rank_credit_paise),
+          taxMode: q.tax_mode,
+          pricingVersion: q.pricing_version,
+          purpose: q.purpose,
+          profileId: q.profile_id || undefined,
+          claimantName: q.claimant_name || undefined,
+          authHash: q.auth_hash,
+          consumedAt: new Date().toISOString(),
+          consumedByOrderId: orderId,
+          expiresAt: q.expires_at.toISOString(),
+          quoteSnapshot: q.quote_snapshot,
+          createdAt: q.created_at.toISOString()
+        }
+      };
+    } catch (e: any) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async consumePaymentQuoteAtomicAsync(
+    quoteId: string,
+    orderId: string,
+    authHashOrOptions?: string | { authHash?: string; currency?: string; amountMinor?: number },
+    currencyParam?: string,
+    amountMinorParam?: number
+  ): Promise<{ success: boolean; error?: string; quote?: PaymentQuote }> {
+    return this.consumePaymentQuoteAtomic(quoteId, orderId, authHashOrOptions, currencyParam, amountMinorParam);
   }
 
 
@@ -1267,24 +1589,78 @@ export class PostgresDatabase {
    * Deduplicate and record a payment webhook event
    */
   public async recordWebhookEvent(
-    eventId: string,
-    eventType: string,
-    orderId?: string | null,
-    providerPaymentId?: string | null,
-    payload?: unknown
+    paramsOrEventId: string | {
+      eventId: string;
+      eventType?: string;
+      orderId?: string | null;
+      providerPaymentId?: string | null;
+      payload?: unknown;
+      status?: string;
+      provider?: string;
+      signatureVerified?: boolean;
+    },
+    eventTypeParam?: string,
+    orderIdParam?: string | null,
+    providerPaymentIdParam?: string | null,
+    payloadParam?: unknown,
+    statusParam: string = 'PROCESSED'
   ): Promise<boolean> {
     if (!this.pool) throw new Error('Webhook inbox unavailable');
-    if (!eventId || eventId.length > 128) throw new Error('Invalid webhook event ID');
+
+    let eventId: string;
+    let eventType: string;
+    let orderId: string | null | undefined;
+    let providerPaymentId: string | null | undefined;
+    let payload: unknown;
+    let status: string;
+
+    if (typeof paramsOrEventId === 'object' && paramsOrEventId !== null) {
+      eventId = paramsOrEventId.eventId;
+      eventType = paramsOrEventId.eventType || 'payment.succeeded';
+      orderId = paramsOrEventId.orderId;
+      providerPaymentId = paramsOrEventId.providerPaymentId;
+      payload = paramsOrEventId.payload;
+      status = paramsOrEventId.status || 'PROCESSED';
+    } else {
+      eventId = paramsOrEventId as string;
+      eventType = eventTypeParam || 'payment.succeeded';
+      orderId = orderIdParam;
+      providerPaymentId = providerPaymentIdParam;
+      payload = payloadParam;
+      status = statusParam || 'PROCESSED';
+    }
+
+    if (!eventId || typeof eventId !== 'string') throw new Error('Invalid webhook event ID');
+    let safeEventId = eventId;
+    if (safeEventId.length > 255) {
+      const hash = crypto.createHash('sha256').update(eventId).digest('hex');
+      safeEventId = safeEventId.slice(0, 180) + '_' + hash.slice(0, 32);
+    }
+
+    // Check if event already exists to reject duplicate processing cleanly
+    const existing = await this.pool.query('SELECT status FROM payment_webhook_events WHERE event_id = $1', [safeEventId]);
+    if (existing.rows.length > 0) {
+      return false; // Already recorded
+    }
+
     const id = `wh_${crypto.randomUUID()}`;
     const result = await this.pool.query(
       `INSERT INTO payment_webhook_events
-         (id, event_id, event_type, order_id, provider_payment_id, payload, processed_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())
-       ON CONFLICT (event_id) DO NOTHING RETURNING id`,
-      [id, eventId, eventType, orderId ?? null, providerPaymentId ?? null,
-       JSON.stringify(payload ?? {})]
+         (id, event_id, event_type, order_id, provider_payment_id, status, payload, processed_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, NOW())
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING id`,
+      [
+        id,
+        safeEventId,
+        eventType.slice(0, 64),
+        orderId ? orderId.slice(0, 64) : null,
+        providerPaymentId ? providerPaymentId.slice(0, 100) : null,
+        status.slice(0, 32),
+        JSON.stringify(payload ?? {})
+      ]
     );
-    return result.rowCount === 1;
+    return (result.rowCount ?? 0) === 1;
   }
 
   /**

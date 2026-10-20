@@ -4,13 +4,49 @@ import confetti from 'canvas-confetti';
 import { UserProfile } from '../types.ts';
 import { LEGAL_CONFIG } from '../config/legal.ts';
 import { saveOwnerToken, getSavedOwnerToken, getOrderCheckout } from '../utils/checkoutContract.ts';
-import { loadCashfreeSdk } from '../utils/cashfreeSdk.ts';
+
+function isValidCheckoutUrl(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    const allowedHosts = [
+      'test.dodopayments.com',
+      'checkout.dodopayments.com',
+      'api.dodopayments.com',
+      'localhost',
+      '127.0.0.1'
+    ];
+    return allowedHosts.includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+let razorpayScriptPromise: Promise<void> | null = null;
+function loadRazorpayScript(): Promise<void> {
+  if (razorpayScriptPromise) return razorpayScriptPromise;
+  razorpayScriptPromise = new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') return resolve();
+    if ((window as any).Razorpay) return resolve();
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => {
+      razorpayScriptPromise = null;
+      reject(new Error('Failed to load Razorpay checkout script.'));
+    };
+    document.body.appendChild(script);
+  });
+  return razorpayScriptPromise;
+}
 
 interface PaymentModalProps {
   orderData: {
     orderId: string;
     paymentSessionId?: string;
     checkoutUrl?: string;
+    providerOrderId?: string;
     name: string;
     amount: number;
     currency: string;
@@ -18,6 +54,8 @@ interface PaymentModalProps {
     topAmount: number;
     minAmountToBeatTop: number;
     profileId?: string;
+    customerPhone?: string;
+    customerEmail?: string;
     instagram?: string;
     linkedin?: string;
     website?: string;
@@ -47,11 +85,12 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [_receiptData, setReceiptData] = useState<any | null>(null);
   const [persistedToken, setPersistedToken] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
-  const pollIntervalRef = useRef<any>(null);
+  const pollAbortControllerRef = useRef<AbortController | null>(null);
+  const pollTimeoutRef = useRef<any>(null);
 
   useEffect(() => {
     if (isOpen && orderData) {
-      const hasCheckoutSession = Boolean(orderData.paymentSessionId || orderData.checkoutUrl);
+      const hasCheckoutSession = Boolean(orderData.paymentSessionId || orderData.checkoutUrl || orderData.providerOrderId);
       if (orderData.paymentMode === 'disabled' || !hasCheckoutSession) {
         setStep('disabled');
       } else {
@@ -64,7 +103,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       setStorageWarning(null);
     }
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollAbortControllerRef.current) pollAbortControllerRef.current.abort();
+      if (pollTimeoutRef.current) clearTimeout(pollTimeoutRef.current);
     };
   }, [isOpen, orderData]);
 
@@ -91,38 +131,71 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   const isSandbox = orderData.paymentMode === 'sandbox' || (import.meta as any).env?.VITE_PAYMENT_MODE === 'sandbox';
 
-  // Start polling status when user enters checkout or returns
+  // Start bounded polling status when user enters checkout or returns
   const startStatusPolling = (orderId: string) => {
     setStep('polling');
-    let attempts = 0;
-    const maxAttempts = 60; // 60 * 2.5s = 2.5 minutes
+    if (pollAbortControllerRef.current) {
+      pollAbortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    pollAbortControllerRef.current = abortController;
 
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    const startTime = Date.now();
+    const maxDurationMs = 150000; // 2.5 minutes deadline
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 10;
 
-    pollIntervalRef.current = setInterval(async () => {
-      attempts++;
+    const poll = async () => {
+      if (abortController.signal.aborted) return;
+      if (Date.now() - startTime >= maxDurationMs) {
+        setStep('error');
+        setErrorMessage('Payment confirmation is taking longer than expected. If your account was debited, your placement will be activated automatically once the provider webhook arrives.');
+        return;
+      }
+
       try {
+        const timeoutController = new AbortController();
+        const timeoutId = setTimeout(() => timeoutController.abort(), 8000);
+
         const headers: Record<string, string> = {};
         if (orderAccessToken) headers['x-order-access-token'] = orderAccessToken;
-        const res = await fetch(`/api/payment/status/${encodeURIComponent(orderId)}`, { headers });
+
+        const res = await fetch(`/api/payment/status/${encodeURIComponent(orderId)}`, {
+          headers,
+          signal: timeoutController.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (abortController.signal.aborted) return;
+
+        consecutiveErrors = 0;
         const data = await res.json();
 
         if (data.status === 'PAID' && data.profile) {
-          clearInterval(pollIntervalRef.current);
           await handleSuccess(data.profile, data.ownerToken, orderId);
+          return;
         } else if (data.status === 'FAILED' || data.status === 'CANCELLED') {
-          clearInterval(pollIntervalRef.current);
           setStep('error');
           setErrorMessage('Payment was not completed by the gateway. You may try again.');
-        } else if (attempts >= maxAttempts) {
-          clearInterval(pollIntervalRef.current);
-          setStep('error');
-          setErrorMessage('Payment confirmation is taking longer than expected. If your account was debited, your placement will be activated automatically once the provider webhook arrives.');
+          return;
         }
       } catch {
-        // network retry
+        consecutiveErrors++;
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          if (!abortController.signal.aborted) {
+            setStep('error');
+            setErrorMessage('Network error checking payment status. Please check your connection and retry.');
+          }
+          return;
+        }
       }
-    }, 2500);
+
+      if (!abortController.signal.aborted) {
+        pollTimeoutRef.current = setTimeout(poll, 2500);
+      }
+    };
+
+    poll();
   };
 
   const handleSuccess = async (profile: UserProfile, _ownerToken: string | undefined, orderId: string) => {
@@ -174,65 +247,91 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const handleLaunchCheckout = async () => {
     setErrorMessage(null);
 
-    // If Dodo checkout or hosted checkoutUrl without Cashfree session ID
-    if (orderData.provider === 'dodo' || (!orderData.paymentSessionId && orderData.checkoutUrl)) {
-      if (orderData.checkoutUrl) {
-        setStep('polling');
-        window.location.href = orderData.checkoutUrl;
-        startStatusPolling(orderData.orderId);
-      } else {
-        setStep('checkout');
-        setErrorMessage('Payment checkout URL could not load. Please retry.');
-      }
-      return;
-    }
-
-    // Cashfree Web SDK path
-    if (orderData.paymentSessionId) {
-      await loadCashfreeSdk();
-    }
-
-    // If Cashfree Web SDK is loaded and paymentSessionId is available, launch official checkout modal
-    const w = typeof window !== 'undefined' ? (window as any) : undefined;
-    if (orderData.paymentSessionId && w && typeof w.Cashfree === 'function') {
+    // Razorpay Standard Checkout path
+    if (orderData.provider === 'razorpay' && orderData.providerOrderId) {
       try {
-        const cashfree = w.Cashfree({
-          mode: orderData.paymentMode === 'sandbox' ? 'sandbox' : 'production'
-        });
-        setStep('polling');
-        cashfree.checkout({
-          paymentSessionId: orderData.paymentSessionId,
-          redirectTarget: '_modal'
-        }).then((result: any) => {
-          if (result?.error) {
-            console.warn('[Cashfree SDK] Checkout warning or dismissed:', result.error);
+        await loadRazorpayScript();
+        const w = typeof window !== 'undefined' ? (window as any) : undefined;
+        if (w && typeof w.Razorpay === 'function') {
+          // Fetch public key from config if needed
+          let rzpKey = (window as any).RAZORPAY_KEY_ID;
+          if (!rzpKey) {
+            try {
+              const cfgRes = await fetch('/api/payment/config');
+              const cfg = await cfgRes.json();
+              rzpKey = cfg.razorpayKeyId;
+            } catch {}
           }
-          startStatusPolling(orderData.orderId);
-        }).catch((err: any) => {
-          console.warn('[Cashfree SDK] Modal checkout invocation error, falling back:', err);
-          if (orderData.checkoutUrl) {
-            window.location.href = orderData.checkoutUrl;
-            startStatusPolling(orderData.orderId);
-          } else {
-            setStep('checkout');
-            setErrorMessage('Payment checkout could not load. Please retry.');
-          }
-        });
-        return;
-      } catch (err) {
-        console.warn('[Cashfree SDK] Initialization error, falling back:', err);
+
+          const options = {
+            key: rzpKey || 'rzp_test_placeholder',
+            amount: orderData.amount * 100,
+            currency: 'INR',
+            name: 'LazyProof',
+            description: 'Digital sponsored profile placement',
+            order_id: orderData.providerOrderId,
+            handler: async function (response: any) {
+              setStep('polling');
+              try {
+                const completeRes = await fetch('/api/payment/razorpay/complete', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    ...(orderAccessToken ? { 'x-order-access-token': orderAccessToken } : {})
+                  },
+                  body: JSON.stringify({
+                    orderId: orderData.orderId,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_signature: response.razorpay_signature,
+                    orderAccessToken
+                  })
+                });
+                const completeData = await completeRes.json();
+                if (completeRes.ok && completeData.profile) {
+                  await handleSuccess(completeData.profile, undefined, orderData.orderId);
+                } else {
+                  startStatusPolling(orderData.orderId);
+                }
+              } catch {
+                startStatusPolling(orderData.orderId);
+              }
+            },
+            prefill: {
+              name: orderData.name,
+              contact: orderData.customerPhone
+            },
+            modal: {
+              ondismiss: function () {
+                startStatusPolling(orderData.orderId);
+              }
+            }
+          };
+
+          const rzp = new w.Razorpay(options);
+          rzp.open();
+          return;
+        }
+      } catch (err: any) {
+        console.warn('[Razorpay SDK] Initialization error:', err);
       }
     }
 
+    // Hosted URL checkout path (Dodo payments)
     if (orderData.checkoutUrl) {
+      if (!isValidCheckoutUrl(orderData.checkoutUrl)) {
+        setStep('checkout');
+        setErrorMessage('Security verification failed: invalid checkout redirect host.');
+        return;
+      }
       setStep('polling');
       window.location.href = orderData.checkoutUrl;
       startStatusPolling(orderData.orderId);
-    } else {
-      // Do NOT start fake polling if checkout failed to launch
-      setStep('checkout');
-      setErrorMessage('Payment checkout could not load. Please retry.');
+      return;
     }
+
+    setStep('checkout');
+    setErrorMessage('Payment checkout could not load. Please retry.');
   };
 
   const handleSandboxSimulate = async () => {
@@ -349,7 +448,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <div className="flex items-center justify-between text-zinc-600">
                   <span className="font-semibold">Intended Payment Provider / Gateway Under Review:</span>
                   <span className="font-bold text-amber-700">
-                    {orderData?.provider === 'dodo' ? 'Dodo Payments' : 'Cashfree Payments India Pvt Ltd'}
+                    {orderData?.provider === 'razorpay' ? 'Razorpay' : 'Dodo Payments'}
                   </span>
                 </div>
               </div>
@@ -361,7 +460,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <span>Payment Gateway Onboarding in Progress</span>
                 </div>
                 <p className="text-xs text-amber-800 leading-relaxed">
-                  LazyProof is currently completing commercial merchant onboarding and verification with {orderData?.provider === 'dodo' ? 'Dodo Payments' : 'Cashfree Payments'}.
+                  LazyProof is currently completing commercial merchant onboarding and verification with {orderData?.provider === 'razorpay' ? 'Razorpay' : 'Dodo Payments'}.
                 </p>
                 <p className="text-[11px] text-amber-700 leading-relaxed">
                   Live payment collection can be enabled after merchant approval, valid live credentials, tax readiness and controlled production validation. No charges have been debited, and no fake QR codes or simulated transactions are permitted on this production domain.
@@ -422,7 +521,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 <div className="flex items-center justify-between text-zinc-600">
                   <span>Payment Gateway:</span>
                   <span className="font-bold text-emerald-700">
-                    {orderData.provider === 'dodo' ? 'Dodo Payments (Secured)' : 'Cashfree PG (Secured)'}
+                    {orderData.provider === 'razorpay' ? 'Razorpay (Secured)' : 'Dodo Payments (Secured)'}
                   </span>
                 </div>
               </div>
@@ -449,7 +548,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   onClick={handleLaunchCheckout}
                   className="w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl bg-[#e86638] hover:bg-[#d8582b] text-white font-black text-sm shadow-xs transition-all cursor-pointer"
                 >
-                  <span>{orderData.provider === 'dodo' ? 'PROCEED TO DODO PAYMENTS CHECKOUT' : 'PROCEED TO CASHFREE CHECKOUT'}</span>
+                  <span>{orderData.provider === 'razorpay' ? 'PROCEED TO RAZORPAY CHECKOUT' : 'PROCEED TO DODO PAYMENTS CHECKOUT'}</span>
                   <ExternalLink className="w-4 h-4 text-white" />
                 </button>
 
@@ -473,7 +572,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   Awaiting Payment Confirmation
                 </h4>
                 <p className="text-xs text-zinc-500 max-w-sm mx-auto">
-                  Verifying transaction settlement with Cashfree Payments. Your profile rank will update automatically once verified.
+                  Verifying transaction settlement with payment gateway. Your profile rank will update automatically once verified.
                 </p>
               </div>
               <div className="p-3 rounded-xl bg-zinc-50 border border-zinc-200 text-xs text-zinc-600 max-w-xs mx-auto">

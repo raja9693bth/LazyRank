@@ -50,7 +50,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
           </div>
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">D. Transaction & Order Metadata</strong>
-            When you make a payment, we record your internal order ID, gateway payment ID (e.g. Cashfree payment reference), payment timestamp, amount paid in INR, currency, and payment status (e.g. PENDING, PAID, REFUNDED).
+            When you make a payment, we record your internal order ID, gateway payment ID (e.g. gateway transaction reference), payment timestamp, amount paid in INR, currency, and payment status (e.g. PENDING, PAID, REFUNDED).
           </div>
           <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200">
             <strong className="text-zinc-950 block mb-0.5">E. Technical, Security & Analytics Logs</strong>
@@ -96,7 +96,7 @@ export const PrivacyPage: React.FC<PrivacyPageProps> = ({ onNavigate }) => {
             <span>Strict Zero-Payment-Credential Storage</span>
           </div>
           <p className="leading-relaxed">
-            {LEGAL_CONFIG.BRAND_NAME} <strong>NEVER</strong> collects, handles, or stores your credit/debit card numbers, CVVs, expiration dates, UPI PINs, net-banking passwords, or bank account credentials. All payment processing occurs entirely within PCI-DSS compliant payment gateways (such as Cashfree). We only receive cryptographic status tokens and transaction references.
+            {LEGAL_CONFIG.BRAND_NAME} <strong>NEVER</strong> collects, handles, or stores your credit/debit card numbers, CVVs, expiration dates, UPI PINs, net-banking passwords, or bank account credentials. All payment processing occurs entirely within PCI-DSS compliant payment gateways (such as Dodo Payments or Razorpay). We only receive cryptographic status tokens and transaction references.
           </p>
         </div>
       </section>

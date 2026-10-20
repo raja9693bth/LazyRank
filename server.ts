@@ -302,14 +302,14 @@ async function startServer() {
     const isProd = process.env.NODE_ENV === 'production';
     const cspDirectives = [
       "default-src 'self'",
-      isProd ? "script-src 'self' https://sdk.cashfree.com" : "script-src 'self' 'unsafe-inline' https://sdk.cashfree.com",
+      isProd ? "script-src 'self' https://checkout.razorpay.com" : "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https: blob:",
       isProd
-        ? "connect-src 'self' https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com"
-        : "connect-src 'self' ws: wss: https: https://sandbox.cashfree.com https://api.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com",
-      "frame-src 'self' https://sdk.cashfree.com https://api.cashfree.com https://sandbox.cashfree.com https://payments.cashfree.com https://payments-test.cashfree.com https://checkout.dodopayments.com https://test.dodopayments.com",
+        ? "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com"
+        : "connect-src 'self' ws: wss: https: https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com",
+      "frame-src 'self' https://api.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com",
       "frame-ancestors 'self'",
       "object-src 'none'",
       "base-uri 'self'"
@@ -512,7 +512,8 @@ async function startServer() {
     const taxReady = isTaxReady();
     const taxDisclosure = getTaxDisclosure();
     const publicConfig = paymentManager.getPublicConfig();
-    const isCheckoutReady = paymentManager.isEnabled() && taxReady;
+    const providerName = paymentManager.getProvider().name;
+    const isCheckoutReady = paymentManager.mayCreateNewOrder(providerName, 'INR') && taxReady;
     const usdEnabled = publicConfig.capabilities.USD.enabled;
 
     res.json({
@@ -521,7 +522,7 @@ async function startServer() {
       checkoutEnabled: isCheckoutReady,
       taxReady,
       taxDisclosure,
-      provider: paymentManager.getProvider().name,
+      provider: providerName,
       enabledProviders: paymentManager.enabledProviders,
       isSandbox: paymentManager.getMode() === 'sandbox',
       legalBusinessName: SERVER_LEGAL_CONFIG.LEGAL_BUSINESS_NAME,
@@ -569,6 +570,13 @@ async function startServer() {
     }
 
     const { amount, currency = 'INR', profileId } = req.body;
+    if (currency !== undefined && currency !== 'INR' && currency !== 'USD') {
+      return res.status(400).json({
+        error: 'Unsupported currency. Only INR and USD are supported.',
+        code: 'CURRENCY_NOT_SUPPORTED',
+        currency
+      });
+    }
     const selectedCurrency = (typeof currency === 'string' && currency.toUpperCase() === 'USD') ? 'USD' : 'INR';
 
     if (selectedCurrency === 'USD' && !paymentManager.isUsdEnabled()) {
@@ -607,9 +615,39 @@ async function startServer() {
       };
     }
 
+    const providerObj = paymentManager.getProviderForIntent(selectedCurrency);
     const quoteId = `qte_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
     const now = Date.now();
     const expiresAt = new Date(now + 5 * 60 * 1000).toISOString();
+
+    const snapshot = {
+      quoteId,
+      currency: selectedCurrency,
+      chargeAmountMinor: validation.amountMinor,
+      rankCreditPaise,
+      pricingVersion: CURRENT_PRICING_VERSION,
+      provider: providerObj.name,
+      environment: paymentManager.getMode(),
+      expiresAt,
+      conversionDetails
+    };
+
+    if (db.createPaymentQuoteAsync) {
+      await db.createPaymentQuoteAsync({
+        quoteId,
+        currency: selectedCurrency,
+        chargeAmountMinor: validation.amountMinor,
+        canonicalRankCreditPaise: rankCreditPaise,
+        pricingVersion: CURRENT_PRICING_VERSION,
+        provider: providerObj.name,
+        environment: paymentManager.getMode(),
+        purpose: profileId ? 'upgrade' : 'new',
+        profileId: profileId || undefined,
+        conversionDetails,
+        snapshot,
+        expiresAt
+      });
+    }
 
     serverQuotes.set(quoteId, {
       quoteId,
@@ -645,8 +683,26 @@ async function startServer() {
       return res.status(429).json({ error: 'Too many requests. Please slow down.' });
     }
 
-    // STRICT PAYMENT DISABLEMENT: When disabled or unconfigured or tax not ready
-    if (!paymentManager.isEnabled()) {
+    const {
+      name, amount, currency: reqCurrency, instagram, linkedin, website, twitter, reason, lazyReason,
+      profileId, customerEmail, customerPhone, consentAccepted,
+      consentVersion: reqConsentVersion, quoteId: reqQuoteId,
+      ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
+    } = req.body;
+
+    if (reqCurrency !== undefined && reqCurrency !== 'INR' && reqCurrency !== 'USD') {
+      return res.status(400).json({
+        error: 'Unsupported currency. Only INR and USD are supported.',
+        code: 'CURRENCY_NOT_SUPPORTED',
+        currency: reqCurrency
+      });
+    }
+
+    const requestedCurrency = (typeof reqCurrency === 'string' && reqCurrency.toUpperCase() === 'USD') ? 'USD' : 'INR';
+    const intentProvider = paymentManager.getProviderForIntent(requestedCurrency);
+
+    // STRICT PAYMENT GATING: capability check on target provider and currency
+    if (!paymentManager.mayCreateNewOrder(intentProvider.name, requestedCurrency)) {
       return res.status(503).json({
         error: 'Payments are currently unavailable until payment processing is enabled.',
         paymentMode: paymentManager.getMode()
@@ -660,17 +716,9 @@ async function startServer() {
       });
     }
 
-    const {
-      name, amount, currency: reqCurrency, instagram, linkedin, website, twitter, reason, lazyReason,
-      profileId, customerEmail, customerPhone, consentAccepted,
-      consentVersion: reqConsentVersion, quoteId: reqQuoteId,
-      ownerToken: bodyOwnerToken, pendingOwnerToken, orderAccessToken
-    } = req.body;
-
     const providedToken = (req.headers['x-profile-token'] as string) || bodyOwnerToken || pendingOwnerToken;
     const clientOrderAccessToken = (req.headers['x-order-access-token'] as string) || orderAccessToken;
 
-    const requestedCurrency = (typeof reqCurrency === 'string' && reqCurrency.toUpperCase() === 'USD') ? 'USD' : 'INR';
     if (requestedCurrency === 'USD' && !paymentManager.isUsdEnabled()) {
       return res.status(400).json({
         error: 'USD checkout is currently disabled pending live international merchant approval and live FX quote verification.',
@@ -694,6 +742,39 @@ async function startServer() {
     const chargeAmountMinor = validation.amountMinor;
     let canonicalRankCreditPaise = chargeAmountMinor; // For INR, paise = paise
     const fxQuoteId = reqQuoteId ? String(reqQuoteId).trim() : undefined;
+
+    // Validate quote if provided
+    if (reqQuoteId) {
+      const storedQuote = db.getPaymentQuoteAsync
+        ? await db.getPaymentQuoteAsync(String(reqQuoteId).trim())
+        : serverQuotes.get(String(reqQuoteId).trim());
+
+      if (!storedQuote) {
+        return res.status(400).json({
+          error: 'Quote not found or invalid.',
+          code: 'INVALID_QUOTE'
+        });
+      }
+      if (new Date(storedQuote.expiresAt).getTime() < Date.now()) {
+        return res.status(400).json({
+          error: 'Quote has expired. Please obtain a fresh quote.',
+          code: 'QUOTE_EXPIRED'
+        });
+      }
+      if ((storedQuote as any).consumedAt) {
+        return res.status(409).json({
+          error: 'Quote has already been used.',
+          code: 'QUOTE_ALREADY_CONSUMED'
+        });
+      }
+      if (storedQuote.currency !== chargeCurrency ||
+          Number(storedQuote.chargeAmountMinor || (storedQuote as any).amountMinor) !== chargeAmountMinor) {
+        return res.status(400).json({
+          error: 'Order parameters do not match quoted amount or currency.',
+          code: 'QUOTE_MISMATCH'
+        });
+      }
+    }
 
     if (chargeCurrency === 'USD') {
       const ratePaisePerCent = Number.parseInt(process.env.FX_USD_INR_RATE_PAISE_PER_CENT || '90', 10);
@@ -816,8 +897,7 @@ async function startServer() {
       (req.body?.idempotencyKey as string | undefined)?.trim();
     const idempotencyKey = clientProvidedIdempotency || `idem_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
-    // Select provider based on intent currency (Sticky for this attempt)
-    const intentProvider = paymentManager.getProviderForIntent(chargeCurrency);
+    // Intent provider resolved and gated above
 
     // If order with this idempotencyKey already exists, verify consistency and return directly
     const existingOrder = await db.getOrderByIdempotencyKey(idempotencyKey);
@@ -965,6 +1045,9 @@ async function startServer() {
         consentTimestamp: new Date().toISOString(),
         consentVersion: consentVersion || CURRENT_CONSENT_VERSION
       });
+      if (reqQuoteId && db.consumePaymentQuoteAtomicAsync) {
+        await db.consumePaymentQuoteAtomicAsync(String(reqQuoteId).trim(), orderId);
+      }
     } catch (createErr: any) {
       if (createErr?.code === '23505' || createErr?.message?.includes('duplicate key') || createErr?.message?.includes('idempotency')) {
         const concurrentOrder = await db.getOrderByIdempotencyKey(idempotencyKey);
@@ -1144,15 +1227,14 @@ async function startServer() {
       return res.status(429).json({ error: 'Too many verification attempts. Please slow down.' });
     }
 
-    // STRICT PAYMENT DISABLEMENT
-    if (!paymentManager.isEnabled()) {
+    const { paymentReference, orderId, instagram, linkedin, website, reason, profileId } = req.body;
+
+    if (paymentManager.getMode() === 'disabled') {
       return res.status(503).json({
         error: 'Payments are currently unavailable until payment processing is enabled.',
         paymentMode: 'disabled'
       });
     }
-
-    const { paymentReference, orderId, instagram, linkedin, website, reason, profileId } = req.body;
 
     if (!orderId || typeof orderId !== 'string') {
       return res.status(400).json({ error: 'Order ID is required for payment verification.' });
@@ -1161,6 +1243,14 @@ async function startServer() {
     const order = db.getOrder(orderId);
     if (!order) {
       return res.status(400).json({ error: 'Invalid or expired payment order ID.' });
+    }
+
+    // STRICT PAYMENT CAPABILITY CHECK ON EXISTING ORDER
+    if (!paymentManager.mayVerifyExistingOrder(order)) {
+      return res.status(503).json({
+        error: 'Payments are currently unavailable until payment processing is enabled.',
+        paymentMode: 'disabled'
+      });
     }
 
     // If order was already completed by the provider webhook
@@ -1221,6 +1311,113 @@ async function startServer() {
     });
   });
 
+  // Razorpay Client Standard Checkout completion verification endpoint
+  app.post('/api/payment/razorpay/complete', asyncHandler(async (req: Request, res: Response) => {
+    const clientIp = getClientIp(req);
+    if (!checkRateLimit(clientIp, 20, 60000)) {
+      return res.status(429).json({ error: 'Too many completion requests. Please slow down.' });
+    }
+
+    const { orderId, razorpay_payment_id, razorpay_order_id, razorpay_signature } = req.body;
+    if (!orderId || !razorpay_payment_id || !razorpay_order_id || !razorpay_signature) {
+      return res.status(400).json({ error: 'Missing required Razorpay completion parameters.' });
+    }
+
+    const order = await db.getOrderAsync(orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.' });
+    }
+
+    // Authorization check
+    const clientAccessToken = (req.headers['x-order-access-token'] as string) || req.body.orderAccessToken;
+    if (!clientAccessToken || !order.orderAccessTokenHash || !constantTimeMatch(order.orderAccessTokenHash, hashToken(clientAccessToken))) {
+      return res.status(403).json({ error: 'Unauthorized: Valid order access token is required.' });
+    }
+
+    if (order.status === 'completed' || order.status === 'PAID') {
+      const existingProfile = order.profileId ? (db.isPostgresAuthoritative() ? await db.pg.getProfile(order.profileId) : db.getProfile(order.profileId)) : undefined;
+      return res.json({
+        success: true,
+        message: 'Order already completed.',
+        profile: existingProfile ? db.sanitizeProfile(existingProfile) : undefined
+      });
+    }
+
+    const rzpProvider = paymentManager.getProviderFor('razorpay') as any;
+    // Verify client signature using server-stored providerOrderId (reject substitution)
+    if (order.providerOrderId && order.providerOrderId !== razorpay_order_id) {
+      return res.status(400).json({ error: 'Razorpay order ID mismatch.' });
+    }
+
+    const isSigValid = rzpProvider.verifyCheckoutSignature({
+      razorpayOrderId: order.providerOrderId || razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+      razorpaySignature: razorpay_signature
+    });
+
+    if (!isSigValid) {
+      return res.status(400).json({ error: 'Invalid Razorpay payment signature.' });
+    }
+
+    // Server-to-server payment check
+    const statusResult = await rzpProvider.getPaymentStatus(razorpay_payment_id);
+    if (statusResult.status !== 'PAID') {
+      return res.status(400).json({ error: 'Payment is not in captured PAID status.' });
+    }
+    if (statusResult.currency !== 'INR') {
+      return res.status(400).json({ error: 'Currency mismatch against INR.' });
+    }
+    const expectedPaise = order.chargeAmountMinor || toSafePaise(order.amount);
+    const paidPaise = toSafePaise(statusResult.amount);
+    if (expectedPaise === null || paidPaise === null || expectedPaise !== paidPaise) {
+      return res.status(400).json({ error: 'Amount mismatch between Razorpay payment and order.' });
+    }
+
+    // Atomic settlement
+    if (db.isPostgresAuthoritative()) {
+      const settlement = await db.pg.settlePaymentAtomic({
+        orderId,
+        providerPaymentId: razorpay_payment_id.trim(),
+        provider: 'razorpay',
+        amount: paidPaise / 100,
+        currency: 'INR',
+        status: 'PAID',
+        paymentMethod: statusResult.paymentMethod || 'Razorpay',
+        signatureVerified: true
+      });
+      if (!settlement.success || !settlement.profile) {
+        return res.status(503).json({ error: settlement.message || 'Settlement failed.' });
+      }
+      return res.json({
+        success: true,
+        message: 'Payment verified and claimed.',
+        profile: db.sanitizeProfile(settlement.profile)
+      });
+    } else {
+      const result = db.verifyAndClaimRank({
+        name: order.name,
+        amount: paidPaise / 100,
+        paymentRef: razorpay_payment_id.trim(),
+        orderId,
+        instagram: order.instagram,
+        linkedin: order.linkedin,
+        website: order.website,
+        reason: order.reason,
+        lazyReason: order.lazyReason,
+        profileId: order.profileId,
+        ownerToken: order.ownerToken
+      });
+      if (!result.success || !result.profile) {
+        return res.status(503).json({ error: result.message || 'Settlement failed.' });
+      }
+      return res.json({
+        success: true,
+        message: 'Payment verified and claimed.',
+        profile: db.sanitizeProfile(result.profile)
+      });
+    }
+  }));
+
   // Client polling endpoint: Authoritative status check
   app.get('/api/payment/status/:orderId', asyncHandler(async (req: Request, res: Response) => {
     const orderId = req.params.orderId;
@@ -1261,7 +1458,7 @@ async function startServer() {
     }
 
     // Allow initial settlement ONLY from CREATED/PENDING with exact INR paise checks
-    if (paymentManager.isEnabled() && (order.status === 'CREATED' || order.status === 'PENDING')) {
+    if (paymentManager.mayVerifyExistingOrder(order) && (order.status === 'CREATED' || order.status === 'PENDING')) {
       try {
         const orderProvider = paymentManager.getProviderFor(order.provider);
         const providerStatus = await orderProvider.getPaymentStatus(orderId);
@@ -1385,9 +1582,6 @@ async function startServer() {
 
   // Authoritative Provider Webhooks (Dedicated and backwards-compatible routes)
   const handleWebhook = async (req: Request, res: Response, expectedProvider?: string) => {
-    if (!paymentManager.isEnabled()) {
-      return res.status(503).json({ error: 'Payment processing is currently disabled.' });
-    }
     const clientIp = getClientIp(req);
     // Rate limit pre-signature checks: protect HMAC computation against unauthenticated floods.
     // Provider webhooks are authenticated via HMAC; valid signed webhooks rely on durable DB idempotency,
@@ -1397,29 +1591,27 @@ async function startServer() {
       return res.status(429).json({ error: 'Too many webhook requests from this origin.' });
     }
 
+    if (paymentManager.getMode() === 'disabled') {
+      return res.status(503).json({
+        error: 'Payments are currently unavailable until payment processing is enabled.',
+        paymentMode: 'disabled'
+      });
+    }
+
     const rawBodyBuf = (req as any).rawBody;
     if (!rawBodyBuf || rawBodyBuf.length === 0) {
       return res.status(400).json({ error: 'Missing raw webhook request body.' });
     }
     const rawBodyStr = rawBodyBuf.toString('utf8');
 
-    // Authoritative Webhook Signature Enforcement
-    // Missing timestamp or signature must fail closed in both sandbox and production.
-    const isRazorpayWebhook = expectedProvider === 'razorpay' || Boolean(req.headers['x-razorpay-signature']);
-    const isDodoWebhook = expectedProvider === 'dodo' || Boolean(req.headers['webhook-signature'] || req.headers['webhook-id']);
-    let webhookProvider = paymentManager.getProvider();
+    // Authoritative Webhook Signature Enforcement & Header Isolation
+    let webhookProvider: any;
     let headerWebhookId: string | undefined;
 
-    if (isRazorpayWebhook) {
-      webhookProvider = paymentManager.getProviderFor('razorpay');
-      const rzpSignature = req.headers['x-razorpay-signature'];
-      if (!rzpSignature) {
-        checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
-        return res.status(401).json({ error: 'Missing authoritative Razorpay webhook signature header.' });
+    if (expectedProvider === 'dodo') {
+      if (req.headers['x-razorpay-signature'] || req.headers['x-razorpay-event-id']) {
+        return res.status(400).json({ error: 'Conflicting provider headers: Razorpay header received on Dodo webhook route.' });
       }
-      const rzpEventId = req.headers['x-razorpay-event-id'];
-      headerWebhookId = typeof rzpEventId === 'string' ? rzpEventId : undefined;
-    } else if (isDodoWebhook) {
       webhookProvider = paymentManager.getProviderFor('dodo');
       const dodoId = req.headers['webhook-id'];
       const dodoTimestamp = req.headers['webhook-timestamp'];
@@ -1429,19 +1621,45 @@ async function startServer() {
         return res.status(401).json({ error: 'Missing authoritative Dodo webhook signature headers.' });
       }
       headerWebhookId = typeof dodoId === 'string' ? dodoId : undefined;
-    } else {
-      if ((paymentManager.getMode() === 'live' || process.env.NODE_ENV === 'production') && !req.headers['x-webhook-timestamp']) {
-        return res.status(400).json({ error: 'Generic webhook settlement is disabled in production/live mode.' });
+    } else if (expectedProvider === 'razorpay') {
+      if (req.headers['webhook-signature'] || req.headers['webhook-id']) {
+        return res.status(400).json({ error: 'Conflicting provider headers: Dodo header received on Razorpay webhook route.' });
       }
-      webhookProvider = paymentManager.getProviderFor('cashfree');
-      const webhookTimestamp = req.headers['x-webhook-timestamp'];
-      const webhookSignature = req.headers['x-webhook-signature'];
-      if (!webhookTimestamp || !webhookSignature) {
+      webhookProvider = paymentManager.getProviderFor('razorpay');
+      const rzpSignature = req.headers['x-razorpay-signature'];
+      if (!rzpSignature) {
         checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
-        return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+        return res.status(401).json({ error: 'Missing authoritative Razorpay webhook signature header.' });
       }
-      const cfId = req.headers['x-webhook-id'];
-      headerWebhookId = typeof cfId === 'string' ? cfId : undefined;
+      const rzpEventId = req.headers['x-razorpay-event-id'];
+      headerWebhookId = typeof rzpEventId === 'string' ? rzpEventId : undefined;
+    } else {
+      if (req.headers['x-razorpay-signature']) {
+        webhookProvider = paymentManager.getProviderFor('razorpay');
+        const rzpEventId = req.headers['x-razorpay-event-id'];
+        headerWebhookId = typeof rzpEventId === 'string' ? rzpEventId : undefined;
+      } else if (req.headers['webhook-signature'] || req.headers['webhook-id']) {
+        webhookProvider = paymentManager.getProviderFor('dodo');
+        const dodoId = req.headers['webhook-id'];
+        headerWebhookId = typeof dodoId === 'string' ? dodoId : undefined;
+      } else {
+        if ((paymentManager.getMode() === 'live' || process.env.NODE_ENV === 'production') && !req.headers['x-webhook-timestamp']) {
+          return res.status(400).json({ error: 'Generic webhook settlement is disabled in production/live mode.' });
+        }
+        webhookProvider = paymentManager.getProviderFor('cashfree');
+        const webhookTimestamp = req.headers['x-webhook-timestamp'];
+        const webhookSignature = req.headers['x-webhook-signature'];
+        if (!webhookTimestamp || !webhookSignature) {
+          checkRateLimit(`webhook_invalid_${clientIp}`, 30, 60000);
+          return res.status(401).json({ error: 'Missing authoritative Cashfree webhook signature headers.' });
+        }
+        const cfId = req.headers['x-webhook-id'];
+        headerWebhookId = typeof cfId === 'string' ? cfId : undefined;
+      }
+    }
+
+    if (!paymentManager.mayProcessWebhook(webhookProvider.name)) {
+      return res.status(503).json({ error: `Payment webhook processing is currently disabled for provider ${webhookProvider.name}.` });
     }
 
     const verification = await webhookProvider.verifyWebhook(rawBodyStr, req.headers as any);
@@ -1491,7 +1709,7 @@ async function startServer() {
           return res.status(409).json({ error: 'Webhook provider does not match registered order provider.' });
         }
         const refundProvider = paymentManager.getProviderFor(refundOrder?.provider || webhookProvider.name);
-        if (paymentManager.isEnabled() && refundProvider?.isConfigured()) {
+        if (paymentManager.mayReconcileExistingPayment(refundOrder || { provider: webhookProvider.name }) && refundProvider?.isConfigured()) {
           try {
             const authStatus = await refundProvider.getRefundStatus(orderId, merchantRefundId);
             const expectedCurrency = isUsdRefund ? 'USD' : 'INR';
@@ -1562,7 +1780,7 @@ async function startServer() {
 
       const orderProvider = paymentManager.getProviderFor(order.provider || webhookProvider.name);
 
-      if (paymentManager.isEnabled()) {
+      if (paymentManager.mayVerifyExistingOrder(order)) {
         const providerStatus = await orderProvider.getPaymentStatus(orderId);
         if (providerStatus.status !== 'PAID' || !providerStatus.providerPaymentId) {
           return res.status(503).json({ error: 'Gateway payment record not in PAID state.' });
@@ -1704,18 +1922,18 @@ async function startServer() {
       Boolean(dbUrl) &&
       isSafeLocalTestDatabase(dbUrl);
 
-    // A4: When provider processing is disabled/unconfigured, live refund request must return clear 503 without reserving or reversing anything
-    if (!paymentManager.isEnabled() && !isTestMode) {
+    const order = await db.getOrderAsync(orderId);
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found.', orderId, refundId: merchantRefundId });
+    }
+
+    // When provider refund capability is disabled/unconfigured, return clear 503 without reserving or reversing anything
+    if (!paymentManager.mayInitiateAuthorizedRefund(order) && !isTestMode) {
       return res.status(503).json({
         error: 'Payment gateway provider is not enabled or unconfigured. Live refund processing unavailable.',
         orderId,
         refundId: merchantRefundId
       });
-    }
-
-    const order = await db.getOrderAsync(orderId);
-    if (!order) {
-      return res.status(404).json({ error: 'Order not found.', orderId, refundId: merchantRefundId });
     }
 
     const amountINR: number = amount === undefined ? order.amount : Number(amount);
@@ -1739,7 +1957,7 @@ async function startServer() {
       });
     }
 
-    // A1: Never issue a second Cashfree createRefund call for EXISTING_PENDING or EXISTING_SUCCESS
+    // A1: Never issue a second createRefund call for EXISTING_PENDING or EXISTING_SUCCESS
     if (reservation.outcome === 'EXISTING_SUCCESS') {
       return res.json({
         success: true,
@@ -1764,7 +1982,7 @@ async function startServer() {
       });
     }
 
-    if (paymentManager.isEnabled()) {
+    if (paymentManager.mayInitiateAuthorizedRefund(order) && !isTestMode) {
       try {
         const refundProvider = paymentManager.getProviderFor(order.provider);
         const providerRes = await refundProvider.createRefund({
@@ -1774,7 +1992,18 @@ async function startServer() {
           reason: refundReason
         });
 
-        if (!providerRes.success || providerRes.status === 'FAILED') {
+        if (providerRes.status === 'UNKNOWN') {
+          return res.status(504).json({
+            success: false,
+            status: 'REFUND_PENDING',
+            orderId,
+            refundId: merchantRefundId,
+            uncertain: true,
+            message: 'Gateway response timed out or returned unknown status. Refund reservation retained for reconciliation.'
+          });
+        }
+
+        if (providerRes.status === 'FAILED') {
           // Terminal failure: release reservation
           await db.failRefundReservation(merchantRefundId, orderId);
           return res.status(400).json({
@@ -2822,7 +3051,7 @@ async function startServer() {
   let isReconciliationRunning = false;
   const reconciliationTimer = setInterval(async () => {
     if (isReconciliationRunning) return;
-    if (db.isPostgresAuthoritative() && paymentManager.isEnabled()) {
+    if (db.isPostgresAuthoritative()) {
       isReconciliationRunning = true;
       try {
         await db.pg.reconcilePendingTransactions(paymentManager);
@@ -2855,6 +3084,12 @@ async function startServer() {
         console.error('[Lifecycle] Error closing HTTP server:', err);
       }
       try {
+        // Await in-flight workers (up to 4s) to drain clean transactional state
+        const drainDeadline = Date.now() + 4000;
+        while ((isOutboxRunning || isReconciliationRunning) && Date.now() < drainDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+
         if (db.isPostgresAuthoritative()) {
           await db.pg.close();
           console.log('[Lifecycle] PostgreSQL pool closed cleanly.');

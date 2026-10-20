@@ -321,7 +321,7 @@ export default function App() {
         .catch(() => {});
     }
 
-    // Redirect restoration from Cashfree return URL: ?order_id=...
+    // Redirect restoration from hosted checkout return URL: ?order_id=...
     const returnOrderId = params.get('order_id');
     if (returnOrderId) {
       let cancelled = false;

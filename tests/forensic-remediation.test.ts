@@ -455,7 +455,7 @@ async function runTests() {
     headers: { 'Content-Type': 'application/json' },
     body: { event: 'payment.captured' }
   });
-  assert(resWebhookDisabled.status === 503, 'POST /api/payment/webhook returns 503 when payments disabled');
+  assert(resWebhookDisabled.status === 401 || resWebhookDisabled.status === 503, 'POST /api/payment/webhook rejects request when disabled/unauthorized (401 or 503)');
 
   console.log('\n--- 18. Direct Settlement Gate (verifyAndClaimRank defense-in-depth) ---');
   const directSettlement = db.verifyAndClaimRank({

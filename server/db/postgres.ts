@@ -172,7 +172,7 @@ export function validateContact(body: any): ContactInput {
 
   if (!name) throw new Error('Full name is required.');
   if (name.length > 60) throw new Error('Full name cannot exceed 60 characters.');
-  if (!email || !/^\S+@\S+\.\S+$/.test(email)) throw new Error('A valid email address is required.');
+  if (!email || !/^[^\s@]+@[^@\s.]+(\.[^@\s.]+)+$/.test(email)) throw new Error('A valid email address is required.');
   if (email.length > 120) throw new Error('Email address cannot exceed 120 characters.');
   if (subject.length > 100) throw new Error('Subject cannot exceed 100 characters.');
   if (orderId && orderId.length > 64) throw new Error('Order ID cannot exceed 64 characters.');

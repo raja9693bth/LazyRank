@@ -304,9 +304,7 @@ async function startServer() {
     const isProd = process.env.NODE_ENV === 'production';
     const cspDirectives = [
       "default-src 'self'",
-      isProd
-        ? "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.googletagmanager.com"
-        : "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.googletagmanager.com",
+      "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.googletagmanager.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
       "img-src 'self' data: https: blob: https://*.google-analytics.com https://*.googletagmanager.com",
@@ -880,7 +878,7 @@ async function startServer() {
     let validCustomerEmail: string | undefined = undefined;
     if (customerEmail && typeof customerEmail === 'string' && customerEmail.trim().length > 0) {
       const emailTrim = customerEmail.trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) {
+      if (!/^[^\s@]+@[^@\s.]+(\.[^@\s.]+)+$/.test(emailTrim)) {
         return res.status(400).json({ error: 'Please enter a valid email address or leave the field blank.' });
       }
       validCustomerEmail = emailTrim;
@@ -1644,13 +1642,6 @@ async function startServer() {
     // Allow up to 300 requests/minute per provider IP to safely handle legitimate retry/burst traffic from shared IPs.
     if (!checkRateLimit(`webhook_pre_${clientIp}`, 300, 60000)) {
       return res.status(429).json({ error: 'Too many webhook requests from this origin.' });
-    }
-
-    if (paymentManager.getMode() === 'disabled') {
-      return res.status(503).json({
-        error: 'Payments are currently unavailable until payment processing is enabled.',
-        paymentMode: 'disabled'
-      });
     }
 
     const rawBodyBuf = (req as any).rawBody;

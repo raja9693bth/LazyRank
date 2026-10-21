@@ -251,6 +251,20 @@ export class PostgresDatabase {
     this.onOutboxEnqueued = cb;
   }
 
+  private triggerOutboxDispatch(): void {
+    if (this.onOutboxEnqueued) {
+      try {
+        this.onOutboxEnqueued();
+      } catch (err) {
+        console.error('[Outbox] onOutboxEnqueued listener error:', err);
+      }
+    } else {
+      this.dispatchOperationalOutbox().catch(err => {
+        console.error('[Outbox] Background dispatch error:', err);
+      });
+    }
+  }
+
   constructor(connectionString?: string) {
     const connStr = connectionString || process.env.DATABASE_URL;
     if (connStr) {
@@ -1517,10 +1531,7 @@ export class PostgresDatabase {
       await client.query('COMMIT');
 
       // Asynchronously trigger outbox dispatcher without blocking payment return
-      this.dispatchOperationalOutbox().catch(err => {
-        console.error('[Outbox] Background dispatch error:', err);
-      });
-      this.onOutboxEnqueued?.();
+      this.triggerOutboxDispatch();
 
       return {
         success: true,
@@ -2771,10 +2782,7 @@ export class PostgresDatabase {
       ON CONFLICT (event_type, order_id) DO NOTHING`,
       [outboxId, eventType, orderId, JSON.stringify(payload)]
     );
-    this.dispatchOperationalOutbox().catch(err => {
-      console.error('[Outbox] Background dispatch error:', err);
-    });
-    this.onOutboxEnqueued?.();
+    this.triggerOutboxDispatch();
   }
 
   /**

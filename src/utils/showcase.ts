@@ -33,8 +33,7 @@ export function getWittyTag(profile: { name: string; reason?: string; lazyReason
   const str = profile.id || profile.name || 'lazy';
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
+    hash = Math.trunc((hash << 5) - hash + str.charCodeAt(i));
   }
   const index = Math.abs(hash) % WITTY_LAZY_TAGS.length;
   return WITTY_LAZY_TAGS[index];

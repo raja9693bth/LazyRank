@@ -233,7 +233,7 @@ export const ActionPanel: React.FC<ActionPanelProps> = ({
     }
 
     if (customerEmail.trim()) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      const emailRegex = /^[^\s@]+@[^@\s.]+(\.[^@\s.]+)+$/;
       if (!emailRegex.test(customerEmail.trim())) {
         setLocalError('Please enter a valid email address or leave it blank.');
         return;

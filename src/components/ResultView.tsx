@@ -597,7 +597,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   <a
                     href={igUrl}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     aria-label="Visit Instagram profile"
                     className="inline-flex items-center gap-1 text-zinc-700 hover:text-pink-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pink-500"
                   >
@@ -614,7 +614,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   <a
                     href={liUrl}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     aria-label="Visit LinkedIn profile"
                     className="inline-flex items-center gap-1 text-zinc-700 hover:text-blue-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   >
@@ -631,7 +631,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   <a
                     href={webUrl}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     aria-label="Visit website"
                     className="inline-flex items-center gap-1 text-zinc-700 hover:text-sky-600 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
                   >
@@ -648,7 +648,7 @@ export const ResultView: React.FC<ResultViewProps> = ({
                   <a
                     href={twUrl}
                     target="_blank"
-                    rel="noopener noreferrer"
+                    rel="sponsored noopener noreferrer"
                     aria-label="Visit X profile"
                     className="inline-flex items-center gap-1 text-zinc-700 hover:text-zinc-950 font-medium transition-colors py-0.5 px-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800"
                   >

@@ -72,7 +72,7 @@ async function runCompiledSmokeTests() {
     PORT: String(port1),
     PAYMENT_MODE: 'disabled',
     CHECKOUT_ENABLED: 'false',
-    DATABASE_URL: 'postgresql://postgres@127.0.0.1:5433/lazyproof_test',
+    DATABASE_URL: process.env.TEST_DATABASE_URL || process.env.DATABASE_URL || 'postgresql://postgres@127.0.0.1:5433/lazyproof_test',
   };
 
   const proc1 = spawn(process.execPath, ['dist/server.cjs'], {

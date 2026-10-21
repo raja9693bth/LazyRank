@@ -256,7 +256,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 <a
                   href={websiteLink}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="sponsored noopener noreferrer"
                   aria-label={`${profile.name}'s website`}
                   className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-700 hover:text-stone-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
                 >
@@ -273,7 +273,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 <a
                   href={linkedinLink}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="sponsored noopener noreferrer"
                   aria-label={`${profile.name}'s LinkedIn profile`}
                   className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-blue-50 text-[#0a66c2] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0a66c2]"
                 >
@@ -290,7 +290,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 <a
                   href={instagramLink}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="sponsored noopener noreferrer"
                   aria-label={`${profile.name}'s Instagram profile`}
                   className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-rose-50 text-[#e1306c] hover:opacity-80 transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#e1306c]"
                 >
@@ -307,7 +307,7 @@ export const ProfileCard: React.FC<ProfileCardProps> = ({
                 <a
                   href={twitterLink}
                   target="_blank"
-                  rel="noopener noreferrer"
+                  rel="sponsored noopener noreferrer"
                   aria-label={`${profile.name}'s X (Twitter) profile`}
                   className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-stone-100 text-stone-700 hover:text-stone-900 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-800"
                 >

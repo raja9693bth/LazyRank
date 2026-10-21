@@ -301,14 +301,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const identity = parseTargetIdentity(targetUrl);
   console.log('=== RUNNING DATABASE PREFLIGHT ===');
-  console.log('Target host:', identity.hostname, '| Database:', identity.database, '| User:', identity.username);
 
   const preflight = await runRecoveryDatabasePreflight(targetUrl);
   console.log('Preflight Summary:', {
-    database: preflight.currentDatabase,
-    user: preflight.currentUser,
     tablesCount: preflight.tablesCount,
     appliedMigrations: preflight.appliedMigrations,
     profilesCount: preflight.profilesCount,

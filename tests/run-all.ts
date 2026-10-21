@@ -24,7 +24,8 @@ const suites: SuiteDef[] = [
   { name: 'Suite 16: Phase 10 Recovery, Dual Pricing & Payment Integrity', file: 'tests/phase10-recovery-dual-pricing.test.ts' },
   { name: 'Suite 17: Phase 11 Final Directive Closure & Semantics', file: 'tests/phase11-directive-closure.test.ts' },
   { name: 'Suite 18: Phase 12 Quote Contract, Atomicity & Rank Regression', file: 'tests/phase12-quote-order-atomicity.test.ts' },
-  { name: 'Suite 19: Surgical Production Hardening & Audit', file: 'tests/surgical-hardening-audit.test.ts' }
+  { name: 'Suite 19: Surgical Production Hardening & Audit', file: 'tests/surgical-hardening-audit.test.ts' },
+  { name: 'Suite 20: Google Analytics (GA4) & CSP Integration', file: 'tests/ga4-analytics-csp.test.ts' }
 ];
 
 console.log('\n========================================================');

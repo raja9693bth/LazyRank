@@ -304,13 +304,15 @@ async function startServer() {
     const isProd = process.env.NODE_ENV === 'production';
     const cspDirectives = [
       "default-src 'self'",
-      isProd ? "script-src 'self' https://checkout.razorpay.com" : "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com",
+      isProd
+        ? "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.googletagmanager.com"
+        : "script-src 'self' 'unsafe-inline' https://checkout.razorpay.com https://www.googletagmanager.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com data:",
-      "img-src 'self' data: https: blob:",
+      "img-src 'self' data: https: blob: https://*.google-analytics.com https://*.googletagmanager.com",
       isProd
-        ? "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com"
-        : "connect-src 'self' ws: wss: https: https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com",
+        ? "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com"
+        : "connect-src 'self' ws: wss: https: https://api.razorpay.com https://lumberjack.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com https://api.dodopayments.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
       "frame-src 'self' https://api.razorpay.com https://checkout.dodopayments.com https://test.dodopayments.com",
       "frame-ancestors 'self'",
       "object-src 'none'",
